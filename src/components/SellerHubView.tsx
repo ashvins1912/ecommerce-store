@@ -1329,6 +1329,18 @@ export function SellerHubView({
     }
   };
 
+  const handleProductRuleChange = async (product: Product, patch: Partial<Pick<Product, 'onlinePaymentRequired' | 'codAllowed' | 'isReturnable' | 'returnWindowDays'>>) => {
+    try {
+      await apiFetch('/api/products/' + encodeURIComponent(product._id), {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      await loadSellerCatalog();
+    } catch (err) {
+      setCreateError((err as Error).message);
+    }
+  };
+
   const handleOrderStatusChange = async (
     order: Order,
     status: OrderStatus,
@@ -2056,6 +2068,12 @@ export function SellerHubView({
                               </div>
                               <div className="text-[11px] text-[#6B6A65] truncate max-w-[240px]">
                                 {tc(p.category)} · {p.occasions.map((o) => to(o)).join(', ')}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#57534E]">
+                                <label className="inline-flex items-center gap-1"><input type="checkbox" checked={Boolean(p.onlinePaymentRequired)} onChange={(e) => void handleProductRuleChange(p, { onlinePaymentRequired: e.target.checked })}/> Prepaid only</label>
+                                <label className="inline-flex items-center gap-1"><input type="checkbox" checked={p.codAllowed !== false} onChange={(e) => void handleProductRuleChange(p, { codAllowed: e.target.checked })}/> COD</label>
+                                <label className="inline-flex items-center gap-1"><input type="checkbox" checked={p.isReturnable !== false} onChange={(e) => void handleProductRuleChange(p, { isReturnable: e.target.checked, ...(!e.target.checked ? { returnWindowDays: 0 } : {}) })}/> Returnable</label>
+                                {p.isReturnable !== false && <select aria-label="Return window" value={p.returnWindowDays ?? 7} onChange={(e) => void handleProductRuleChange(p, { returnWindowDays: Number(e.target.value) })} className="rounded border border-[#D6D3CD] bg-white px-1 py-0.5"><option value={3}>3d</option><option value={7}>7d</option><option value={10}>10d</option><option value={15}>15d</option><option value={30}>30d</option></select>}
                               </div>
                             </div>
                           </div>
