@@ -374,7 +374,7 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                     <button type="button" disabled={busyOrderId === order._id} onClick={() => void requestCancellation(order)} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-medium text-[#57534E] disabled:opacity-50">{busyOrderId === order._id ? 'Submitting…' : 'Request cancellation'}</button>
                   </div>
                 )}
-                {order.status === 'Delivered' && order.items.map((item) => (
+                {order.status === 'Delivered' && order.items.filter((item) => item.isReturnable !== false && Date.now() <= new Date(order.deliveredAt || order.updatedAt).getTime() + (item.returnWindowDays ?? 7) * 86400000).map((item) => (
                   <div key={item.productId} className="border-t border-[#F0EEE9] pt-2">
                     <button type="button" onClick={() => { setReturnTarget({ order, productId: item.productId, title: item.title }); setReturnError(''); }} className="text-xs font-semibold text-[#881337] underline underline-offset-2">Return {item.title}</button>
                   </div>
