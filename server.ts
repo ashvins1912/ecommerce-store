@@ -1724,6 +1724,18 @@ async function startServer() {
     if (order.status !== 'CONFIRMED_AWAITING_PAYMENT' || order.paymentStatus === 'PAID') return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PAYMENT' });
     const parsed = z.object({ provider: z.enum(['razorpay', 'stripe']) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_PAYMENT_PROVIDER' });
+    if (order.paymentStatus === 'PENDING' && order.paymentReference) {
+      if (order.paymentProvider !== parsed.data.provider) return res.status(409).json({ error: 'PAYMENT_ATTEMPT_ALREADY_OPEN', provider: order.paymentProvider });
+      const existingGateway = parsed.data.provider === 'razorpay' ? await getGatewaySecrets(String(order.sellerId), 'razorpay') : null;
+      return res.json({ checkout: {
+        provider: parsed.data.provider,
+        reference: order.paymentReference,
+        amountPaise: Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0)),
+        currency: 'INR',
+        ...(existingGateway ? { keyId: existingGateway.keyId } : {}),
+        ...(order.paymentCheckoutUrl ? { url: order.paymentCheckoutUrl } : {}),
+      }});
+    }
     try {
       const checkout = await createGatewayCheckout({
         sellerId: String(order.sellerId), provider: parsed.data.provider,
@@ -1732,6 +1744,7 @@ async function startServer() {
       });
       order.paymentProvider = checkout.provider;
       order.paymentReference = checkout.reference;
+      order.paymentCheckoutUrl = checkout.url || null;
       order.paymentMode = checkout.provider === 'razorpay' ? 'RAZORPAY' : 'STRIPE';
       order.paymentStatus = 'PENDING';
       await order.save();
