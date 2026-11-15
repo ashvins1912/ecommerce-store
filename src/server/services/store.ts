@@ -154,6 +154,13 @@ function loadLocalStore(): StoreState {
           parsed.users = [];
           dirty = true;
         }
+        if (process.env.NODE_ENV === 'production') {
+          const safeUsers = parsed.users.filter((user) => user.role !== 'PROVIDER');
+          if (safeUsers.length !== parsed.users.length) {
+            parsed.users = safeUsers;
+            dirty = true;
+          }
+        }
         if (!Array.isArray(parsed.sessions)) {
           parsed.sessions = [];
           dirty = true;
