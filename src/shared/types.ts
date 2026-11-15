@@ -164,6 +164,12 @@ export interface Product {
   sellerId: string;
   sellerName?: string;
   sellerTrusted?: boolean;
+  visibility?: 'PUBLIC' | 'ASSIGNED';
+  assignedCustomerIds?: string[];
+  onlinePaymentRequired?: boolean;
+  codAllowed?: boolean;
+  isReturnable?: boolean;
+  returnWindowDays?: number;
   title: string;
   slug: string;
   sku: string;
