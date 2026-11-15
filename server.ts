@@ -1788,6 +1788,8 @@ async function startServer() {
     const claimed = await claimPaymentEvent('razorpay', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
     if (!claimed) return res.json({ received: true, duplicate: true });
     if (event.event === 'payment.captured' && payment?.id) {
+      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+      if (order.paymentProvider !== 'razorpay' || Number(payment.amount) !== expectedAmount || String(payment.currency).toUpperCase() !== 'INR') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
       order.paymentTransactionId = String(payment.id);
       order.paymentStatus = 'PAID';
       order.status = 'PAID_AND_PROCESSING';
@@ -1823,6 +1825,8 @@ async function startServer() {
     const claimed = await claimPaymentEvent('stripe', String(event.id), String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
     if (!claimed) return res.json({ received: true, duplicate: true });
     if (event.type === 'checkout.session.completed') {
+      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+      if (order.paymentProvider !== 'stripe' || Number(object.amount_total) !== expectedAmount || String(object.currency).toLowerCase() !== 'inr' || object.payment_status !== 'paid') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
       order.paymentTransactionId = String(object.payment_intent);
       order.paymentStatus = 'PAID';
       order.status = 'PAID_AND_PROCESSING';
