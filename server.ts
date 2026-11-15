@@ -1916,7 +1916,7 @@ async function startServer() {
         reason: parsed.data.reason, media: parsed.data.media,
         selfCourier: parsed.data.selfCourier, courierName: parsed.data.courierName,
         trackingId: parsed.data.trackingId, trackingUrl: parsed.data.trackingUrl,
-        status: parsed.data.selfCourier ? 'IN_TRANSIT' : 'REQUESTED',
+        status: 'REQUESTED',
       });
       order.status = 'RETURN_REQUESTED';
       order.statusTimeline.push({ status: 'RETURN_REQUESTED', note: 'Buyer submitted return evidence for seller review.', timestamp: new Date() });
@@ -1942,7 +1942,7 @@ async function startServer() {
     const filter = { _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) };
     const request = await ReturnRequestModel.findOne(filter);
     if (!request) return res.status(404).json({ error: 'RETURN_NOT_FOUND' });
-    if (parsed.data.action === 'approve') request.status = 'APPROVED';
+    if (parsed.data.action === 'approve') request.status = request.selfCourier ? 'IN_TRANSIT' : 'APPROVED';
     else if (parsed.data.action === 'reject') request.status = 'REJECTED';
     else {
       if (!['APPROVED', 'IN_TRANSIT'].includes(request.status)) return res.status(409).json({ error: 'RETURN_NOT_READY_FOR_RECEIPT' });
