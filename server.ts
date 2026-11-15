@@ -1687,6 +1687,29 @@ async function startServer() {
   const providerAudit = (actor: any, action: string, providerId = '', resourceId = '', metadata: Record<string, unknown> = {}) =>
     ProviderAuditModel.create({ actorId: String(actor._id), actorRole: actor.role, action, providerId, resourceId, metadata });
 
+  app.post('/api/provider/upload', upload.single('image'), async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const rate = await checkRateLimit('provider-upload:' + user._id, 30, 3600);
+    if (!rate.allowed) return res.status(429).json({ error: 'PROVIDER_UPLOAD_RATE_LIMITED' });
+    if (!req.file || !['image/jpeg', 'image/png', 'image/webp'].includes(req.file.mimetype)) return res.status(415).json({ error: 'SUPPORTED_PRODUCT_IMAGE_REQUIRED' });
+    try {
+      const media = await processAndStoreImage(req.file.buffer, req.file.originalname);
+      res.status(201).json({ url: media.url, thumbUrl: media.thumbUrl, mimeType: 'image/webp' });
+    } catch (err) { res.status(400).json({ error: 'PROVIDER_IMAGE_PROCESSING_FAILED', message: (err as Error).message }); }
+  });
+
+  app.patch('/api/admin/providers/:providerId/kyc', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED' });
+    const parsed = z.object({ status: z.enum(['VERIFIED', 'REJECTED']), note: z.string().max(500).optional() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_KYC_DECISION' });
+    const profile = await ProviderProfileModel.findOneAndUpdate({ userId: req.params.providerId }, { $set: { kycStatus: parsed.data.status } }, { new: true }).select('-encryptedTaxId -encryptedSettlementDetails');
+    if (!profile) return res.status(404).json({ error: 'PROVIDER_NOT_FOUND' });
+    await providerAudit(user, 'PROVIDER_KYC_REVIEWED', req.params.providerId, String(profile._id), { status: parsed.data.status, note: parsed.data.note || '' });
+    res.json({ profile });
+  });
+
   app.post('/api/seller/providers/invites', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
@@ -1753,6 +1776,7 @@ async function startServer() {
     await UserModel.updateOne({ _id: user._id, role: user.role }, { $set: { role: 'PROVIDER', mobileNumber: parsed.data.mobile, whatsappNumber: parsed.data.whatsapp } });
     const updatedUser = await findUserById(user._id);
     if (updatedUser) await issueUserSession(req, res, updatedUser, 'invite');
+    await ProviderProductModel.updateMany({ providerId: user._id }, { $addToSet: { linkedSellerIds: invite.sellerId } });
     await providerAudit(user, 'PROVIDER_ONBOARDING_SUBMITTED', user._id, String(profile._id), { sellerId: invite.sellerId });
     res.status(201).json({ ok: true, role: 'PROVIDER', kycStatus: 'PENDING' });
   });
