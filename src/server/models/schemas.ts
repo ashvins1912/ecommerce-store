@@ -225,7 +225,7 @@ const OrderSchema = new Schema(
     cancellationPreviousStatus: { type: String, default: null },
     inventoryRestored: { type: Boolean, default: false },
     deliveredAt: { type: Date, default: null },
-    refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'REFUNDED', 'REJECTED'], default: 'NONE' },
+    refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'PARTIAL', 'REFUNDED', 'REJECTED'], default: 'NONE' },
     appliedCoupon: {
       couponId: String,
       code: String,
