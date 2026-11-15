@@ -1,4 +1,4 @@
-export type UserRole = 'GUEST' | 'BUYER' | 'SELLER' | 'ADMIN';
+export type UserRole = 'GUEST' | 'BUYER' | 'SELLER' | 'PROVIDER' | 'ADMIN';
 
 export type BuiltinProductCategory = 'Artificial Jewellery' | 'Clothing' | 'Accessories';
 
