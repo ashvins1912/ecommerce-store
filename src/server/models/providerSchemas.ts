@@ -44,7 +44,7 @@ const ProviderProductSchema = new Schema({
   damageReplacementPolicy: { type: String, default: '', maxlength: 2000 },
   status: { type: String, enum: ['DRAFT', 'PENDING_REVIEW', 'NEGOTIATION_REQUESTED', 'RESUBMITTED', 'APPROVED', 'APPROVED_AND_PUBLISHED', 'REJECTED'], default: 'DRAFT', index: true },
   retailProductId: { type: String, default: null, index: true },
-  negotiationHistory: [{ sellerId: String, actorId: String, action: String, fields: [String], targetPricePaise: Number, comment: String, createdAt: { type: Date, default: Date.now }, immutable: true }],
+  negotiationHistory: [{ sellerId: String, actorId: String, action: String, fields: [String], targetPricePaise: Number, comment: String, createdAt: { type: Date, default: Date.now } }],
   approvedBasePricePaise: { type: Number, default: null },
   approvedAt: { type: Date, default: null },
 }, { timestamps: true });
