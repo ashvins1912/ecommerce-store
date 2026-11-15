@@ -4,7 +4,7 @@ import { apiFetch, setClientSessionTokens } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import type { CartItem, User } from '../shared/types';
 
-interface CustomerSignUpViewProps {
+interface AccountSignUpViewProps {
   user: User | null;
   onAuthChanged: (payload: {
     user: User | null;
@@ -15,12 +15,12 @@ interface CustomerSignUpViewProps {
   onNavigateStore: () => void;
 }
 
-export function CustomerSignUpView({
+export function AccountSignUpView({
   user,
   onAuthChanged,
   onOpenSignIn,
   onNavigateStore,
-}: CustomerSignUpViewProps) {
+}: AccountSignUpViewProps) {
   const { t } = useI18n();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

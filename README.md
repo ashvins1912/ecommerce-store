@@ -21,7 +21,7 @@ The website is designed with a clean interface, responsive layouts, and easy nav
 - Enjoy a streamlined shopping experience.
 
 ### User Account
-- Customer registration and sign-in.
+- Unified account registration and sign-in, including Supabase Google and Facebook OAuth.
 - Personalized customer experience.
 - Manage account information.
 - Access customer-related features.
@@ -53,6 +53,10 @@ The website is designed with a clean interface, responsive layouts, and easy nav
 - Customer-friendly layouts.
 - Smooth shopping interactions.
 - Optimized product browsing experience.
+
+## Authentication configuration
+
+The server uses `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The browser OAuth client uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the same Supabase project URL and public anon/publishable key). In Supabase Authentication → Providers, enable Google and Facebook and add each provider's credentials. Add the deployed storefront URL to Supabase's URL Configuration and allow the redirect URL used by the app. Seller Hub is opened directly at `/seller-hub`; it is not linked in the public storefront navigation. Existing server-side role authorization remains in force.
 
 ## Technology
 

@@ -82,6 +82,7 @@ import {
   isSupabaseAuthConfigured,
   supabaseSignUpCustomer,
   supabaseSignInWithPassword,
+  supabaseGetUserFromAccessToken,
 } from './src/server/services/supabaseAuth.js';
 import {
   getCartCache,
@@ -305,7 +306,42 @@ async function startServer() {
     return normalized;
   }
 
-  // Customer Sign-Up via Supabase Auth (with persistent salted scrypt fallback)
+  // Supabase OAuth callback exchange: validate provider token, then issue the app's own session.
+  app.post('/api/auth/oauth', async (req, res) => {
+    const schema = z.object({ accessToken: z.string().min(20).max(8192) });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'A valid Supabase access token is required.' });
+    }
+
+    const { guestToken } = await resolveActor(req, res);
+    try {
+      const profile = await supabaseGetUserFromAccessToken(parsed.data.accessToken);
+      const user = await syncSupabaseCustomerUser({
+        supabaseUid: profile.supabaseUid,
+        email: profile.email,
+        name: profile.name,
+        mobileNumber: profile.mobileNumber,
+      });
+      await mergeGuestSessionData(guestToken, user._id);
+      const issued = await issueUserSession(req, res, user, 'supabase');
+      const likedProductIds = await getLikedProductIds({ userId: user._id, guestToken });
+      const cart = await loadCartForActor({ userId: user._id, guestToken });
+      return res.json({
+        user,
+        accessToken: issued.accessToken,
+        csrfToken: issued.csrfToken,
+        sessionInfo: issued.sessionInfo,
+        likedProductIds,
+        cart,
+      });
+    } catch (err) {
+      const status = (err as { status?: number }).status || 401;
+      return res.status(status).json({ error: (err as Error).message || 'Social sign-in failed' });
+    }
+  });
+
+  // Account Sign-Up via Supabase Auth (with persistent salted scrypt fallback)
   app.post('/api/auth/signup', async (req, res) => {
     const allowed = await checkRateLimit(`signup:${req.ip}`, 20, 600);
     if (!allowed) {
@@ -386,7 +422,7 @@ async function startServer() {
     }
   });
 
-  // Customer Sign-In via Supabase Auth (or 1-click dummy test role switch) + SSL Token Issue
+  // Account Sign-In via Supabase Auth (or 1-click dummy test role switch) + SSL Token Issue
   app.post('/api/auth/signin', async (req, res) => {
     const schema = z.union([
       z.object({
