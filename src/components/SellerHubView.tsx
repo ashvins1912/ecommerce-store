@@ -2971,7 +2971,7 @@ export function SellerHubView({
       )}
 
       {/* TAB 3: SELLER ORDERS & COURIER TRACKING */}
-      {isVerifiedSellerOrAdmin && sellerTab === 'providers' && <ProviderManagementPanel />}
+      {isVerifiedSellerOrAdmin && sellerTab === 'providers' && <ProviderManagementPanel isAdmin={isAdmin} />}
 
       {isVerifiedSellerOrAdmin && sellerTab === 'returns' && (
         <section className="space-y-4">
