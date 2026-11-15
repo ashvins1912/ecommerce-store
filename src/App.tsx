@@ -496,6 +496,7 @@ export default function App() {
     (async () => {
       try {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
+        setClientSessionTokens(session.accessToken, session.csrfToken);
         setUser(session.user);
         setLikedIds(new Set(session.likedProductIds));
 
