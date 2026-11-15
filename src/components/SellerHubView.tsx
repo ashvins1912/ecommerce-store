@@ -90,6 +90,7 @@ type SellerTab =
   | 'campaigns'
   | 'coupons'
   | 'payments'
+  | 'returns'
   | 'orders';
 
 interface AdminInviteRow extends SellerInvite {
@@ -247,6 +248,8 @@ export function SellerHubView({
   const [cmpError, setCmpError] = useState<string | null>(null);
 
   // Seller Coupons state
+  const [returnRequests, setReturnRequests] = useState<Array<any>>([]);
+  const [returnNotice, setReturnNotice] = useState('');
   const [gatewaySettings, setGatewaySettings] = useState<Array<{ provider: 'razorpay' | 'stripe'; keyId: string; enabled: boolean; secretMasked: string }>>([]);
   const [gatewayDrafts, setGatewayDrafts] = useState({
     razorpay: { keyId: '', secret: '', webhookSecret: '', enabled: false },
@@ -452,6 +455,30 @@ export function SellerHubView({
     }
   }, [isVerifiedSellerOrAdmin, loadAnalytics, loadSellerCatalog, loadSellerCategories]);
 
+  const loadReturnRequests = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const data = await apiFetch<{ returns: Array<any> }>('/api/seller/returns');
+      setReturnRequests(data.returns || []);
+    } catch {
+      setReturnNotice('Unable to load return requests.');
+    }
+  }, [isVerifiedSellerOrAdmin]);
+
+  const handleReturnAction = async (id: string, action: 'approve' | 'reject' | 'mark_received') => {
+    setReturnNotice('');
+    try {
+      await apiFetch('/api/seller/returns/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        body: JSON.stringify({ action, refundDestination: 'WALLET' }),
+      });
+      setReturnNotice(action === 'mark_received' ? 'Return received and wallet refund credited.' : 'Return request updated.');
+      await loadReturnRequests();
+    } catch (err) {
+      setReturnNotice((err as Error).message);
+    }
+  };
+
   const loadPaymentSettings = useCallback(async () => {
     if (!isVerifiedSellerOrAdmin) return;
     try {
@@ -504,6 +531,9 @@ export function SellerHubView({
     if (isVerifiedSellerOrAdmin && sellerTab === 'payments') {
       loadPaymentSettings();
     }
+    if (isVerifiedSellerOrAdmin && sellerTab === 'returns') {
+      loadReturnRequests();
+    }
     if (isVerifiedSellerOrAdmin && sellerTab === 'orders') {
       loadSellerOrders(orderTab, 0, false);
     }
@@ -517,6 +547,7 @@ export function SellerHubView({
     loadSellerCampaigns,
     loadSellerCoupons,
     loadPaymentSettings,
+    loadReturnRequests,
     loadSellerOrders,
   ]);
 
@@ -1322,6 +1353,7 @@ export function SellerHubView({
     { id: 'campaigns', label: t('seller.tabCampaigns') },
     { id: 'coupons', label: t('seller.tabCoupons') },
     { id: 'payments', label: 'Payments' },
+    { id: 'returns', label: 'Returns' },
     { id: 'orders', label: t('seller.tabOrders') },
   ];
 
@@ -2905,6 +2937,25 @@ export function SellerHubView({
       )}
 
       {/* TAB 3: SELLER ORDERS & COURIER TRACKING */}
+      {isVerifiedSellerOrAdmin && sellerTab === 'returns' && (
+        <section className="space-y-4">
+          <div><h2 className="text-lg font-semibold">Returns and cancellation review</h2><p className="text-xs text-[#78716C]">Review buyer evidence and confirm physical receipt before releasing wallet refunds.</p></div>
+          {returnNotice && <p role="status" className="text-xs text-[#57534E]">{returnNotice}</p>}
+          {returnRequests.length === 0 ? <div className="rounded-lg border border-[#E8E6E1] bg-white p-8 text-center text-xs text-[#78716C]">No return requests.</div> : returnRequests.map((item) => (
+            <article key={item._id} className="rounded-lg border border-[#E8E6E1] bg-white p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-semibold">{item.productId} · Order {item.orderId}</div><span className="rounded-full bg-[#F5F5F4] px-2 py-1 text-[10px] font-semibold">{item.status}</span></div>
+              <p className="text-xs text-[#57534E]">{item.reason}</p>
+              <div className="flex flex-wrap gap-2">{(item.media || []).map((media: any, index: number) => <a key={index} href={media.url} target="_blank" rel="noreferrer" className="text-xs text-[#881337] underline">Evidence {index + 1}</a>)}</div>
+              {item.selfCourier && <p className="text-xs">Courier: {item.courierName} · {item.trackingId} {item.trackingUrl && <a href={item.trackingUrl} target="_blank" rel="noreferrer" className="text-[#881337] underline">Track</a>}</p>}
+              <div className="flex flex-wrap gap-2">
+                {item.status === 'REQUESTED' && <><button type="button" onClick={() => void handleReturnAction(item._id, 'approve')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white">Approve return</button><button type="button" onClick={() => void handleReturnAction(item._id, 'reject')} className="rounded-md border px-3 py-2 text-xs">Reject</button></>}
+                {['APPROVED', 'IN_TRANSIT'].includes(item.status) && <button type="button" onClick={() => void handleReturnAction(item._id, 'mark_received')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white">Verify &amp; mark received · Wallet refund</button>}
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+
       {isVerifiedSellerOrAdmin && sellerTab === 'payments' && (
         <section className="space-y-5">
           <div>
