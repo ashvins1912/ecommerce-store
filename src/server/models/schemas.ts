@@ -209,6 +209,8 @@ const OrderSchema = new Schema(
         imageUrl: { type: String, required: true },
         quantity: { type: Number, required: true, min: 1 },
         unitPrice: { type: Number, required: true, min: 0 },
+        isReturnable: { type: Boolean, default: true },
+        returnWindowDays: { type: Number, default: 7, min: 0, max: 90 },
       },
     ],
     totalAmount: { type: Number, required: true, min: 0 },
