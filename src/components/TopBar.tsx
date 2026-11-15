@@ -10,8 +10,6 @@ interface TopBarProps {
   onNavigateStore: (category?: ProductCategory | 'All') => void;
   onNavigateWishlist: () => void;
   onNavigateOrders: () => void;
-  onNavigateSeller: () => void;
-  onNavigateSignUp: () => void;
   wishlistCount: number;
   cartCount: number;
   onOpenCart: () => void;
@@ -25,8 +23,6 @@ export function TopBar({
   onNavigateStore,
   onNavigateWishlist,
   onNavigateOrders,
-  onNavigateSeller,
-  onNavigateSignUp,
   wishlistCount,
   cartCount,
   onOpenCart,
@@ -111,17 +107,6 @@ export function TopBar({
           >
             {t('nav.orders')}
           </button>
-          <button
-            type="button"
-            onClick={onNavigateSeller}
-            className={`whitespace-nowrap shrink-0 py-1 border-b-2 transition-colors cursor-pointer ${
-              activePage === 'seller'
-                ? 'border-[#881337] text-[#141413]'
-                : 'border-transparent hover:text-[#141413]'
-            }`}
-          >
-            {t('nav.sellerHub')}
-          </button>
         </nav>
 
         {/* Zone 3: Language + Mobile Wishlist Icon + Account + Bag CTA */}
@@ -180,19 +165,6 @@ export function TopBar({
                 : t('nav.signIn')}
             </span>
           </button>
-          {!user && (
-            <button
-              type="button"
-              onClick={onNavigateSignUp}
-              className={`hidden sm:inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                activePage === 'signup'
-                  ? 'border-[#881337] bg-[#FFF8F6] text-[#881337]'
-                  : 'border-[#E8E6E1] bg-white text-[#141413] hover:border-[#881337]'
-              }`}
-            >
-              {t('nav.signUp')}
-            </button>
-          )}
           <button
             type="button"
             onClick={onOpenCart}
@@ -248,22 +220,6 @@ export function TopBar({
         >
           {t('nav.orders')}
         </button>
-        <button
-          type="button"
-          onClick={onNavigateSeller}
-          className={`whitespace-nowrap shrink-0 ${activePage === 'seller' ? 'text-[#881337] font-semibold' : ''}`}
-        >
-          {t('nav.sellerHub')}
-        </button>
-        {!user && (
-          <button
-            type="button"
-            onClick={onNavigateSignUp}
-            className={`whitespace-nowrap shrink-0 ${activePage === 'signup' ? 'text-[#881337] font-semibold' : ''}`}
-          >
-            {t('nav.signUp')}
-          </button>
-        )}
       </div>
     </header>
   );
