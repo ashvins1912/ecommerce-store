@@ -4,7 +4,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel, PaymentEventModel } from './src/server/models/schemas.js';
-import { saveGatewayConfiguration, listGatewayConfigurations, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -1472,9 +1472,29 @@ async function startServer() {
     }
 
     const couponCode = typeof req.body?.couponCode === 'string' ? req.body.couponCode.trim() : undefined;
+    const itemProducts = await Promise.all(itemsToOrder.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+    const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
+    const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
+    if (requiresPrepaid) {
+      const bySeller = new Set(itemsToOrder.map((item) => item.sellerId));
+      for (const sellerId of bySeller) {
+        const gateway = await getGatewaySecrets(sellerId, requestedProvider);
+        if (!gateway) return res.status(409).json({ error: 'PREPAID_REQUIRED_ACTIVE_GATEWAY_MISSING', sellerId });
+      }
+    }
     let createdOrders;
     try {
       createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode });
+      for (const order of createdOrders) {
+        const prepaid = requiresPrepaid && order.items.some((item) => {
+          const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
+          return idx >= 0 && itemProducts[idx] && (itemProducts[idx]!.onlinePaymentRequired || itemProducts[idx]!.codAllowed === false);
+        });
+        order.paymentMode = prepaid ? (requestedProvider === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
+        order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
+        order.status = 'PENDING_SELLER_CONFIRMATION';
+        await OrderModel.updateOne({ _id: order._id }, { $set: { paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status } });
+      }
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
     }
@@ -1627,6 +1647,77 @@ async function startServer() {
     } catch (err) {
       res.status((err as Error).message === 'INSUFFICIENT_WALLET_BALANCE' ? 409 : 400).json({ error: (err as Error).message });
     }
+  });
+
+
+  // Buyer payment intent is created only after the seller has confirmed availability.
+  app.post('/api/orders/:id/payment-intent', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (order.status !== 'CONFIRMED_AWAITING_PAYMENT' || order.paymentStatus === 'PAID') return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PAYMENT' });
+    const parsed = z.object({ provider: z.enum(['razorpay', 'stripe']) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PAYMENT_PROVIDER' });
+    try {
+      const checkout = await createGatewayCheckout({
+        sellerId: String(order.sellerId), provider: parsed.data.provider,
+        orderId: String(order._id), orderNumber: order.orderNumber,
+        amountPaise: Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0)),
+      });
+      order.paymentProvider = checkout.provider;
+      order.paymentReference = checkout.reference;
+      order.paymentMode = checkout.provider === 'razorpay' ? 'RAZORPAY' : 'STRIPE';
+      order.paymentStatus = 'PENDING';
+      await order.save();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ checkout });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/webhooks/razorpay/:sellerId', async (req, res) => {
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const signature = String(req.headers['x-razorpay-signature'] || '');
+    if (!rawBody || !await verifyPaymentWebhook({ sellerId: req.params.sellerId, provider: 'razorpay', signature, rawBody })) {
+      return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
+    }
+    const event = req.body as any;
+    if (event?.event !== 'payment.captured') return res.json({ received: true, ignored: true });
+    const payment = event.payload?.payment?.entity;
+    const order = await OrderModel.findOne({ sellerId: req.params.sellerId, paymentReference: payment?.order_id });
+    if (!order || !payment?.id) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    const eventId = String(event.id || payment.id);
+    const claimed = await claimPaymentEvent('razorpay', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
+    if (!claimed) return res.json({ received: true, duplicate: true });
+    order.paymentTransactionId = String(payment.id);
+    order.paymentStatus = 'PAID';
+    order.status = 'PAID_AND_PROCESSING';
+    order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+    await order.save();
+    res.json({ received: true });
+  });
+
+  app.post('/api/webhooks/stripe/:sellerId', async (req, res) => {
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const signature = String(req.headers['stripe-signature'] || '');
+    if (!rawBody || !await verifyPaymentWebhook({ sellerId: req.params.sellerId, provider: 'stripe', signature, rawBody })) {
+      return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
+    }
+    const event = req.body as any;
+    if (event?.type !== 'payment_intent.succeeded') return res.json({ received: true, ignored: true });
+    const intent = event.data?.object;
+    const order = await OrderModel.findOne({ _id: intent?.metadata?.orderId, sellerId: req.params.sellerId, paymentReference: intent?.id });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    const claimed = await claimPaymentEvent('stripe', String(event.id), String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
+    if (!claimed) return res.json({ received: true, duplicate: true });
+    order.paymentTransactionId = String(intent.id);
+    order.paymentStatus = 'PAID';
+    order.status = 'PAID_AND_PROCESSING';
+    order.statusTimeline.push({ status: order.status, note: 'Stripe payment verified by signed webhook.', timestamp: new Date() });
+    await order.save();
+    res.json({ received: true });
   });
 
   // Buyer cancellation is a request once fulfilment has started; it never silently refunds.
