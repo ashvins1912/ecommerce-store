@@ -300,6 +300,27 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
           }
         }
       }
+      // Ensure development provider demo identities exist even when this database was
+      // populated before provider demos were added. Keep synthetic users out of production.
+      if (process.env.NODE_ENV !== 'production') {
+        for (const provider of [
+          { _id: 'usr_provider_1', name: 'Aarav Artisan Supply', email: 'provider.aarav@example.com', mobileNumber: '+919876540001' },
+          { _id: 'usr_provider_2', name: 'Nisha Craft Works', email: 'provider.nisha@example.com', mobileNumber: '+919876540002' },
+        ]) {
+          const existingProvider = await UserModel.findOne({ email: provider.email }).lean();
+          if (!existingProvider) {
+            await UserModel.create({
+              ...provider,
+              role: 'PROVIDER',
+              authProvider: 'demo',
+              oauthAccounts: [],
+              isWhatsappVerified: false,
+              shippingAddresses: [],
+            });
+          }
+        }
+      }
+
       // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
       if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
         for (const demo of [
