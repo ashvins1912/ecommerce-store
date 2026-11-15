@@ -25,7 +25,7 @@ import type {
   StorefrontCampaign,
   User,
 } from './shared/types';
-import { apiFetch } from './lib/api';
+import { apiFetch, setClientSessionTokens } from './lib/api';
 import { useI18n } from './lib/i18n';
 import { TopBar, type ActivePage } from './components/TopBar';
 import { ProductCard } from './components/ProductCard';
@@ -447,6 +447,49 @@ export default function App() {
     tc,
     tseason,
   ]);
+
+  // Complete Supabase OAuth after the provider redirects back to the storefront.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('oauth') !== '1') return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getSupabaseBrowserClient } = await import('./lib/supabase');
+        const supabase = getSupabaseBrowserClient();
+        if (!supabase) throw new Error('Supabase OAuth is not configured.');
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (!data.session?.access_token) throw new Error('The social sign-in session could not be found.');
+        const signedIn = await apiFetch<{
+          user: User;
+          accessToken?: string;
+          csrfToken?: string;
+          likedProductIds: string[];
+          cart: CartItem[];
+        }>('/api/auth/oauth', {
+          method: 'POST',
+          body: JSON.stringify({ accessToken: data.session.access_token }),
+        });
+        if (cancelled) return;
+        setClientSessionTokens(signedIn.accessToken, signedIn.csrfToken);
+        setUser(signedIn.user);
+        setLikedIds(new Set(signedIn.likedProductIds || []));
+        setCart(signedIn.cart || []);
+        localStorage.setItem('kk_guest_cart', JSON.stringify(signedIn.cart || []));
+        setAuthOpen(false);
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('oauth');
+        cleanUrl.hash = '';
+        window.history.replaceState({}, '', cleanUrl.toString());
+      } catch (err) {
+        if (!cancelled) showToast((err as Error).message || 'Social sign-in failed.');
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [showToast]);
 
   // Load initial auth/guest session + merge localStorage cart if server cart empty
   useEffect(() => {
