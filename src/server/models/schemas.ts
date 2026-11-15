@@ -16,7 +16,7 @@ const ShippingAddressSchema = new Schema(
 
 const UserSchema = new Schema(
   {
-    role: { type: String, enum: ['BUYER', 'SELLER', 'ADMIN'], default: 'BUYER', index: true },
+    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], default: 'BUYER', index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     avatarUrl: { type: String },
@@ -143,6 +143,9 @@ const ProductSchema = new Schema(
     isDiscontinued: { type: Boolean, default: false, index: true },
     isDeleted: { type: Boolean, default: false, index: true },
     disabledAt: { type: Date, default: null },
+    providerId: { type: String, default: null, select: false, index: true },
+    providerProductId: { type: String, default: null, select: false, index: true },
+    providerBasePricePaise: { type: Number, default: null, select: false },
   },
   { timestamps: true }
 );
@@ -310,7 +313,7 @@ const AuthSessionSchema = new Schema(
   {
     sessionId: { type: String, required: true, unique: true, index: true },
     userId: { type: String, required: true, index: true },
-    role: { type: String, enum: ['BUYER', 'SELLER', 'ADMIN'], required: true },
+    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], required: true },
     provider: { type: String, enum: ['supabase', 'invite', 'demo'], default: 'supabase' },
     tokenFingerprint: { type: String, required: true },
     csrfToken: { type: String, required: true },
