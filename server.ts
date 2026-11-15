@@ -1510,10 +1510,15 @@ async function startServer() {
           const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
           return idx >= 0 && itemProducts[idx] && (itemProducts[idx]!.onlinePaymentRequired || itemProducts[idx]!.codAllowed === false);
         });
+        order.items = order.items.map((item: any) => {
+          const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === String(item.productId));
+          const product = idx >= 0 ? itemProducts[idx] : null;
+          return { ...item, isReturnable: product?.isReturnable !== false, returnWindowDays: product?.returnWindowDays ?? 7 };
+        });
         order.paymentMode = prepaid ? (requestedProvider === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
         order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
         order.status = 'PENDING_SELLER_CONFIRMATION';
-        await OrderModel.updateOne({ _id: order._id }, { $set: { paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status } });
+        await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status } });
       }
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
