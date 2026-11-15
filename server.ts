@@ -1793,9 +1793,14 @@ async function startServer() {
       order.status = 'PAID_AND_PROCESSING';
       order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
     } else if (event.event === 'refund.processed') {
-      order.paymentStatus = 'REFUNDED';
-      order.refundStatus = 'REFUNDED';
-      await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+      const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
+      if (hasReturnRefund) {
+        order.refundStatus = 'PARTIAL';
+        await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+      } else {
+        order.paymentStatus = 'REFUNDED';
+        order.refundStatus = 'REFUNDED';
+      }
     }
     await order.save();
     res.json({ received: true });
@@ -2016,8 +2021,7 @@ async function startServer() {
             paymentReference: String(order.paymentTransactionId), amountPaise: externalPart,
             idempotencyKey: 'return-refund:' + String(request._id),
           });
-          order.refundStatus = 'PROCESSING';
-          order.paymentStatus = 'REFUND_PENDING';
+          order.refundStatus = 'PARTIAL';
         } else {
           order.refundStatus = 'REFUNDED';
           order.paymentStatus = 'REFUNDED';
@@ -2042,8 +2046,7 @@ async function startServer() {
       });
       request.status = 'REFUNDED';
       await request.save();
-      order.refundStatus = 'REFUNDED';
-      order.paymentStatus = 'REFUNDED';
+      order.refundStatus = 'PARTIAL';
       order.status = 'RETURN_RECEIVED';
       await order.save();
     }
