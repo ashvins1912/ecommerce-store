@@ -2,6 +2,9 @@ import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
+import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -113,7 +116,8 @@ import type {
 } from './src/shared/types.js';
 
 const PORT = 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'kala-karat-dev-secret-2026';
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -142,7 +146,7 @@ function getCookieOpts() {
   return {
     httpOnly: true,
     secure: true,
-    sameSite: 'none' as const,
+    sameSite: 'lax' as const,
     maxAge: 1000 * 60 * 60 * 24 * 30,
     path: '/',
   };
@@ -242,6 +246,33 @@ async function startServer() {
   });
   app.use(express.json({ limit: '4mb' }));
   app.use(cookieParser());
+
+  // Same-origin and synchronized-token CSRF protection for state-changing APIs.
+  const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || '')
+    .split(',').map((origin) => origin.trim()).filter(Boolean).map((origin) => new URL(origin).origin);
+  app.use(async (req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/')) return next();
+    let suppliedOrigin = String(req.headers.origin || '');
+    if (!suppliedOrigin && req.headers.referer) { try { suppliedOrigin = new URL(String(req.headers.referer)).origin; } catch { return res.status(403).json({ error: 'INVALID_REFERER' }); } }
+    if (suppliedOrigin) {
+      const requestOrigin = req.protocol + '://' + req.get('host');
+      const allowed = configuredOrigins.length ? configuredOrigins : [requestOrigin];
+      if (!allowed.includes(suppliedOrigin)) return res.status(403).json({ error: 'ORIGIN_NOT_ALLOWED' });
+    }
+    const hasSessionCredential = Boolean(req.cookies?.kk_session || String(req.headers.authorization || '').toLowerCase().startsWith('bearer '));
+    if (hasSessionCredential) {
+      try {
+        const actor = await resolveActor(req, res);
+        if (actor.session) {
+          const supplied = String(req.headers['x-csrf-token'] || '');
+          const expected = actor.session.csrfToken;
+          const a = Buffer.from(supplied); const b = Buffer.from(expected);
+          if (!supplied || a.length !== b.length || !timingSafeEqual(a, b)) return res.status(403).json({ error: 'CSRF_TOKEN_INVALID' });
+        } else if (req.cookies?.kk_session) return res.status(401).json({ error: 'SESSION_INVALID' });
+      } catch { return res.status(403).json({ error: 'CSRF_VALIDATION_FAILED' }); }
+    }
+    next();
+  });
 
   // Static serving for generated images & Sharp WebP uploads
   app.use('/uploads', express.static(getUploadDir()));
