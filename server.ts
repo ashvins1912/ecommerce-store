@@ -1876,10 +1876,20 @@ async function startServer() {
         order.paymentStatus = 'REFUNDED';
         order.refundStatus = 'REFUNDED';
       } else {
-        if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
-        await refundGatewayPayment({ sellerId: String(order.sellerId), provider: order.paymentProvider, paymentReference: String(order.paymentTransactionId), amountPaise, idempotencyKey: 'cancel-refund:' + String(order._id) });
-        order.paymentStatus = 'REFUND_PENDING';
-        order.refundStatus = 'PROCESSING';
+        const walletPart = Math.min(amountPaise, Number(order.walletAppliedPaise || 0));
+        const externalPart = amountPaise - walletPart;
+        if (walletPart > 0) {
+          await applyWalletTransaction({ userId: String(order.buyerId), idempotencyKey: 'cancel-wallet-refund:' + String(order._id), type: 'CREDIT_REFUND', amountPaise: walletPart, orderId: String(order._id), reference: 'Restore wallet portion of cancelled order' });
+        }
+        if (externalPart > 0) {
+          if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
+          await refundGatewayPayment({ sellerId: String(order.sellerId), provider: order.paymentProvider, paymentReference: String(order.paymentTransactionId), amountPaise: externalPart, idempotencyKey: 'cancel-refund:' + String(order._id) });
+          order.paymentStatus = 'REFUND_PENDING';
+          order.refundStatus = 'PROCESSING';
+        } else {
+          order.paymentStatus = 'REFUNDED';
+          order.refundStatus = 'REFUNDED';
+        }
       }
     }
     order.status = 'Cancelled';
@@ -1964,13 +1974,27 @@ async function startServer() {
       try {
         const item = order.items.find((entry: any) => String(entry.productId) === request.productId);
         const amountPaise = Math.round(Number(item?.unitPrice || 0) * request.quantity * 100);
-        const refund = await refundGatewayPayment({
-          sellerId: String(order.sellerId), provider: order.paymentProvider,
-          paymentReference: String(order.paymentTransactionId), amountPaise,
-          idempotencyKey: 'return-refund:' + String(request._id),
-        });
-        order.refundStatus = 'PROCESSING';
-        order.paymentStatus = 'REFUND_PENDING';
+        const walletPart = Math.min(amountPaise, Math.round(Number(order.walletAppliedPaise || 0) * (amountPaise / Math.max(1, Math.round(Number(order.totalAmount) * 100)))));
+        const externalPart = amountPaise - walletPart;
+        if (walletPart > 0) {
+          await applyWalletTransaction({ userId: String(order.buyerId), idempotencyKey: 'return-wallet-refund:' + String(request._id), type: 'CREDIT_REFUND', amountPaise: walletPart, orderId: String(order._id), reference: 'Restore wallet portion of returned item' });
+        }
+        let refund: any = null;
+        if (externalPart > 0) {
+          if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
+          refund = await refundGatewayPayment({
+            sellerId: String(order.sellerId), provider: order.paymentProvider,
+            paymentReference: String(order.paymentTransactionId), amountPaise: externalPart,
+            idempotencyKey: 'return-refund:' + String(request._id),
+          });
+          order.refundStatus = 'PROCESSING';
+          order.paymentStatus = 'REFUND_PENDING';
+        } else {
+          order.refundStatus = 'REFUNDED';
+          order.paymentStatus = 'REFUNDED';
+          request.status = 'REFUNDED';
+          await request.save();
+        }
         await order.save();
         return res.json({ returnRequest: request, refund });
       } catch (err) {
