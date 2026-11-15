@@ -1578,7 +1578,7 @@ async function startServer() {
     if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const q = String(req.query.q || '').trim().slice(0, 80);
     if (q.length < 2) return res.json({ customers: [] });
-    const escaped = q.replace(/[.*+?^$()|[\\]\\\\]/g, '\\\\    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\  // --- Seller Analytics & Trending Cron ---');');
+    const escaped = q.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
     const docs = await UserModel.find({
       role: 'BUYER',
       $or: [
