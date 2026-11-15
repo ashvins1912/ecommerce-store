@@ -61,6 +61,7 @@ import type {
 } from '../shared/types';
 import { apiFetch, compressAndUploadImage, formatINR, setClientSessionTokens } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { CustomerSearchModal, type AssignableCustomer } from './CustomerSearchModal';
 
 const OCCASIONS: OccasionType[] = [
   'Wedding',
@@ -213,6 +214,13 @@ export function SellerHubView({
   const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
   const [removingProduct, setRemovingProduct] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [newVisibility, setNewVisibility] = useState<'PUBLIC' | 'ASSIGNED'>('PUBLIC');
+  const [newAssignedCustomers, setNewAssignedCustomers] = useState<AssignableCustomer[]>([]);
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false);
+  const [newOnlineRequired, setNewOnlineRequired] = useState(false);
+  const [newCodAllowed, setNewCodAllowed] = useState(true);
+  const [newReturnable, setNewReturnable] = useState(true);
+  const [newReturnWindow, setNewReturnWindow] = useState(7);
 
   // Seller Category Control Panel state
   const [categories, setCategories] = useState<CategoryControl[]>([]);
@@ -1220,6 +1228,12 @@ export function SellerHubView({
           basePrice: Number(newBasePrice),
           discountPercent: Number(newDiscount),
           totalStock: Number(newStock),
+          visibility: newVisibility,
+          assignedCustomerIds: newVisibility === 'ASSIGNED' ? newAssignedCustomers.map((customer) => customer._id) : [],
+          onlinePaymentRequired: newOnlineRequired,
+          codAllowed: newCodAllowed,
+          isReturnable: newReturnable,
+          returnWindowDays: newReturnable ? Number(newReturnWindow) : 0,
           images: imgs,
           occasions: newOccasions,
           seasons: newSeasons,
@@ -3531,6 +3545,26 @@ export function SellerHubView({
                 </div>
               )}
 
+              <div className="rounded-lg border border-[#E8E6E1] bg-[#FAF9F6] p-4 space-y-3">
+                <div className="font-semibold text-[#292524]">Customer visibility</div>
+                <div className="flex flex-wrap gap-4 text-xs">
+                  <label className="inline-flex items-center gap-2"><input type="radio" checked={newVisibility === 'PUBLIC'} onChange={() => setNewVisibility('PUBLIC')} /> Public / All customers</label>
+                  <label className="inline-flex items-center gap-2"><input type="radio" checked={newVisibility === 'ASSIGNED'} onChange={() => setNewVisibility('ASSIGNED')} /> Assign to specific customers</label>
+                </div>
+                {newVisibility === 'ASSIGNED' && <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-[#57534E]">{newAssignedCustomers.length} selected</span>
+                  <button type="button" onClick={() => setShowCustomerSearch(true)} className="rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold">Choose customers</button>
+                </div>}
+                <div className="border-t border-[#E8E6E1] pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={newOnlineRequired} onChange={(e) => setNewOnlineRequired(e.target.checked)} /> Online payment required</label>
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={newCodAllowed} onChange={(e) => setNewCodAllowed(e.target.checked)} /> Cash on delivery allowed</label>
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={newReturnable} onChange={(e) => setNewReturnable(e.target.checked)} /> Returnable product</label>
+                  {newReturnable && <label className="flex items-center gap-2 text-xs">Return window
+                    <input type="number" min={1} max={90} value={newReturnWindow} onChange={(e) => setNewReturnWindow(Number(e.target.value))} className="w-16 rounded border border-[#D6D3CD] px-2 py-1" /> days
+                  </label>}
+                </div>
+              </div>
+
               <div className="border-t border-[#F0EEE9] pt-3 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="inline-flex items-center gap-2 rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] cursor-pointer">
@@ -3641,6 +3675,13 @@ export function SellerHubView({
           </div>
         </div>
       )}
+
+      <CustomerSearchModal
+        open={showCustomerSearch}
+        selected={newAssignedCustomers}
+        onClose={() => setShowCustomerSearch(false)}
+        onChange={setNewAssignedCustomers}
+      />
 
       {/* Existing Product Multi-Image Manager Modal */}
       {editImagesTarget && (
