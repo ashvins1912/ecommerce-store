@@ -115,7 +115,7 @@ export function SizeGuideModal({
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-      <div className="w-full max-w-2xl rounded-xl border border-[#E8E6E1] bg-white shadow-2xl overflow-hidden">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-xl border border-[#E8E6E1] bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-[#E8E6E1] px-6 py-4">
           <div>
