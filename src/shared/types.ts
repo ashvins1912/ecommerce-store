@@ -17,6 +17,7 @@ export interface CategoryControl {
   productCount?: number;
   createdAt: string;
   updatedAt: string;
+  deliveredAt?: string | null;
 }
 
 export type SeasonType = 'Diwali' | 'Christmas' | 'New Year' | 'Winter' | 'Summer';
