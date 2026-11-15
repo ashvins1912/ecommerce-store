@@ -263,6 +263,7 @@ export default function App() {
   // Support shared product/category deep-links (?product=..., ?category=..., ?season=...), Admin invite links (?sellerInvite=... or ?invite=...), and hero scroll tracking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('auth') === '1') { setAuthInitialMode('signin'); setAuthOpen(true); }
     const sharedProd = params.get('product');
     if (sharedProd) {
       setSelectedProductKey(sharedProd);
