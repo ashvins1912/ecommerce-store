@@ -96,6 +96,7 @@ import {
   checkRateLimit,
 } from './src/server/services/redis.js';
 import { processAndStoreImage, getUploadDir } from './src/server/services/storage.js';
+import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerce-defaults.js';
 import {
   isValidE164,
   checkWhatsAppNumberExists,
@@ -236,6 +237,7 @@ async function saveCartForActor(
 
 async function startServer() {
   const dbStatus = await initDatabase();
+  if (dbStatus.mode === 'mongodb') await migrateCommerceDefaults();
   await recalculateTrendingAndBadges();
 
   const app = express();
