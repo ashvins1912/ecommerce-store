@@ -288,9 +288,8 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
           }
         }
       }
-      // Provision demo provider profiles only when the encryption key is configured.
-      // These records contain synthetic KYC and settlement values, never real personal data.
-      if (process.env.ENCRYPTION_MASTER_KEY) {
+      // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
+      if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
         for (const demo of [
           { email: 'provider.aarav@example.com', businessName: 'Aarav Artisan Supply', sellerEmail: 'meera@zaveriatelier.in', mobile: '+919876540001' },
           { email: 'provider.nisha@example.com', businessName: 'Nisha Craft Works', sellerEmail: 'raghav@jaipurloom.in', mobile: '+919876540002' },
@@ -316,6 +315,62 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
               { upsert: true }
             );
           }
+        }
+
+        // Seed realistic image-backed catalog rows for the demo provider workspaces.
+        // These use existing repository assets and are isolated by providerId.
+        const demoCatalog = [
+          {
+            email: 'provider.aarav@example.com',
+            sellerEmail: 'meera@zaveriatelier.in',
+            title: 'Demo Kundan Bridal Choker',
+            category: 'Artificial Jewellery',
+            subCategory: 'Choker Necklaces',
+            description: 'Demo provider listing with a local product image for testing the full catalog-to-review mapping.',
+            brand: 'Aarav Artisan',
+            manufacturerName: 'Aarav Artisan Supply',
+            basePricePaise: 185000,
+            imageUrls: ['/src/assets/images/jewellery_kundan_choker_1794740131002.jpg', '/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg'],
+          },
+          {
+            email: 'provider.nisha@example.com',
+            sellerEmail: 'raghav@jaipurloom.in',
+            title: 'Demo Chanderi Anarkali Set',
+            category: 'Clothing',
+            subCategory: 'Kurta Sets',
+            description: 'Demo provider listing with a local apparel image for validating provider catalog and seller review screens.',
+            brand: 'Nisha Craft',
+            manufacturerName: 'Nisha Craft Works',
+            basePricePaise: 245000,
+            imageUrls: ['/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg', '/src/assets/images/clothing_linen_co_ord_1794740132428.jpg'],
+          },
+        ];
+        for (const demo of demoCatalog) {
+          const providerUser = await UserModel.findOne({ email: demo.email }).lean();
+          const linkedSeller = await UserModel.findOne({ email: demo.sellerEmail }).lean();
+          if (!providerUser || !linkedSeller) continue;
+          await ProviderProductModel.updateOne(
+            { providerId: String(providerUser._id), title: demo.title },
+            { $setOnInsert: {
+              providerId: String(providerUser._id),
+              linkedSellerIds: [String(linkedSeller._id)],
+              title: demo.title,
+              category: demo.category,
+              subCategory: demo.subCategory,
+              description: demo.description,
+              brand: demo.brand,
+              manufacturerName: demo.manufacturerName,
+              sizeVariants: ['Free Size'],
+              colorVariants: ['Demo Gold'],
+              imageUrls: demo.imageUrls,
+              basePricePaise: demo.basePricePaise,
+              returnable: true,
+              returnWindowDays: 7,
+              damageReplacementPolicy: 'Demo-only replacement policy.',
+              status: 'PENDING_REVIEW',
+            } },
+            { upsert: true }
+          );
         }
       }
 
