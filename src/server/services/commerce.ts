@@ -195,3 +195,30 @@ export async function claimPaymentEvent(provider: GatewayProvider, eventId: stri
     throw err;
   }
 }
+
+export async function refundGatewayPayment(input: {
+  sellerId: string; provider: GatewayProvider; paymentReference: string;
+  amountPaise: number; idempotencyKey: string;
+}) {
+  const gateway = await getGatewaySecrets(input.sellerId, input.provider);
+  if (!gateway) throw new Error('ACTIVE_PAYMENT_GATEWAY_NOT_CONFIGURED');
+  if (!Number.isSafeInteger(input.amountPaise) || input.amountPaise <= 0) throw new Error('INVALID_REFUND_AMOUNT');
+  if (input.provider === 'razorpay') {
+    const auth = Buffer.from(gateway.keyId + ':' + gateway.secret).toString('base64');
+    const response = await fetch('https://api.razorpay.com/v1/payments/' + encodeURIComponent(input.paymentReference) + '/refund', {
+      method: 'POST', headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: input.amountPaise, notes: { idempotencyKey: input.idempotencyKey } }),
+    });
+    const body = await response.json() as any;
+    if (!response.ok) throw new Error(body.error?.description || 'RAZORPAY_REFUND_FAILED');
+    return { provider: 'razorpay' as const, refundId: String(body.id), status: String(body.status || 'pending') };
+  }
+  const params = new URLSearchParams({ payment_intent: input.paymentReference, amount: String(input.amountPaise) });
+  const response = await fetch('https://api.stripe.com/v1/refunds', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + gateway.secret, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': input.idempotencyKey },
+    body: params,
+  });
+  const body = await response.json() as any;
+  if (!response.ok) throw new Error(body.error?.message || 'STRIPE_REFUND_FAILED');
+  return { provider: 'stripe' as const, refundId: String(body.id), status: String(body.status || 'pending') };
+}
