@@ -2023,8 +2023,7 @@ async function startServer() {
           });
           order.refundStatus = 'PARTIAL';
         } else {
-          order.refundStatus = 'REFUNDED';
-          order.paymentStatus = 'REFUNDED';
+          order.refundStatus = 'PARTIAL';
           request.status = 'REFUNDED';
           await request.save();
         }
