@@ -1937,10 +1937,9 @@ async function startServer() {
     if (!order || order.status !== 'Delivered') return res.status(409).json({ error: 'ONLY_DELIVERED_ORDERS_CAN_BE_RETURNED' });
     const item = order.items.find((entry: any) => String(entry.productId) === parsed.data.productId);
     if (!item || parsed.data.quantity > item.quantity) return res.status(400).json({ error: 'INVALID_RETURN_ITEM_OR_QUANTITY' });
-    const product = await ProductModel.findById(parsed.data.productId).select('isReturnable returnWindowDays sellerId').lean();
-    if (!product || product.isReturnable === false) return res.status(409).json({ error: 'PRODUCT_NOT_RETURNABLE' });
+    if (item.isReturnable === false) return res.status(409).json({ error: 'PRODUCT_NOT_RETURNABLE' });
     const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).getTime() : new Date(order.updatedAt).getTime();
-    const deadline = deliveredAt + Math.max(0, Number(product.returnWindowDays ?? 7)) * 86400000;
+    const deadline = deliveredAt + Math.max(0, Number(item.returnWindowDays ?? 7)) * 86400000;
     if (Date.now() > deadline) return res.status(409).json({ error: 'RETURN_WINDOW_EXPIRED' });
     if (parsed.data.media.length === 0) return res.status(400).json({ error: 'RETURN_PHOTO_EVIDENCE_REQUIRED' });
     const cdnBase = (process.env.R2_PUBLIC_CDN_URL || '').replace(/\\/$/, '');
