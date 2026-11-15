@@ -1789,6 +1789,8 @@ async function startServer() {
     if (!['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING'].includes(order.status)) {
       return res.status(409).json({ error: 'ORDER_NOT_CANCELLABLE' });
     }
+    const previousStatus = order.status;
+    order.cancellationPreviousStatus = previousStatus;
     order.status = (['Shipped', 'Out for Delivery'].includes(order.status) || order.paymentStatus === 'PAID') ? 'CANCELLATION_REQUESTED' : 'Cancelled';
     order.cancellationRequestedAt = new Date();
     order.statusTimeline.push({ status: order.status, note: 'Cancellation requested by buyer; seller refund review required where applicable.', timestamp: new Date() });
@@ -1834,7 +1836,8 @@ async function startServer() {
     const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
     if (!order || order.status !== 'CANCELLATION_REQUESTED') return res.status(404).json({ error: 'CANCELLATION_REQUEST_NOT_FOUND' });
     if (parsed.data.action === 'reject') {
-      order.status = 'Confirmed';
+      order.status = order.cancellationPreviousStatus || 'Confirmed';
+      order.cancellationPreviousStatus = null;
       order.refundStatus = 'REJECTED';
       order.statusTimeline.push({ status: 'Confirmed', note: 'Seller rejected cancellation request.', timestamp: new Date() });
       await order.save();
@@ -1881,6 +1884,8 @@ async function startServer() {
     const deadline = deliveredAt + Math.max(0, Number(product.returnWindowDays ?? 7)) * 86400000;
     if (Date.now() > deadline) return res.status(409).json({ error: 'RETURN_WINDOW_EXPIRED' });
     if (parsed.data.media.length === 0) return res.status(400).json({ error: 'RETURN_PHOTO_EVIDENCE_REQUIRED' });
+    const cdnBase = (process.env.R2_PUBLIC_CDN_URL || '').replace(/\\/$/, '');
+    if (parsed.data.media.some((item) => !(item.url.startsWith('/uploads/') || (cdnBase && item.url.startsWith(cdnBase + '/products/'))))) return res.status(400).json({ error: 'RETURN_MEDIA_MUST_BE_UPLOADED_TO_STORE' });
     if (parsed.data.selfCourier && (!parsed.data.courierName || !parsed.data.trackingId)) return res.status(400).json({ error: 'SELF_COURIER_DETAILS_REQUIRED' });
     try {
       const request = await ReturnRequestModel.create({
@@ -1951,6 +1956,8 @@ async function startServer() {
       request.status = 'REFUNDED';
       await request.save();
       order.refundStatus = 'REFUNDED';
+      order.paymentStatus = 'REFUNDED';
+      order.status = 'RETURN_RECEIVED';
       await order.save();
     }
     res.json({ returnRequest: request });
