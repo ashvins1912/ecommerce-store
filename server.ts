@@ -3,7 +3,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import { timingSafeEqual } from 'node:crypto';
-import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
+import { UserModel, ProductModel, OrderModel, ReturnRequestModel, PaymentEventModel } from './src/server/models/schemas.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
@@ -1527,6 +1527,187 @@ async function startServer() {
     }
 
     res.json({ order: updated });
+  });
+
+
+  // Seller-scoped customer lookup. PUID, name and phone are searchable; response is deliberately minimized.
+  app.get('/api/seller/customers/search', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    if (q.length < 2) return res.json({ customers: [] });
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\  // --- Seller Analytics & Trending Cron ---');
+    const docs = await UserModel.find({
+      role: 'BUYER',
+      $or: [
+        { name: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { mobileNumber: { $regex: escaped, $options: 'i' } },
+        ...( /^[a-f0-9]{24}$/i.test(q) ? [{ _id: q }] : [] ),
+      ],
+    }).select('_id name email mobileNumber').limit(20).lean();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ customers: docs.map((d: any) => ({ _id: String(d._id), puid: String(d._id), name: d.name, email: d.email, mobileNumber: d.mobileNumber })) });
+  });
+
+  // Gateway secrets are encrypted at rest and never returned by this API.
+  app.get('/api/seller/payment-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const settings = await listGatewayConfigurations(user._id);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ gateways: settings });
+  });
+  app.put('/api/seller/payment-settings/:provider', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const provider = z.enum(['razorpay', 'stripe']).safeParse(req.params.provider);
+    if (!provider.success) return res.status(400).json({ error: 'UNSUPPORTED_PAYMENT_PROVIDER' });
+    const parsed = z.object({
+      keyId: z.string().trim().min(4).max(160),
+      secret: z.string().max(500).optional().default(''),
+      webhookSecret: z.string().max(500).optional().default(''),
+      enabled: z.boolean(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_GATEWAY_CONFIGURATION' });
+    try {
+      const gateway = await saveGatewayConfiguration({ sellerId: user._id, provider: provider.data, ...parsed.data });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ gateway });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  // Buyer wallet is backed by an immutable, idempotent ledger.
+  app.get('/api/wallet', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await getWalletSummary(user._id));
+  });
+  app.post('/api/wallet/redeem', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const parsed = z.object({ orderId: z.string().min(1), amountPaise: z.number().int().positive().max(100000000), idempotencyKey: z.string().min(12).max(120) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_WALLET_REDEMPTION' });
+    const order = await OrderModel.findOne({ _id: parsed.data.orderId, buyerId: user._id }).lean();
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (parsed.data.amountPaise > Math.round(Number(order.totalAmount) * 100)) return res.status(400).json({ error: 'WALLET_REDEMPTION_EXCEEDS_ORDER_TOTAL' });
+    try {
+      const transaction = await applyWalletTransaction({
+        userId: user._id, idempotencyKey: parsed.data.idempotencyKey,
+        type: 'DEBIT_ORDER_REDEMPTION', amountPaise: parsed.data.amountPaise,
+        orderId: parsed.data.orderId,
+      });
+      await OrderModel.updateOne({ _id: order._id, buyerId: user._id }, { $set: { walletAppliedPaise: transaction.replayed ? order.walletAppliedPaise : parsed.data.amountPaise } });
+      res.json({ transaction });
+    } catch (err) {
+      res.status((err as Error).message === 'INSUFFICIENT_WALLET_BALANCE' ? 409 : 400).json({ error: (err as Error).message });
+    }
+  });
+
+  // Buyer cancellation is a request once fulfilment has started; it never silently refunds.
+  app.post('/api/orders/:id/cancellation-request', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (!['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING'].includes(order.status)) {
+      return res.status(409).json({ error: 'ORDER_NOT_CANCELLABLE' });
+    }
+    order.status = ['Shipped', 'Out for Delivery'].includes(order.status) ? 'CANCELLATION_REQUESTED' : 'Cancelled';
+    order.cancellationRequestedAt = new Date();
+    order.statusTimeline.push({ status: order.status, note: 'Cancellation requested by buyer; seller refund review required where applicable.', timestamp: new Date() });
+    await order.save();
+    res.json({ order });
+  });
+
+  // Seller confirms stock/availability before prepaid checkout is enabled.
+  app.post('/api/seller/orders/:id/confirm', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (!['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(order.status)) return res.status(409).json({ error: 'INVALID_ORDER_TRANSITION' });
+    order.status = order.paymentMode === 'COD' ? 'Confirmed' : 'CONFIRMED_AWAITING_PAYMENT';
+    order.statusTimeline.push({ status: order.status, note: 'Seller confirmed product availability.', timestamp: new Date() });
+    await order.save();
+    res.json({ order });
+  });
+
+  // Return eligibility and media are checked server-side; media references must be hosted URLs.
+  app.post('/api/orders/:id/returns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const parsed = z.object({
+      productId: z.string().min(1), quantity: z.number().int().positive(),
+      reason: z.string().trim().min(5).max(1000),
+      media: z.array(z.object({ url: z.string().url(), mimeType: z.enum(['image/jpeg','image/png','image/webp','video/mp4','video/webm']), durationSeconds: z.number().min(0).max(10).default(0) })).min(1).max(8),
+      selfCourier: z.boolean().default(false), courierName: z.string().max(100).optional(),
+      trackingId: z.string().max(120).optional(), trackingUrl: z.string().url().optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_RETURN_REQUEST' });
+    const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
+    if (!order || order.status !== 'Delivered') return res.status(409).json({ error: 'ONLY_DELIVERED_ORDERS_CAN_BE_RETURNED' });
+    const item = order.items.find((entry: any) => String(entry.productId) === parsed.data.productId);
+    if (!item || parsed.data.quantity > item.quantity) return res.status(400).json({ error: 'INVALID_RETURN_ITEM_OR_QUANTITY' });
+    const product = await ProductModel.findById(parsed.data.productId).select('isReturnable returnWindowDays sellerId').lean();
+    if (!product || product.isReturnable === false) return res.status(409).json({ error: 'PRODUCT_NOT_RETURNABLE' });
+    const deadline = new Date(order.updatedAt).getTime() + Math.max(0, Number(product.returnWindowDays ?? 7)) * 86400000;
+    if (Date.now() > deadline) return res.status(409).json({ error: 'RETURN_WINDOW_EXPIRED' });
+    if (parsed.data.media.some((m) => m.mimeType.startsWith('video/') && m.durationSeconds > 10)) return res.status(400).json({ error: 'RETURN_VIDEO_MAX_10_SECONDS' });
+    if (parsed.data.selfCourier && (!parsed.data.courierName || !parsed.data.trackingId)) return res.status(400).json({ error: 'SELF_COURIER_DETAILS_REQUIRED' });
+    try {
+      const request = await ReturnRequestModel.create({
+        orderId: String(order._id), buyerId: user._id, sellerId: String(order.sellerId),
+        productId: parsed.data.productId, quantity: parsed.data.quantity,
+        reason: parsed.data.reason, media: parsed.data.media,
+        selfCourier: parsed.data.selfCourier, courierName: parsed.data.courierName,
+        trackingId: parsed.data.trackingId, trackingUrl: parsed.data.trackingUrl,
+      });
+      order.status = 'RETURN_REQUESTED';
+      order.statusTimeline.push({ status: 'RETURN_REQUESTED', note: 'Buyer submitted return evidence for seller review.', timestamp: new Date() });
+      await order.save();
+      return res.status(201).json({ returnRequest: request });
+    } catch (err) {
+      return res.status(409).json({ error: 'RETURN_REQUEST_ALREADY_EXISTS_OR_INVALID' });
+    }
+  });
+
+  app.patch('/api/seller/returns/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const parsed = z.object({ action: z.enum(['approve', 'reject', 'mark_received']), refundDestination: z.enum(['ORIGINAL_SOURCE', 'WALLET']).default('WALLET') }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_RETURN_ACTION' });
+    const filter = { _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) };
+    const request = await ReturnRequestModel.findOne(filter);
+    if (!request) return res.status(404).json({ error: 'RETURN_NOT_FOUND' });
+    if (parsed.data.action === 'approve') request.status = 'APPROVED';
+    else if (parsed.data.action === 'reject') request.status = 'REJECTED';
+    else {
+      if (!['APPROVED', 'IN_TRANSIT'].includes(request.status)) return res.status(409).json({ error: 'RETURN_NOT_READY_FOR_RECEIPT' });
+      request.status = 'RECEIVED';
+      request.receivedAt = new Date();
+      request.refundDestination = parsed.data.refundDestination;
+    }
+    await request.save();
+    if (parsed.data.action === 'mark_received' && parsed.data.refundDestination === 'WALLET') {
+      const order = await OrderModel.findById(request.orderId);
+      if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+      const item = order.items.find((entry: any) => String(entry.productId) === request.productId);
+      const amountPaise = Math.round(Number(item?.unitPrice || 0) * request.quantity * 100);
+      await applyWalletTransaction({
+        userId: request.buyerId, idempotencyKey: 'return-refund:' + String(request._id),
+        type: 'CREDIT_REFUND', amountPaise, orderId: request.orderId,
+        reference: 'Return refund after seller receipt verification',
+      });
+      request.status = 'REFUNDED';
+      await request.save();
+      order.refundStatus = 'REFUNDED';
+      await order.save();
+    }
+    res.json({ returnRequest: request });
   });
 
   // --- Seller Analytics & Trending Cron ---
