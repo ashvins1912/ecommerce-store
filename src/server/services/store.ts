@@ -56,6 +56,8 @@ import {
   CategoryControlModel,
   ShareEventModel,
 } from '../models/schemas.js';
+import { ProviderProfileModel } from '../models/providerSchemas.js';
+import { encryptField } from './fieldEncryption.js';
 import type { AuthSessionRecord } from './session.js';
 import { deleteStoredImageAssets } from './storage.js';
 import { purgeProductFromCartCaches } from './redis.js';
@@ -286,6 +288,37 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
           }
         }
       }
+      // Provision demo provider profiles only when the encryption key is configured.
+      // These records contain synthetic KYC and settlement values, never real personal data.
+      if (process.env.ENCRYPTION_MASTER_KEY) {
+        for (const demo of [
+          { email: 'provider.aarav@example.com', businessName: 'Aarav Artisan Supply', sellerEmail: 'meera@zaveriatelier.in', mobile: '+919876540001' },
+          { email: 'provider.nisha@example.com', businessName: 'Nisha Craft Works', sellerEmail: 'raghav@jaipurloom.in', mobile: '+919876540002' },
+        ]) {
+          const providerUser = await UserModel.findOne({ email: demo.email }).lean();
+          const linkedSeller = await UserModel.findOne({ email: demo.sellerEmail }).lean();
+          if (providerUser && linkedSeller) {
+            await ProviderProfileModel.updateOne(
+              { userId: String(providerUser._id) },
+              { $setOnInsert: {
+                userId: String(providerUser._id),
+                linkedSellerIds: [String(linkedSeller._id)],
+                businessName: demo.businessName,
+                contactPerson: demo.businessName,
+                mobile: demo.mobile,
+                whatsapp: demo.mobile,
+                warehouseAddress: 'Demo Warehouse, Jaipur, Rajasthan, India',
+                encryptedTaxId: encryptField('DEMO-GST-TEST-0001'),
+                encryptedSettlementDetails: encryptField('DEMO-ACCOUNT-000000000001'),
+                settlementDetailsLast4: '0001',
+                kycStatus: 'PENDING',
+              } },
+              { upsert: true }
+            );
+          }
+        }
+      }
+
       const catCount = await CategoryControlModel.countDocuments();
       if (catCount === 0) {
         for (const cat of buildDefaultCategories()) {
