@@ -3095,7 +3095,7 @@ export function SellerHubView({
                       {t('seller.confirmOrder')}
                     </button>
                   )}
-                  {(['Pending', 'Confirmed', 'PAID_AND_PROCESSING'].includes(ord.status)) && (
+                  {(['Confirmed', 'PAID_AND_PROCESSING'].includes(ord.status)) && (
                     <button
                       type="button"
                       onClick={() => handleOrderStatusChange(ord, 'Packed')}
@@ -3104,7 +3104,7 @@ export function SellerHubView({
                       {t('seller.markPacked')}
                     </button>
                   )}
-                  {['Pending', 'Confirmed', 'PAID_AND_PROCESSING', 'Packed'].includes(ord.status) && (
+                  {['Confirmed', 'PAID_AND_PROCESSING', 'Packed'].includes(ord.status) && (
                     <button
                       type="button"
                       onClick={() => {
