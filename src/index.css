@@ -59,6 +59,7 @@ body:has(.fixed.inset-0) {
 }
 
 .fixed.inset-0 {
+  overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -72,5 +73,11 @@ body:has(.fixed.inset-0) {
 @media (max-width: 640px) {
   .fixed.inset-0 {
     padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+}
+
+@media (max-height: 700px) {
+  .fixed.inset-0.items-center {
+    align-items: flex-start;
   }
 }
