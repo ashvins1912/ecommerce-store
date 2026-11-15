@@ -101,29 +101,6 @@ export function AuthModal({
     setVerificationNotice(null);
     setLoading(true);
     try {
-      const supabase = getSupabaseBrowserClient();
-      if (supabase) {
-        const { data: authData, error: authError } = await supabase.auth.getSession();
-        const session = authData.session;
-        if (authError) throw authError;
-        if (session?.access_token) {
-          const oauthResponse = await apiFetch<{
-            user: User;
-            accessToken?: string;
-            csrfToken?: string;
-            likedProductIds: string[];
-            cart: CartItem[];
-          }>('/api/auth/oauth', {
-            method: 'POST',
-            body: JSON.stringify({ accessToken: session.access_token }),
-          });
-          setClientSessionTokens(oauthResponse.accessToken, oauthResponse.csrfToken);
-          onAuthChanged(oauthResponse);
-          onClose();
-          return;
-        }
-      }
-
       const data = await apiFetch<{
         user: User;
         accessToken?: string;
