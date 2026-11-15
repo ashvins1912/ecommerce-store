@@ -62,6 +62,7 @@
     "apps/seller-hub",
     "apps/provider-portal",
     "packages/shared-types",
-    "packages/shared-utils"
+    "packages/shared-utils",
+    "packages/shared-ui"
   ]
 }
