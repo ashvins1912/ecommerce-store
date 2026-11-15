@@ -1916,7 +1916,7 @@ async function startServer() {
   app.post('/api/seller/providers/products/:id/publish', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
-    const parsed = z.object({ mrp: z.number().positive(), sellingPrice: z.number().positive(), totalStock: z.number().int().min(0), codAllowed: z.boolean().default(true), onlinePaymentRequired: z.boolean().default(false), isReturnable: z.boolean().default(true), returnWindowDays: z.number().int().min(0).max(90).default(7), trusted: z.boolean().default(false) }).safeParse(req.body);
+    const parsed = z.object({ mrp: z.number().positive(), sellingPrice: z.number().positive(), totalStock: z.number().int().min(0), codAllowed: z.boolean().default(true), onlinePaymentRequired: z.boolean().default(false), isReturnable: z.boolean().default(true), returnWindowDays: z.number().int().min(0).max(90).default(7), trusted: z.boolean().default(false), qualityChecked: z.boolean().default(false), manufacturerWarrantyVerified: z.boolean().default(false) }).safeParse(req.body);
     if (!parsed.success || (parsed.success && parsed.data.sellingPrice > parsed.data.mrp)) return res.status(400).json({ error: 'INVALID_RETAIL_LISTING' });
     const providerProduct = await ProviderProductModel.findOne({ _id: req.params.id, status: 'APPROVED', ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) });
     if (!providerProduct) return res.status(409).json({ error: 'PROVIDER_PRODUCT_MUST_BE_APPROVED_FIRST' });
@@ -1934,7 +1934,7 @@ async function startServer() {
       variants: [{ variantSku: 'DEFAULT-' + crypto.randomBytes(3).toString('hex'), size: providerProduct.sizeVariants[0] || 'One Size', colorName: providerProduct.colorVariants[0] || 'Default', colorHex: '#808080', stock: parsed.data.totalStock }],
       isReturnable: parsed.data.isReturnable, returnWindowDays: parsed.data.isReturnable ? parsed.data.returnWindowDays : 0,
       codAllowed: parsed.data.codAllowed, onlinePaymentRequired: parsed.data.onlinePaymentRequired,
-      isProductTrusted: parsed.data.trusted, providerId: providerProduct.providerId,
+      isProductTrusted: parsed.data.trusted, isQualityChecked: parsed.data.qualityChecked, manufacturerWarrantyVerified: parsed.data.manufacturerWarrantyVerified, providerId: providerProduct.providerId,
       providerProductId: String(providerProduct._id), providerBasePricePaise: providerProduct.approvedBasePricePaise || providerProduct.basePricePaise,
     });
     providerProduct.status = 'APPROVED_AND_PUBLISHED';
@@ -1977,6 +1977,15 @@ async function startServer() {
       await providerAudit(user, 'PROVIDER_SETTLEMENT_MARKED_SETTLED', record.providerId, String(record._id), { amountPaise: record.amountPaise });
     }
     res.json({ settledCount: records.length, utrReference: parsed.data.utrReference });
+  });
+
+  app.get('/api/seller/provider-settlements/:id/receipt', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const record = await ProviderSettlementModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }).select('+encryptedReceipt').lean();
+    if (!record || record.status !== 'SETTLED' || !record.encryptedReceipt) return res.status(404).json({ error: 'SETTLEMENT_RECEIPT_NOT_FOUND' });
+    const { decryptField } = await import('./src/server/services/fieldEncryption.js');
+    res.json({ receipt: JSON.parse(decryptField(record.encryptedReceipt)) });
   });
 
   app.get('/api/provider/settlements/:id/receipt', async (req, res) => {
