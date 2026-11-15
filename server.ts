@@ -1780,7 +1780,7 @@ async function startServer() {
     }
     const event = req.body as any;
     const object = event.data?.object;
-    const order = event.type === 'payment_intent.succeeded'
+    const order = event.type === 'checkout.session.completed'
       ? await OrderModel.findOne({ _id: object?.metadata?.orderId, sellerId: req.params.sellerId, paymentReference: object?.id })
       : event.type === 'charge.refunded'
         ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentTransactionId: object?.payment_intent })
@@ -1788,11 +1788,11 @@ async function startServer() {
     if (!order) return res.json({ received: true, ignored: true });
     const claimed = await claimPaymentEvent('stripe', String(event.id), String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
     if (!claimed) return res.json({ received: true, duplicate: true });
-    if (event.type === 'payment_intent.succeeded') {
-      order.paymentTransactionId = String(object.id);
+    if (event.type === 'checkout.session.completed') {
+      order.paymentTransactionId = String(object.payment_intent);
       order.paymentStatus = 'PAID';
       order.status = 'PAID_AND_PROCESSING';
-      order.statusTimeline.push({ status: order.status, note: 'Stripe payment verified by signed webhook.', timestamp: new Date() });
+      order.statusTimeline.push({ status: order.status, note: 'Stripe Checkout payment verified by signed webhook.', timestamp: new Date() });
     } else if (event.type === 'charge.refunded') {
       order.paymentStatus = 'REFUNDED';
       order.refundStatus = 'REFUNDED';
