@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:3000', changeOrigin: false },
       '/uploads': { target: 'http://localhost:3000', changeOrigin: false },
+      '/src/assets': { target: 'http://localhost:3000', changeOrigin: false },
     },
   },
   build: {
