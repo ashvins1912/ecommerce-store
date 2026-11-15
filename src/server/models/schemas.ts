@@ -219,6 +219,7 @@ const OrderSchema = new Schema(
     paymentTransactionId: { type: String, default: null, index: true },
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
     cancellationRequestedAt: { type: Date, default: null },
+    cancellationPreviousStatus: { type: String, default: null },
     deliveredAt: { type: Date, default: null },
     refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'REFUNDED', 'REJECTED'], default: 'NONE' },
     appliedCoupon: {
@@ -410,13 +411,13 @@ const WalletSchema = new Schema({
 }, { timestamps: true });
 
 const WalletTransactionSchema = new Schema({
-  userId: { type: String, required: true, index: true },
-  idempotencyKey: { type: String, required: true, unique: true },
-  type: { type: String, enum: ['CREDIT_REFUND', 'DEBIT_ORDER_REDEMPTION', 'BONUS', 'ADJUSTMENT'], required: true },
-  amountPaise: { type: Number, required: true, min: 1 },
-  orderId: { type: String, default: null, index: true },
-  reference: { type: String, default: null },
-  balanceAfterPaise: { type: Number, required: true, min: 0 },
+  userId: { type: String, required: true, index: true, immutable: true },
+  idempotencyKey: { type: String, required: true, unique: true, immutable: true },
+  type: { type: String, enum: ['CREDIT_REFUND', 'DEBIT_ORDER_REDEMPTION', 'BONUS', 'ADJUSTMENT'], required: true, immutable: true },
+  amountPaise: { type: Number, required: true, min: 1, immutable: true },
+  orderId: { type: String, default: null, index: true, immutable: true },
+  reference: { type: String, default: null, immutable: true },
+  balanceAfterPaise: { type: Number, required: true, min: 0, immutable: true },
   metadata: { type: Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 WalletTransactionSchema.index({ userId: 1, createdAt: -1 });
