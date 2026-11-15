@@ -1474,6 +1474,7 @@ async function startServer() {
 
   app.post('/api/orders', async (req, res) => {
     const { guestToken, user } = await resolveActor(req, res);
+    if (user) { const rate = await checkRateLimit('checkout:' + user._id, 10, 60); if (!rate.allowed) return res.status(429).json({ error: 'CHECKOUT_RATE_LIMITED' }); }
     if (!user) {
       return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Sign in to complete checkout.' });
     }
@@ -1626,6 +1627,8 @@ async function startServer() {
   app.get('/api/seller/customers/search', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const searchRate = await checkRateLimit('seller-customer-search:' + user._id, 60, 60);
+    if (!searchRate.allowed) return res.status(429).json({ error: 'SEARCH_RATE_LIMITED' });
     const q = String(req.query.q || '').trim().slice(0, 80);
     if (q.length < 2) return res.json({ customers: [] });
     const escaped = q.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
@@ -1716,6 +1719,8 @@ async function startServer() {
   app.post('/api/orders/:id/payment-intent', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const paymentRate = await checkRateLimit('order-payment:' + user._id, 10, 60);
+    if (!paymentRate.allowed) return res.status(429).json({ error: 'PAYMENT_RATE_LIMITED' });
     const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
     if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
     if (order.status !== 'CONFIRMED_AWAITING_PAYMENT' || order.paymentStatus === 'PAID') return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PAYMENT' });
