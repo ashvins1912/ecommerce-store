@@ -286,7 +286,7 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
         }
       } else {
         // Ensure dummy test users (Buyer, Seller, Admin) always exist for testing
-        for (const u of SEED_USERS) {
+        for (const u of ACTIVE_SEED_USERS) {
           const existing = await UserModel.findOne({ email: u.email.toLowerCase() }).lean();
           if (!existing) {
             await UserModel.create({ ...u, _id: new mongoose.Types.ObjectId() });
