@@ -487,9 +487,15 @@ async function startServer() {
         if (process.env.NODE_ENV === 'production') {
           return res.status(404).json({ error: 'Test accounts are disabled in production.' });
         }
-        user = await findUserById(parsed.data.quickDemoUserId);
-        if (!user && parsed.data.email) {
-          user = await findUserByEmail(parsed.data.email);
+        // Prefer the demo email because MongoDB seed records receive generated ObjectIds;
+        // the stable demo IDs are used by the local JSON store and UI only.
+        user = parsed.data.email ? await findUserByEmail(parsed.data.email) : null;
+        if (!user) {
+          try {
+            user = await findUserById(parsed.data.quickDemoUserId);
+          } catch {
+            user = null;
+          }
         }
         if (!user) {
           return res.status(404).json({ error: 'Test account not found.' });
