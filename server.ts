@@ -1746,17 +1746,28 @@ async function startServer() {
       return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
     }
     const event = req.body as any;
-    if (event?.event !== 'payment.captured') return res.json({ received: true, ignored: true });
     const payment = event.payload?.payment?.entity;
-    const order = await OrderModel.findOne({ sellerId: req.params.sellerId, paymentReference: payment?.order_id });
-    if (!order || !payment?.id) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
-    const eventId = String(event.id || payment.id);
+    const refundEntity = event.payload?.refund?.entity;
+    const order = event.event === 'payment.captured'
+      ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentReference: payment?.order_id })
+      : event.event === 'refund.processed'
+        ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentTransactionId: refundEntity?.payment_id })
+        : null;
+    if (!order) return res.json({ received: true, ignored: true });
+    const eventId = String(event.id || payment?.id || refundEntity?.id || '');
+    if (!eventId) return res.status(400).json({ error: 'WEBHOOK_EVENT_ID_REQUIRED' });
     const claimed = await claimPaymentEvent('razorpay', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
     if (!claimed) return res.json({ received: true, duplicate: true });
-    order.paymentTransactionId = String(payment.id);
-    order.paymentStatus = 'PAID';
-    order.status = 'PAID_AND_PROCESSING';
-    order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+    if (event.event === 'payment.captured' && payment?.id) {
+      order.paymentTransactionId = String(payment.id);
+      order.paymentStatus = 'PAID';
+      order.status = 'PAID_AND_PROCESSING';
+      order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+    } else if (event.event === 'refund.processed') {
+      order.paymentStatus = 'REFUNDED';
+      order.refundStatus = 'REFUNDED';
+      await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+    }
     await order.save();
     res.json({ received: true });
   });
@@ -1768,16 +1779,25 @@ async function startServer() {
       return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
     }
     const event = req.body as any;
-    if (event?.type !== 'payment_intent.succeeded') return res.json({ received: true, ignored: true });
-    const intent = event.data?.object;
-    const order = await OrderModel.findOne({ _id: intent?.metadata?.orderId, sellerId: req.params.sellerId, paymentReference: intent?.id });
-    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    const object = event.data?.object;
+    const order = event.type === 'payment_intent.succeeded'
+      ? await OrderModel.findOne({ _id: object?.metadata?.orderId, sellerId: req.params.sellerId, paymentReference: object?.id })
+      : event.type === 'charge.refunded'
+        ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentTransactionId: object?.payment_intent })
+        : null;
+    if (!order) return res.json({ received: true, ignored: true });
     const claimed = await claimPaymentEvent('stripe', String(event.id), String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
     if (!claimed) return res.json({ received: true, duplicate: true });
-    order.paymentTransactionId = String(intent.id);
-    order.paymentStatus = 'PAID';
-    order.status = 'PAID_AND_PROCESSING';
-    order.statusTimeline.push({ status: order.status, note: 'Stripe payment verified by signed webhook.', timestamp: new Date() });
+    if (event.type === 'payment_intent.succeeded') {
+      order.paymentTransactionId = String(object.id);
+      order.paymentStatus = 'PAID';
+      order.status = 'PAID_AND_PROCESSING';
+      order.statusTimeline.push({ status: order.status, note: 'Stripe payment verified by signed webhook.', timestamp: new Date() });
+    } else if (event.type === 'charge.refunded') {
+      order.paymentStatus = 'REFUNDED';
+      order.refundStatus = 'REFUNDED';
+      await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+    }
     await order.save();
     res.json({ received: true });
   });
