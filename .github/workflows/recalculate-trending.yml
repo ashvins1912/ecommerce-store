@@ -1,0 +1,22 @@
+name: 12-Hour Trending Recalculation
+
+on:
+  schedule:
+    # Runs every 12 hours at 00:00 and 12:00 UTC
+    - cron: '0 */12 * * *'
+  # Allows manual triggering for testing
+  workflow_dispatch:
+
+jobs:
+  recalculate-trending:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger Trending Recalculation
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ENDPOINT_URL: https://your-domain.com
+        run: |
+          curl --fail-with-body --max-time 300 -X POST "$ENDPOINT_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json"
