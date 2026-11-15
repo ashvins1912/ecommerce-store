@@ -105,6 +105,52 @@ function readSessionRecentlyViewed(): Product[] {
   }
 }
 
+function resolveAbsoluteUrl(pathOrUrl: string, origin: string): string {
+  if (!pathOrUrl) return `${origin}${HERO_IMG}`;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  return `${origin}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`;
+}
+
+function upsertHeadMeta(
+  attrName: 'name' | 'property',
+  attrValue: string,
+  content: string
+): void {
+  let el = document.head.querySelector(`meta[${attrName}="${attrValue}"]`) as HTMLMetaElement | null;
+  if (!el) {
+    el = document.createElement('meta');
+    el.setAttribute(attrName, attrValue);
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', content);
+}
+
+function removeHeadMeta(attrName: 'name' | 'property', attrValue: string): void {
+  const el = document.head.querySelector(`meta[${attrName}="${attrValue}"]`);
+  if (el) el.remove();
+}
+
+function upsertCanonicalLink(href: string): void {
+  let link = document.head.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.setAttribute('rel', 'canonical');
+    document.head.appendChild(link);
+  }
+  link.setAttribute('href', href);
+}
+
+function upsertJsonLdScript(payload: Record<string, unknown>): void {
+  let script = document.head.querySelector('#kk-structured-data') as HTMLScriptElement | null;
+  if (!script) {
+    script = document.createElement('script');
+    script.id = 'kk-structured-data';
+    script.type = 'application/ld+json';
+    document.head.appendChild(script);
+  }
+  script.textContent = JSON.stringify(payload);
+}
+
 export default function App() {
   const { t, tc, to, tseason, tsort } = useI18n();
   const [activePage, setActivePage] = useState<ActivePage>('store');
@@ -153,6 +199,7 @@ export default function App() {
 
   // Overlays & Modals
   const [selectedProductKey, setSelectedProductKey] = useState<string | null>(null);
+  const [activeProductMeta, setActiveProductMeta] = useState<Product | null>(null);
   const [selectedInitialVariantSku, setSelectedInitialVariantSku] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -196,12 +243,23 @@ export default function App() {
     }
   }, []);
 
-  // Support shared WhatsApp product deep-links (?product=...), Admin invite links (?sellerInvite=... or ?invite=...), and hero scroll tracking
+  // Support shared product/category deep-links (?product=..., ?category=..., ?season=...), Admin invite links (?sellerInvite=... or ?invite=...), and hero scroll tracking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sharedProd = params.get('product');
     if (sharedProd) {
       setSelectedProductKey(sharedProd);
+    }
+    const urlCategory = params.get('category');
+    if (urlCategory && urlCategory.trim()) {
+      setCategory(urlCategory.trim());
+    }
+    const urlSeason = params.get('season');
+    if (
+      urlSeason &&
+      (SEASONS as readonly string[]).includes(urlSeason)
+    ) {
+      setSeason(urlSeason as SeasonType | 'All');
     }
     const inviteParam = params.get('sellerInvite') || params.get('invite');
     if (inviteParam) {
@@ -216,6 +274,158 @@ export default function App() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // Dynamically inject canonical links, Open Graph tags, Twitter cards, and Schema.org JSON-LD based on selected product or category
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const origin = window.location.origin;
+    const pathname = window.location.pathname || '/';
+    const baseCanonical = `${origin}${pathname}`;
+
+    const currentUrl = new URL(window.location.href);
+    const preserveInvite = currentUrl.searchParams.get('sellerInvite') || currentUrl.searchParams.get('invite');
+
+    if (activeProductMeta && selectedProductKey) {
+      const productSlugOrId = activeProductMeta.slug || activeProductMeta._id;
+      const canonicalUrl = `${baseCanonical}?product=${encodeURIComponent(productSlugOrId)}`;
+      const title = `${activeProductMeta.title} — ${t('brand')}`;
+      const rawDesc = activeProductMeta.description?.trim() || t('hero.subtitle');
+      const description = rawDesc.length > 158 ? `${rawDesc.slice(0, 155).trim()}...` : rawDesc;
+      const primaryImage = resolveAbsoluteUrl(
+        activeProductMeta.images[0]?.url || HERO_IMG,
+        origin
+      );
+
+      document.title = title;
+      upsertCanonicalLink(canonicalUrl);
+      upsertHeadMeta('name', 'description', description);
+      upsertHeadMeta('property', 'og:site_name', t('brand'));
+      upsertHeadMeta('property', 'og:type', 'product');
+      upsertHeadMeta('property', 'og:title', title);
+      upsertHeadMeta('property', 'og:description', description);
+      upsertHeadMeta('property', 'og:url', canonicalUrl);
+      upsertHeadMeta('property', 'og:image', primaryImage);
+      upsertHeadMeta('property', 'product:price:amount', String(activeProductMeta.salePrice));
+      upsertHeadMeta('property', 'product:price:currency', 'INR');
+      upsertHeadMeta('name', 'twitter:card', 'summary_large_image');
+      upsertHeadMeta('name', 'twitter:title', title);
+      upsertHeadMeta('name', 'twitter:description', description);
+      upsertHeadMeta('name', 'twitter:image', primaryImage);
+
+      upsertJsonLdScript({
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        name: activeProductMeta.title,
+        image: activeProductMeta.images.map((img) => resolveAbsoluteUrl(img.url, origin)),
+        description,
+        sku: activeProductMeta.sku,
+        category: activeProductMeta.category,
+        brand: {
+          '@type': 'Brand',
+          name: activeProductMeta.sellerName || t('brand'),
+        },
+        offers: {
+          '@type': 'Offer',
+          url: canonicalUrl,
+          priceCurrency: 'INR',
+          price: activeProductMeta.salePrice,
+          availability:
+            activeProductMeta.totalStock > 0
+              ? 'https://schema.org/InStock'
+              : 'https://schema.org/OutOfStock',
+        },
+      });
+
+      if (!preserveInvite) {
+        const nextUrl = new URL(baseCanonical);
+        nextUrl.searchParams.set('product', productSlugOrId);
+        if (window.location.search !== nextUrl.search) {
+          window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}`);
+        }
+      }
+      return;
+    }
+
+    removeHeadMeta('property', 'product:price:amount');
+    removeHeadMeta('property', 'product:price:currency');
+
+    const canonicalParams = new URLSearchParams();
+    if (activePage === 'store' && category !== 'All') {
+      canonicalParams.set('category', String(category));
+    }
+    if (activePage === 'store' && season !== 'All') {
+      canonicalParams.set('season', String(season));
+    }
+    const querySuffix = canonicalParams.toString() ? `?${canonicalParams.toString()}` : '';
+    const canonicalUrl = `${baseCanonical}${querySuffix}`;
+
+    const matchedCategory = storeCategories.find(
+      (c) => c.name.toLowerCase() === String(category).toLowerCase()
+    );
+    const pageLabel =
+      activePage === 'wishlist'
+        ? t('nav.wishlist')
+        : activePage === 'orders'
+          ? t('nav.orders')
+          : activePage === 'seller'
+            ? t('nav.sellerHub')
+            : category !== 'All'
+              ? `${tc(category)} Collection`
+              : season !== 'All'
+                ? `${tseason(season)} Festive Edit`
+                : 'Artisanal Jewellery, Clothing & Accessories';
+
+    const title = `${pageLabel} — ${t('brand')}`;
+    const description =
+      matchedCategory?.description?.trim() ||
+      (category !== 'All'
+        ? `Shop handcrafted ${tc(category)} curated from Jaipur and Banaras artisans on ${t('brand')}.`
+        : 'Curated artificial jewellery, handloom clothing, and artisanal accessories with instant search, verified reviews, and seasonal edits.');
+    const ogImage = resolveAbsoluteUrl(
+      catalog.products[0]?.images[0]?.url || HERO_IMG,
+      origin
+    );
+
+    document.title = title;
+    upsertCanonicalLink(canonicalUrl);
+    upsertHeadMeta('name', 'description', description);
+    upsertHeadMeta('property', 'og:site_name', t('brand'));
+    upsertHeadMeta('property', 'og:type', 'website');
+    upsertHeadMeta('property', 'og:title', title);
+    upsertHeadMeta('property', 'og:description', description);
+    upsertHeadMeta('property', 'og:url', canonicalUrl);
+    upsertHeadMeta('property', 'og:image', ogImage);
+    upsertHeadMeta('name', 'twitter:card', 'summary_large_image');
+    upsertHeadMeta('name', 'twitter:title', title);
+    upsertHeadMeta('name', 'twitter:description', description);
+    upsertHeadMeta('name', 'twitter:image', ogImage);
+
+    upsertJsonLdScript({
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: title,
+      description,
+      url: canonicalUrl,
+    });
+
+    if (!preserveInvite && activePage === 'store') {
+      const nextSearch = canonicalParams.toString() ? `?${canonicalParams.toString()}` : '';
+      if (window.location.search !== nextSearch) {
+        window.history.replaceState({}, '', `${pathname}${nextSearch}`);
+      }
+    }
+  }, [
+    activeProductMeta,
+    selectedProductKey,
+    category,
+    season,
+    activePage,
+    catalog.products,
+    storeCategories,
+    t,
+    tc,
+    tseason,
+  ]);
 
   // Load initial auth/guest session + merge localStorage cart if server cart empty
   useEffect(() => {
@@ -458,6 +668,7 @@ export default function App() {
     (product: Product) => {
       recordRecentlyViewed(product);
       setSelectedInitialVariantSku(null);
+      setActiveProductMeta(product);
       setSelectedProductKey(product._id);
     },
     [recordRecentlyViewed]
@@ -467,6 +678,7 @@ export default function App() {
     (product: Product) => {
       recordRecentlyViewed(product);
       setSelectedInitialVariantSku(product.variants[0]?.variantSku || null);
+      setActiveProductMeta(product);
       setSelectedProductKey(product._id);
     },
     [recordRecentlyViewed]
@@ -1179,6 +1391,7 @@ export default function App() {
         initialVariantSku={selectedInitialVariantSku}
         onClose={() => {
           setSelectedProductKey(null);
+          setActiveProductMeta(null);
           setSelectedInitialVariantSku(null);
         }}
         user={user}
@@ -1192,10 +1405,14 @@ export default function App() {
         compareIds={compareIds}
         onToggleCompare={handleToggleCompare}
         categoryTop10Thresholds={catalog.categoryTop10Thresholds}
-        onProductLoaded={recordRecentlyViewed}
+        onProductLoaded={(loaded) => {
+          recordRecentlyViewed(loaded);
+          setActiveProductMeta(loaded);
+        }}
         onApplyCoupon={(code) => {
           setPendingCouponCode(code);
           setSelectedProductKey(null);
+          setActiveProductMeta(null);
           setCartOpen(true);
         }}
       />

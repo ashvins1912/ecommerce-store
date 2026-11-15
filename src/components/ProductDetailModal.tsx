@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
+import InnerImageZoom from 'react-inner-image-zoom';
+import 'react-inner-image-zoom/lib/styles.min.css';
 import Lightbox from 'yet-another-react-lightbox';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import 'yet-another-react-lightbox/styles.css';
 import {
   ChevronLeft,
   ChevronRight,
+  Expand,
   GitCompare,
   Heart,
   Ruler,
@@ -100,7 +103,10 @@ export function ProductDetailModal({
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
+  const [emblaRef, emblaApi] = useEmblaCarousel({
+    loop: true,
+    watchDrag: (_api, evt) => 'touches' in evt,
+  });
 
   const loadProduct = useCallback(
     async (idOrSlug: string) => {
@@ -251,22 +257,40 @@ export function ProductDetailModal({
                       {product.images.map((img, idx) => (
                         <div
                           key={`${img.url}-${idx}`}
-                          className="relative aspect-[4/3] min-w-full cursor-zoom-in group"
-                          onClick={() => {
-                            setLightboxIndex(idx);
-                            setLightboxOpen(true);
-                          }}
+                          className="relative aspect-[4/3] min-w-full [&_.iiz]:block [&_.iiz]:h-full [&_.iiz]:w-full [&_.iiz>div]:h-full [&_.iiz__img]:h-full [&_.iiz__img]:w-full [&_.iiz__img]:object-cover"
                         >
-                          <img
+                          <InnerImageZoom
                             src={img.url}
-                            alt={img.altText || product.title}
-                            referrerPolicy="no-referrer"
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+                            zoomSrc={img.url}
+                            zoomType="hover"
+                            moveType="pan"
+                            zoomScale={2.25}
+                            zoomPreload
+                            fullscreenOnMobile
+                            mobileBreakpoint={640}
+                            hideHint
+                            imgAttributes={{
+                              alt: img.altText || product.title,
+                              referrerPolicy: 'no-referrer',
+                            }}
                           />
-                          <div className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-md bg-white/90 px-2.5 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs">
-                            <ZoomIn className="h-3.5 w-3.5" />
-                            <span>{t('detail.tapToZoom')}</span>
+                          <div className="pointer-events-none hidden sm:inline-flex items-center gap-1.5 absolute bottom-3 left-3 z-10 rounded-md bg-white/90 px-2.5 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs">
+                            <ZoomIn className="h-3.5 w-3.5 text-[#881337]" />
+                            <span>{t('detail.hoverZoom')}</span>
                           </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLightboxIndex(idx);
+                              setLightboxOpen(true);
+                            }}
+                            aria-label={t('detail.fullscreen')}
+                            className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-md bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
+                          >
+                            <Expand className="h-3.5 w-3.5" />
+                            <span>{t('detail.fullscreen')}</span>
+                          </button>
                         </div>
                       ))}
                     </div>
