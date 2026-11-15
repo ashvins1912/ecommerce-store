@@ -2317,6 +2317,17 @@ async function startServer() {
       request.refundDestination = parsed.data.refundDestination;
     }
     await request.save();
+    if (parsed.data.action === 'mark_received') {
+      const settlement = await ProviderSettlementModel.findOne({ orderId: request.orderId, orderItemKey: request.productId, status: { $in: ['PENDING_CLEARANCE', 'READY_FOR_SETTLEMENT', 'ADJUSTED'] } });
+      if (settlement) {
+        const remainingQuantity = Math.max(0, Number(settlement.quantity) - Number(request.quantity));
+        settlement.quantity = remainingQuantity;
+        settlement.amountPaise = remainingQuantity * Number(settlement.unitBasePricePaise);
+        settlement.status = remainingQuantity === 0 ? 'VOID' : 'ADJUSTED';
+        await settlement.save();
+        await providerAudit(user, 'PROVIDER_SETTLEMENT_ADJUSTED_FOR_RETURN', settlement.providerId, String(settlement._id), { returnedQuantity: request.quantity });
+      }
+    }
     if (parsed.data.action === 'mark_received' && parsed.data.refundDestination === 'ORIGINAL_SOURCE') {
       const order = await OrderModel.findById(request.orderId);
       if (!order || !order.paymentProvider || !order.paymentTransactionId || order.paymentStatus !== 'PAID') {
