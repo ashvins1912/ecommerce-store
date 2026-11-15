@@ -426,6 +426,11 @@ export function AuthModal({
           </div>
         ) : (
           <div className="mt-5 space-y-5">
+            <div className="flex items-center justify-center gap-2 text-[11px] text-[#78716C]">
+              <span>Welcome back</span>
+              <span aria-hidden="true">·</span>
+              <span>Create one account to shop and sell</span>
+            </div>
             {/* Account access */}
             <div className="grid grid-cols-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] p-1">
               <button
