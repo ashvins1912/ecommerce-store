@@ -307,6 +307,7 @@ export default function App() {
 
     const currentUrl = new URL(window.location.href);
     const preserveInvite = currentUrl.searchParams.get('sellerInvite') || currentUrl.searchParams.get('invite');
+    const preserveOAuth = currentUrl.searchParams.get('oauth') === '1';
 
     if (activeProductMeta && selectedProductKey) {
       const productSlugOrId = activeProductMeta.slug || activeProductMeta._id;
@@ -359,7 +360,7 @@ export default function App() {
         },
       });
 
-      if (!preserveInvite) {
+      if (!preserveInvite && !preserveOAuth) {
         const nextUrl = new URL(baseCanonical);
         nextUrl.searchParams.set('product', productSlugOrId);
         if (window.location.search !== nextUrl.search) {
@@ -433,7 +434,7 @@ export default function App() {
       url: canonicalUrl,
     });
 
-    if (!preserveInvite && activePage === 'store') {
+    if (!preserveInvite && !preserveOAuth && activePage === 'store') {
       const nextSearch = canonicalParams.toString() ? `?${canonicalParams.toString()}` : '';
       if (window.location.search !== nextSearch) {
         window.history.replaceState({}, '', `${pathname}${nextSearch}`);
@@ -495,8 +496,10 @@ export default function App() {
     return () => { cancelled = true; };
   }, [showToast]);
 
-  // Load initial auth/guest session + merge localStorage cart if server cart empty
+  // Load initial auth/guest session + merge localStorage cart if server cart empty.
+  // OAuth callback exchange owns auth state on callback mounts; never let guest hydration race it.
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('oauth') === '1') return;
     (async () => {
       try {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
@@ -810,6 +813,21 @@ export default function App() {
     }
   }, []);
 
+  const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
+    if (window.location.pathname.replace(/\\/+$/, '') === '/seller-hub') {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.pathname = '/';
+      nextUrl.searchParams.delete('sellerInvite');
+      nextUrl.searchParams.delete('invite');
+      window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+    }
+    setActivePage('store');
+    if (cat) {
+      setCategory(cat);
+      setPage(1);
+    }
+  }, []);
+
   const compareIds = new Set(compareItems.map((i) => i._id));
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
 
@@ -818,13 +836,7 @@ export default function App() {
       <TopBar
         activePage={activePage}
         activeCategory={category}
-        onNavigateStore={(cat) => {
-          setActivePage('store');
-          if (cat) {
-            setCategory(cat);
-            setPage(1);
-          }
-        }}
+        onNavigateStore={navigateToStore}
         onNavigateWishlist={() => setActivePage('wishlist')}
         onNavigateOrders={() => setActivePage('orders')}
         wishlistCount={likedIds.size}
@@ -853,7 +865,7 @@ export default function App() {
               setAuthInitialMode('signin');
               setAuthOpen(true);
             }}
-            onNavigateStore={() => setActivePage('store')}
+            onNavigateStore={() => navigateToStore()}
           />
         </div>
       )}
@@ -867,7 +879,7 @@ export default function App() {
             onSelectProduct={handleSelectProduct}
             compareIds={compareIds}
             onToggleCompare={handleToggleCompare}
-            onBrowseCatalog={() => setActivePage('store')}
+            onBrowseCatalog={() => navigateToStore()}
           />
         </div>
       )}
@@ -904,7 +916,7 @@ export default function App() {
             }}
             inviteToken={sellerInviteToken}
             onInviteConsumed={handleInviteConsumed}
-            onReturnToStore={() => setActivePage('store')}
+            onReturnToStore={() => navigateToStore()}
           />
         </div>
       )}
