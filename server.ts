@@ -1834,6 +1834,10 @@ async function startServer() {
     order.status = order.paymentMode === 'COD' ? 'Confirmed' : 'CONFIRMED_AWAITING_PAYMENT';
     order.statusTimeline.push({ status: order.status, note: 'Seller confirmed product availability.', timestamp: new Date() });
     await order.save();
+    if (order.paymentMode !== 'COD') {
+      const checkoutUrl = getAppBaseUrl(req) + '/orders';
+      await sendWhatsAppMessage(order.shippingAddress.phone, 'Seller confirmed order ' + order.orderNumber + '. Complete secure payment from your order page: ' + checkoutUrl);
+    }
     res.json({ order });
   });
 
