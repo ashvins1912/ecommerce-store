@@ -4,7 +4,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel, PaymentEventModel } from './src/server/models/schemas.js';
-import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, refundGatewayPayment, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -1586,6 +1586,7 @@ async function startServer() {
     });
     if (!updated) return res.status(404).json({ error: 'Order not found' });
 
+    if (parsed.data.status === 'Delivered') await OrderModel.updateOne({ _id: updated._id }, { $set: { deliveredAt: new Date() } });
     if (parsed.data.status === 'Shipped' && updated.courierTracking) {
       const dispatch = await sendWhatsAppMessage(
         updated.shippingAddress.phone,
@@ -1794,6 +1795,23 @@ async function startServer() {
     res.json({ order });
   });
 
+  app.post('/api/returns/upload', upload.array('media', 8), async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const rate = await checkRateLimit('return-upload:' + user._id, 12, 3600);
+    if (!rate.allowed) return res.status(429).json({ error: 'RETURN_UPLOAD_RATE_LIMITED' });
+    const files = (req.files || []) as Express.Multer.File[];
+    if (!files.length || files.length > 8) return res.status(400).json({ error: 'UPLOAD_1_TO_8_RETURN_PHOTOS' });
+    if (files.some((file) => !['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype))) return res.status(415).json({ error: 'RETURN_PHOTOS_ONLY' });
+    try {
+      const media = [];
+      for (const file of files) media.push(await processAndStoreImage(file.buffer, file.originalname));
+      res.status(201).json({ media: media.map((item: any) => ({ url: item.url, mimeType: 'image/webp', durationSeconds: 0 })) });
+    } catch (err) {
+      res.status(400).json({ error: 'RETURN_MEDIA_PROCESSING_FAILED', message: (err as Error).message });
+    }
+  });
+
   // Return eligibility and media are checked server-side; media references must be hosted URLs.
   app.post('/api/orders/:id/returns', async (req, res) => {
     const { user } = await resolveActor(req, res);
@@ -1801,7 +1819,7 @@ async function startServer() {
     const parsed = z.object({
       productId: z.string().min(1), quantity: z.number().int().positive(),
       reason: z.string().trim().min(5).max(1000),
-      media: z.array(z.object({ url: z.string().url(), mimeType: z.enum(['image/jpeg','image/png','image/webp','video/mp4','video/webm']), durationSeconds: z.number().min(0).max(10).default(0) })).min(1).max(8),
+      media: z.array(z.object({ url: z.string().url(), mimeType: z.enum(['image/jpeg','image/png','image/webp']), durationSeconds: z.number().max(0).default(0) })).min(1).max(8),
       selfCourier: z.boolean().default(false), courierName: z.string().max(100).optional(),
       trackingId: z.string().max(120).optional(), trackingUrl: z.string().url().optional(),
     }).safeParse(req.body);
@@ -1812,9 +1830,10 @@ async function startServer() {
     if (!item || parsed.data.quantity > item.quantity) return res.status(400).json({ error: 'INVALID_RETURN_ITEM_OR_QUANTITY' });
     const product = await ProductModel.findById(parsed.data.productId).select('isReturnable returnWindowDays sellerId').lean();
     if (!product || product.isReturnable === false) return res.status(409).json({ error: 'PRODUCT_NOT_RETURNABLE' });
-    const deadline = new Date(order.updatedAt).getTime() + Math.max(0, Number(product.returnWindowDays ?? 7)) * 86400000;
+    const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).getTime() : new Date(order.updatedAt).getTime();
+    const deadline = deliveredAt + Math.max(0, Number(product.returnWindowDays ?? 7)) * 86400000;
     if (Date.now() > deadline) return res.status(409).json({ error: 'RETURN_WINDOW_EXPIRED' });
-    if (parsed.data.media.some((m) => m.mimeType.startsWith('video/') && m.durationSeconds > 10)) return res.status(400).json({ error: 'RETURN_VIDEO_MAX_10_SECONDS' });
+    if (parsed.data.media.length === 0) return res.status(400).json({ error: 'RETURN_PHOTO_EVIDENCE_REQUIRED' });
     if (parsed.data.selfCourier && (!parsed.data.courierName || !parsed.data.trackingId)) return res.status(400).json({ error: 'SELF_COURIER_DETAILS_REQUIRED' });
     try {
       const request = await ReturnRequestModel.create({
@@ -1845,11 +1864,32 @@ async function startServer() {
     else if (parsed.data.action === 'reject') request.status = 'REJECTED';
     else {
       if (!['APPROVED', 'IN_TRANSIT'].includes(request.status)) return res.status(409).json({ error: 'RETURN_NOT_READY_FOR_RECEIPT' });
-      request.status = 'RECEIVED';
+      request.status = parsed.data.refundDestination === 'WALLET' ? 'RECEIVED' : 'REFUND_PENDING';
       request.receivedAt = new Date();
       request.refundDestination = parsed.data.refundDestination;
     }
     await request.save();
+    if (parsed.data.action === 'mark_received' && parsed.data.refundDestination === 'ORIGINAL_SOURCE') {
+      const order = await OrderModel.findById(request.orderId);
+      if (!order || !order.paymentProvider || !order.paymentTransactionId || order.paymentStatus !== 'PAID') {
+        return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
+      }
+      try {
+        const item = order.items.find((entry: any) => String(entry.productId) === request.productId);
+        const amountPaise = Math.round(Number(item?.unitPrice || 0) * request.quantity * 100);
+        const refund = await refundGatewayPayment({
+          sellerId: String(order.sellerId), provider: order.paymentProvider,
+          paymentReference: String(order.paymentTransactionId), amountPaise,
+          idempotencyKey: 'return-refund:' + String(request._id),
+        });
+        order.refundStatus = 'PROCESSING';
+        order.paymentStatus = 'REFUND_PENDING';
+        await order.save();
+        return res.json({ returnRequest: request, refund });
+      } catch (err) {
+        return res.status(502).json({ error: (err as Error).message });
+      }
+    }
     if (parsed.data.action === 'mark_received' && parsed.data.refundDestination === 'WALLET') {
       const order = await OrderModel.findById(request.orderId);
       if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
