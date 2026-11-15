@@ -1,0 +1,6 @@
+{
+  "name": "Kala & Karat — Artisanal Jewellery, Apparel & Accessories",
+  "description": "High-speed, mobile-first e-commerce platform for handcrafted artificial jewellery, clothing, and fashion accessories with hybrid search, verified reviews, WhatsApp seller workflows, and seller analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

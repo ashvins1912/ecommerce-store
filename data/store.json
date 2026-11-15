@@ -1,0 +1,3314 @@
+{
+  "users": [
+    {
+      "_id": "usr_seller_1",
+      "role": "SELLER",
+      "name": "Meera Zaveri",
+      "email": "meera@zaveriatelier.in",
+      "oauthAccounts": [
+        {
+          "provider": "google",
+          "providerAccountId": "g-seller-01"
+        }
+      ],
+      "mobileNumber": "+919820112233",
+      "whatsappNumber": "+919820112233",
+      "isWhatsappVerified": true,
+      "shippingAddresses": [
+        {
+          "_id": "addr_s1",
+          "label": "Atelier",
+          "fullName": "Meera Zaveri",
+          "phone": "+919820112233",
+          "street": "14 Johari Bazaar Lane",
+          "city": "Jaipur",
+          "state": "Rajasthan",
+          "pincode": "302003",
+          "isDefault": true
+        }
+      ],
+      "sellerProfile": {
+        "storeName": "Zaveri Atelier",
+        "description": "Handcrafted kundan, polki, and heirloom brass jewellery from Jaipur.",
+        "trustScore": 4.9,
+        "isTrustedSeller": true,
+        "totalOrders": 148,
+        "cancelledOrders": 2
+      },
+      "createdAt": "2026-07-18T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "usr_seller_2",
+      "role": "SELLER",
+      "name": "Raghavendra Rathore",
+      "email": "raghav@jaipurloom.in",
+      "oauthAccounts": [
+        {
+          "provider": "meta",
+          "providerAccountId": "m-seller-02"
+        }
+      ],
+      "mobileNumber": "+919811445566",
+      "whatsappNumber": "+919811445566",
+      "isWhatsappVerified": true,
+      "shippingAddresses": [],
+      "sellerProfile": {
+        "storeName": "Jaipur Loom Studio",
+        "description": "Artisanal handloom kurtas, contemporary linen sets, and embroidered potlis.",
+        "trustScore": 4.8,
+        "isTrustedSeller": true,
+        "totalOrders": 94,
+        "cancelledOrders": 1
+      },
+      "createdAt": "2026-08-17T11:05:21.590Z",
+      "updatedAt": "2026-11-13T11:05:21.590Z"
+    },
+    {
+      "_id": "usr_buyer_1",
+      "role": "BUYER",
+      "name": "Ananya Mehta",
+      "email": "ananya.mehta@example.com",
+      "oauthAccounts": [
+        {
+          "provider": "google",
+          "providerAccountId": "g-buyer-01"
+        }
+      ],
+      "mobileNumber": "+919876543210",
+      "isWhatsappVerified": false,
+      "shippingAddresses": [
+        {
+          "_id": "addr_b1",
+          "label": "Home",
+          "fullName": "Ananya Mehta",
+          "phone": "+919876543210",
+          "street": "42B Linking Road, Bandra West",
+          "city": "Mumbai",
+          "state": "Maharashtra",
+          "pincode": "400050",
+          "isDefault": true
+        }
+      ],
+      "createdAt": "2026-10-01T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "usr_admin_1",
+      "role": "ADMIN",
+      "name": "Kala & Karat Ops",
+      "email": "ops@kalaandkarat.in",
+      "oauthAccounts": [],
+      "mobileNumber": "+919900112233",
+      "whatsappNumber": "+919900112233",
+      "isWhatsappVerified": true,
+      "shippingAddresses": [],
+      "createdAt": "2026-05-19T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "usr_ba1ce85b6d",
+      "role": "SELLER",
+      "name": "Invited Artisan",
+      "email": "invited.artisan.1794742298372@example.com",
+      "oauthAccounts": [],
+      "mobileNumber": "+919911223344",
+      "whatsappNumber": "+919911223344",
+      "isWhatsappVerified": true,
+      "shippingAddresses": [],
+      "sellerProfile": {
+        "storeName": "Banaras Guild",
+        "description": "Silk weaves",
+        "trustScore": 4.8,
+        "isTrustedSeller": true,
+        "totalOrders": 0,
+        "cancelledOrders": 0
+      },
+      "createdAt": "2026-11-15T11:31:38.406Z",
+      "updatedAt": "2026-11-15T11:31:38.406Z"
+    }
+  ],
+  "products": [
+    {
+      "_id": "prd_01",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Rajwada Meenakari Kundan Bridal Choker",
+      "slug": "rajwada-meenakari-kundan-bridal-choker",
+      "sku": "KK-PRD_01",
+      "category": "Artificial Jewellery",
+      "subCategory": "Choker Necklaces",
+      "description": "Hand-set glass kundan choker finished with emerald meenakari enamel and layered freshwater pearl drops. Engineered on flexible brass links for comfortable evening wear.",
+      "careInstructions": "Wipe with a dry cotton cloth after wear. Keep away from perfume and moisture.",
+      "basePrice": 3499,
+      "salePrice": 2799,
+      "discountPercent": 20,
+      "totalStock": 24,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Rajwada Meenakari Kundan Bridal Choker view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "thumbUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "altText": "Rajwada Meenakari Kundan Bridal Choker view 2",
+          "sortOrder": 1
+        },
+        {
+          "url": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "altText": "Rajwada Meenakari Kundan Bridal Choker view 3",
+          "sortOrder": 2
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Brass Alloy",
+        "plating": "22k Matte Antique Gold",
+        "stoneType": "Glass Kundan & Faux Pearl",
+        "weightGrams": 78,
+        "dimensions": "18 cm x 4.5 cm",
+        "closureType": "Adjustable Silk Dori",
+        "occasionWear": "Wedding, Festive"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_01-11",
+          "size": "Free Size",
+          "colorName": "Antique Gold Emerald",
+          "colorHex": "#14532D",
+          "stock": 12,
+          "variantImageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_01-21",
+          "size": "Free Size",
+          "colorName": "Antique Gold Ruby",
+          "colorHex": "#881337",
+          "stock": 12,
+          "variantImageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive"
+      ],
+      "likesCount": 184,
+      "viewsCount": 1922,
+      "cartAddsCount": 74,
+      "salesCount": 52,
+      "trendScore": 666,
+      "averageRating": 4.9,
+      "reviewCount": 3,
+      "badges": [
+        "Special Offer",
+        "Fast Selling",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-01T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_02",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Chandbali Filigree Dual-Tone Jhumka Earrings",
+      "slug": "chandbali-filigree-dual-tone-jhumka-earrings",
+      "sku": "KK-PRD_02",
+      "category": "Artificial Jewellery",
+      "subCategory": "Jhumkas & Drops",
+      "description": "Sculpted dome jhumkas blending oxidized silver filigree with antique gold rosette studs and cascade pearl tassels.",
+      "careInstructions": "Store individually in airtight zip pouches.",
+      "basePrice": 1299,
+      "salePrice": 1104,
+      "discountPercent": 15,
+      "totalStock": 46,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "altText": "Chandbali Filigree Dual-Tone Jhumka Earrings view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "thumbUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "altText": "Chandbali Filigree Dual-Tone Jhumka Earrings view 2",
+          "sortOrder": 1
+        },
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Chandbali Filigree Dual-Tone Jhumka Earrings view 3",
+          "sortOrder": 2
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "German Silver & Brass",
+        "plating": "Dual-Tone Antique Gold & Oxidized",
+        "stoneType": "Seed Pearls",
+        "weightGrams": 28,
+        "dimensions": "6.2 cm x 3.1 cm",
+        "closureType": "Push Back Post",
+        "occasionWear": "Festive, Wedding, Party"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_02-11",
+          "size": "Free Size",
+          "colorName": "Dual Tone Silver Gold",
+          "colorHex": "#A16207",
+          "stock": 23,
+          "variantImageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_02-21",
+          "size": "Free Size",
+          "colorName": "Oxidized Silver",
+          "colorHex": "#71717A",
+          "stock": 23,
+          "variantImageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg"
+        }
+      ],
+      "occasions": [
+        "Festive",
+        "Wedding",
+        "Party"
+      ],
+      "likesCount": 238,
+      "viewsCount": 2450,
+      "cartAddsCount": 112,
+      "salesCount": 86,
+      "trendScore": 1004,
+      "averageRating": 4.8,
+      "reviewCount": 2,
+      "badges": [
+        "Newly Added",
+        "Special Offer",
+        "Fast Selling",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-06T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_03",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Panchratna Polki Stacked Bangles & Cuff Set",
+      "slug": "panchratna-polki-stacked-bangles-cuff-set",
+      "sku": "KK-PRD_03",
+      "category": "Artificial Jewellery",
+      "subCategory": "Bangles & Kadas",
+      "description": "Set of six hand-beaded matte gold bangles paired with a hammered architectural cuff encrusted with uncut polki stones.",
+      "careInstructions": "Avoid direct water contact; store flat in velvet box.",
+      "basePrice": 2799,
+      "salePrice": 2099,
+      "discountPercent": 25,
+      "totalStock": 19,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "altText": "Panchratna Polki Stacked Bangles & Cuff Set view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Panchratna Polki Stacked Bangles & Cuff Set view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Copper Brass",
+        "plating": "Micron Matte Gold",
+        "stoneType": "Uncut Polki Glass",
+        "weightGrams": 94,
+        "dimensions": "Width 6.4 cm",
+        "closureType": "Hinged Screw Clasp",
+        "occasionWear": "Wedding, Festive"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_03-11",
+          "size": "2.4",
+          "colorName": "Matte Gold",
+          "colorHex": "#CA8A04",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_03-12",
+          "size": "2.6",
+          "colorName": "Matte Gold",
+          "colorHex": "#CA8A04",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_03-13",
+          "size": "2.8",
+          "colorName": "Matte Gold",
+          "colorHex": "#CA8A04",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_03-21",
+          "size": "2.4",
+          "colorName": "Rose Antique",
+          "colorHex": "#9F1239",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_03-22",
+          "size": "2.6",
+          "colorName": "Rose Antique",
+          "colorHex": "#9F1239",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_03-23",
+          "size": "2.8",
+          "colorName": "Rose Antique",
+          "colorHex": "#9F1239",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive"
+      ],
+      "likesCount": 156,
+      "viewsCount": 1580,
+      "cartAddsCount": 63,
+      "salesCount": 41,
+      "trendScore": 550,
+      "averageRating": 4.7,
+      "reviewCount": 2,
+      "badges": [
+        "Special Offer",
+        "Fast Selling",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-25T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_04",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Gulbahar Garnet Zari Embroidered Anarkali Set",
+      "slug": "gulbahar-garnet-zari-embroidered-anarkali-set",
+      "sku": "KK-PRD_04",
+      "category": "Clothing",
+      "subCategory": "Kurta Sets",
+      "description": "Three-piece Chanderi silk-blend kurta with intricate tilla embroidery across the yoke, straight trousers, and a scalloped sheer organza dupatta.",
+      "careInstructions": "Dry clean only. Steam press on reverse.",
+      "basePrice": 5499,
+      "salePrice": 4509,
+      "discountPercent": 18,
+      "totalStock": 15,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Gulbahar Garnet Zari Embroidered Anarkali Set view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "thumbUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "altText": "Gulbahar Garnet Zari Embroidered Anarkali Set view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "Chanderi Silk Blend with Mulmul Lining",
+        "fit": "Tailored Straight Flare",
+        "pattern": "Zari Yoke Embroidery",
+        "sleeveType": "Three-Quarter Sleeves",
+        "neckType": "Keyhole Mandarin Collar",
+        "washCare": "Dry Clean Only"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_04-11",
+          "size": "XS",
+          "colorName": "Deep Garnet",
+          "colorHex": "#881337",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-12",
+          "size": "S",
+          "colorName": "Deep Garnet",
+          "colorHex": "#881337",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-13",
+          "size": "M",
+          "colorName": "Deep Garnet",
+          "colorHex": "#881337",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-14",
+          "size": "L",
+          "colorName": "Deep Garnet",
+          "colorHex": "#881337",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-15",
+          "size": "XL",
+          "colorName": "Deep Garnet",
+          "colorHex": "#881337",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-21",
+          "size": "XS",
+          "colorName": "Forest Emerald",
+          "colorHex": "#14532D",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-22",
+          "size": "S",
+          "colorName": "Forest Emerald",
+          "colorHex": "#14532D",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-23",
+          "size": "M",
+          "colorName": "Forest Emerald",
+          "colorHex": "#14532D",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-24",
+          "size": "L",
+          "colorName": "Forest Emerald",
+          "colorHex": "#14532D",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_04-25",
+          "size": "XL",
+          "colorName": "Forest Emerald",
+          "colorHex": "#14532D",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive",
+        "Party"
+      ],
+      "likesCount": 195,
+      "viewsCount": 2140,
+      "cartAddsCount": 88,
+      "salesCount": 47,
+      "trendScore": 694,
+      "averageRating": 4.9,
+      "reviewCount": 2,
+      "badges": [
+        "Newly Added",
+        "Special Offer",
+        "Fast Selling",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-08T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_05",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Sanganer Handloom Linen Panel Co-ord Set",
+      "slug": "sanganer-handloom-linen-panel-co-ord-set",
+      "sku": "KK-PRD_05",
+      "category": "Clothing",
+      "subCategory": "Co-ord Sets",
+      "description": "Breathable European flax and cotton handloom tunic with sage contrast panels and tailored wide-leg trousers for effortless daytime elegance.",
+      "careInstructions": "Gentle cold machine wash with mild detergent.",
+      "basePrice": 3299,
+      "salePrice": 2969,
+      "discountPercent": 10,
+      "totalStock": 34,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "thumbUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "altText": "Sanganer Handloom Linen Panel Co-ord Set view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "thumbUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "altText": "Sanganer Handloom Linen Panel Co-ord Set view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "100% Handloom Linen-Cotton",
+        "fit": "Relaxed Structured Fit",
+        "pattern": "Colorblock Tailored Panel",
+        "sleeveType": "Three-Quarter Cuff",
+        "neckType": "Band Collar Placket",
+        "washCare": "Cold Gentle Wash"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_05-11",
+          "size": "S",
+          "colorName": "Ivory & Sage",
+          "colorHex": "#657153",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_05-12",
+          "size": "M",
+          "colorName": "Ivory & Sage",
+          "colorHex": "#657153",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_05-13",
+          "size": "L",
+          "colorName": "Ivory & Sage",
+          "colorHex": "#657153",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_05-14",
+          "size": "XL",
+          "colorName": "Ivory & Sage",
+          "colorHex": "#657153",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_05-21",
+          "size": "S",
+          "colorName": "Warm Sand",
+          "colorHex": "#A8A29E",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_05-22",
+          "size": "M",
+          "colorName": "Warm Sand",
+          "colorHex": "#A8A29E",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_05-23",
+          "size": "L",
+          "colorName": "Warm Sand",
+          "colorHex": "#A8A29E",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_05-24",
+          "size": "XL",
+          "colorName": "Warm Sand",
+          "colorHex": "#A8A29E",
+          "stock": 4,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        }
+      ],
+      "occasions": [
+        "Office Wear",
+        "Casual",
+        "Daily Wear"
+      ],
+      "likesCount": 142,
+      "viewsCount": 1690,
+      "cartAddsCount": 59,
+      "salesCount": 39,
+      "trendScore": 514,
+      "averageRating": 4.8,
+      "reviewCount": 1,
+      "badges": [
+        "Newly Added",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-11T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_06",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Nizam Velvet Zardozi Potli Clutch",
+      "slug": "nizam-velvet-zardozi-potli-clutch",
+      "sku": "KK-PRD_06",
+      "category": "Accessories",
+      "subCategory": "Potlis & Clutches",
+      "description": "Plush micro-velvet drawstring potli hand-embroidered with metallic dabka paisleys, braided faux-pearl wrist strap, and silk tassels.",
+      "careInstructions": "Spot clean gently; store stuffed with tissue paper.",
+      "basePrice": 1899,
+      "salePrice": 1595,
+      "discountPercent": 16,
+      "totalStock": 28,
+      "images": [
+        {
+          "url": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "thumbUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "altText": "Nizam Velvet Zardozi Potli Clutch view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Nizam Velvet Zardozi Potli Clutch view 2",
+          "sortOrder": 1
+        }
+      ],
+      "variants": [
+        {
+          "variantSku": "KK-PRD_06-11",
+          "size": "One Size",
+          "colorName": "Royal Plum",
+          "colorHex": "#4C1D3D",
+          "stock": 14,
+          "variantImageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_06-21",
+          "size": "One Size",
+          "colorName": "Champagne Gold",
+          "colorHex": "#B45309",
+          "stock": 14,
+          "variantImageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive",
+        "Party"
+      ],
+      "likesCount": 168,
+      "viewsCount": 1410,
+      "cartAddsCount": 67,
+      "salesCount": 49,
+      "trendScore": 614,
+      "averageRating": 4.9,
+      "reviewCount": 2,
+      "badges": [
+        "Special Offer",
+        "Fast Selling",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-04T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_07",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Banarasi Modal Zari Geometric Stole",
+      "slug": "banarasi-modal-zari-geometric-stole",
+      "sku": "KK-PRD_07",
+      "category": "Accessories",
+      "subCategory": "Stoles & Dupattas",
+      "description": "Featherlight modal silk stole woven on pit-looms with subtle antique gold zari triangles and hand-knotted fringes.",
+      "careInstructions": "Dry clean recommended.",
+      "basePrice": 1599,
+      "salePrice": 1407,
+      "discountPercent": 12,
+      "totalStock": 41,
+      "images": [
+        {
+          "url": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "thumbUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "altText": "Banarasi Modal Zari Geometric Stole view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "thumbUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "altText": "Banarasi Modal Zari Geometric Stole view 2",
+          "sortOrder": 1
+        }
+      ],
+      "variants": [
+        {
+          "variantSku": "KK-PRD_07-11",
+          "size": "200 cm x 70 cm",
+          "colorName": "Champagne Gold",
+          "colorHex": "#D6B88D",
+          "stock": 20,
+          "variantImageUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_07-21",
+          "size": "200 cm x 70 cm",
+          "colorName": "Ivory Mist",
+          "colorHex": "#E7E5E4",
+          "stock": 20,
+          "variantImageUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg"
+        }
+      ],
+      "occasions": [
+        "Office Wear",
+        "Festive",
+        "Casual"
+      ],
+      "likesCount": 112,
+      "viewsCount": 1180,
+      "cartAddsCount": 42,
+      "salesCount": 31,
+      "trendScore": 393,
+      "averageRating": 4.7,
+      "reviewCount": 1,
+      "badges": [
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-28T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_08",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Mayuri Temple Coin Haram Long Necklace",
+      "slug": "mayuri-temple-coin-haram-long-necklace",
+      "sku": "KK-PRD_08",
+      "category": "Artificial Jewellery",
+      "subCategory": "Long Necklaces",
+      "description": "Traditional South Indian Kempu-accented temple coin haram crafted in recycled brass with antique matte finish.",
+      "careInstructions": "Wipe gently after use and keep dry.",
+      "basePrice": 2899,
+      "salePrice": 2261,
+      "discountPercent": 22,
+      "totalStock": 18,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Mayuri Temple Coin Haram Long Necklace view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "altText": "Mayuri Temple Coin Haram Long Necklace view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Brass",
+        "plating": "Antique Temple Matte Gold",
+        "stoneType": "Kempu Ruby Glass",
+        "weightGrams": 88,
+        "dimensions": "32 cm Drop",
+        "closureType": "Braided Cotton Tassel",
+        "occasionWear": "Wedding, Festive"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_08-11",
+          "size": "Free Size",
+          "colorName": "Temple Gold",
+          "colorHex": "#B45309",
+          "stock": 18,
+          "variantImageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive"
+      ],
+      "likesCount": 134,
+      "viewsCount": 1320,
+      "cartAddsCount": 48,
+      "salesCount": 34,
+      "trendScore": 448,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-21T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_09",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Kaveri Minimalist Pearl Drop Studs",
+      "slug": "kaveri-minimalist-pearl-drop-studs",
+      "sku": "KK-PRD_09",
+      "category": "Artificial Jewellery",
+      "subCategory": "Studs & Everyday",
+      "description": "Lightweight hammered gold studs suspended with a single baroque faux pearl for everyday desk-to-dinner poise.",
+      "careInstructions": "Keep away from hairspray and water.",
+      "basePrice": 699,
+      "salePrice": 699,
+      "discountPercent": 0,
+      "totalStock": 64,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "altText": "Kaveri Minimalist Pearl Drop Studs view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Kaveri Minimalist Pearl Drop Studs view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Surgical Steel Post & Brass",
+        "plating": "18k Light Gold Flash",
+        "stoneType": "Baroque Shell Pearl",
+        "weightGrams": 9,
+        "dimensions": "2.4 cm x 1.2 cm",
+        "closureType": "Hypoallergenic Push Back",
+        "occasionWear": "Office Wear, Daily Wear, Casual"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_09-11",
+          "size": "Free Size",
+          "colorName": "Brushed Gold",
+          "colorHex": "#CA8A04",
+          "stock": 32,
+          "variantImageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_09-21",
+          "size": "Free Size",
+          "colorName": "Soft Silver",
+          "colorHex": "#A1A1AA",
+          "stock": 32,
+          "variantImageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg"
+        }
+      ],
+      "occasions": [
+        "Office Wear",
+        "Daily Wear",
+        "Casual"
+      ],
+      "likesCount": 98,
+      "viewsCount": 1100,
+      "cartAddsCount": 49,
+      "salesCount": 44,
+      "trendScore": 465,
+      "averageRating": 4.6,
+      "reviewCount": 0,
+      "badges": [
+        "Newly Added",
+        "Fast Selling",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-12T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_10",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Noorani Polki Maang Tikka & Passa Set",
+      "slug": "noorani-polki-maang-tikka-passa-set",
+      "sku": "KK-PRD_10",
+      "category": "Artificial Jewellery",
+      "subCategory": "Headpieces",
+      "description": "Bridal polki maang tikka with delicate pearl cluster edges, lightweight enough for all-day sangeet wear.",
+      "careInstructions": "Store wrapped in acid-free tissue.",
+      "basePrice": 1199,
+      "salePrice": 1019,
+      "discountPercent": 15,
+      "totalStock": 27,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Noorani Polki Maang Tikka & Passa Set view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "thumbUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "altText": "Noorani Polki Maang Tikka & Passa Set view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Brass",
+        "plating": "Antique Gold",
+        "stoneType": "Polki & Pearl",
+        "weightGrams": 19,
+        "dimensions": "14 cm Total Length",
+        "closureType": "Hair Hook",
+        "occasionWear": "Wedding, Festive"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_10-11",
+          "size": "Free Size",
+          "colorName": "Ivory Pearl Gold",
+          "colorHex": "#D97706",
+          "stock": 27,
+          "variantImageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive"
+      ],
+      "likesCount": 87,
+      "viewsCount": 920,
+      "cartAddsCount": 31,
+      "salesCount": 23,
+      "trendScore": 295,
+      "averageRating": 4.7,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-30T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_11",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Jaipur Hammered Brass Sculptural Cuff",
+      "slug": "jaipur-hammered-brass-sculptural-cuff",
+      "sku": "KK-PRD_11",
+      "category": "Artificial Jewellery",
+      "subCategory": "Bangles & Kadas",
+      "description": "Hand-forged wide statement cuff bracelet textured with rhythmic hammer marks and central kundan medallion.",
+      "careInstructions": "Buff with microfiber cloth.",
+      "basePrice": 1499,
+      "salePrice": 1199,
+      "discountPercent": 20,
+      "totalStock": 22,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "altText": "Jaipur Hammered Brass Sculptural Cuff view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "altText": "Jaipur Hammered Brass Sculptural Cuff view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Pure Artisanal Brass",
+        "plating": "Anti-Tarnish Lacquer Gold",
+        "stoneType": "Uncut Glass Kundan",
+        "weightGrams": 46,
+        "dimensions": "Open 5.8 cm",
+        "closureType": "Open Slip-On Cuff",
+        "occasionWear": "Party, Office Wear, Casual"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_11-11",
+          "size": "Adjustable",
+          "colorName": "Hammered Brass",
+          "colorHex": "#A16207",
+          "stock": 22,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        }
+      ],
+      "occasions": [
+        "Party",
+        "Office Wear",
+        "Casual"
+      ],
+      "likesCount": 129,
+      "viewsCount": 1390,
+      "cartAddsCount": 51,
+      "salesCount": 37,
+      "trendScore": 467,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Newly Added",
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-09T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_12",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Zoya Oxidized Afghani Collar Necklace",
+      "slug": "zoya-oxidized-afghani-collar-necklace",
+      "sku": "KK-PRD_12",
+      "category": "Artificial Jewellery",
+      "subCategory": "Statement Necklaces",
+      "description": "Bohemian oxidized silver-tone collar set with carved floral coins and delicate ghungroo chimes.",
+      "careInstructions": "Keep dry and wipe after wear.",
+      "basePrice": 1699,
+      "salePrice": 1393,
+      "discountPercent": 18,
+      "totalStock": 31,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "altText": "Zoya Oxidized Afghani Collar Necklace view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "altText": "Zoya Oxidized Afghani Collar Necklace view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "German Silver Alloy",
+        "plating": "Deep Oxidized Finish",
+        "stoneType": "Carved Glass Cabochon",
+        "weightGrams": 72,
+        "dimensions": "19 cm Collar",
+        "closureType": "Lobster Clasp & Extender",
+        "occasionWear": "Casual, Party, Festive"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_12-11",
+          "size": "Free Size",
+          "colorName": "Antique Silver",
+          "colorHex": "#52525B",
+          "stock": 31,
+          "variantImageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg"
+        }
+      ],
+      "occasions": [
+        "Casual",
+        "Party",
+        "Festive"
+      ],
+      "likesCount": 118,
+      "viewsCount": 1210,
+      "cartAddsCount": 44,
+      "salesCount": 29,
+      "trendScore": 395,
+      "averageRating": 4.6,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-27T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_13",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Aanya Layered Freshwater Pearl Mala",
+      "slug": "aanya-layered-freshwater-pearl-mala",
+      "sku": "KK-PRD_13",
+      "category": "Artificial Jewellery",
+      "subCategory": "Necklaces",
+      "description": "Three-strand graduated pearl mala anchored by a side kundan floral clasp, effortless over silk sarees or linen shirts.",
+      "careInstructions": "Store flat away from sharp metals.",
+      "basePrice": 2199,
+      "salePrice": 1979,
+      "discountPercent": 10,
+      "totalStock": 19,
+      "images": [
+        {
+          "url": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "thumbUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "altText": "Aanya Layered Freshwater Pearl Mala view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Aanya Layered Freshwater Pearl Mala view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Brass Clasp",
+        "plating": "22k Gold Flash",
+        "stoneType": "Shell Pearls & Kundan",
+        "weightGrams": 64,
+        "dimensions": "44 cm Outer Strand",
+        "closureType": "Adjustable Dori",
+        "occasionWear": "Wedding, Office Wear, Festive"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_13-11",
+          "size": "Free Size",
+          "colorName": "Ivory Pearl",
+          "colorHex": "#E5E7EB",
+          "stock": 19,
+          "variantImageUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Office Wear",
+        "Festive"
+      ],
+      "likesCount": 147,
+      "viewsCount": 1480,
+      "cartAddsCount": 54,
+      "salesCount": 36,
+      "trendScore": 489,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-03T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_14",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Tarini Matte Gold Payal Anklet Pair",
+      "slug": "tarini-matte-gold-payal-anklet-pair",
+      "sku": "KK-PRD_14",
+      "category": "Artificial Jewellery",
+      "subCategory": "Anklets",
+      "description": "Supple link anklets dotted with whisper-quiet pearl clusters and antique gold ghungroo bells.",
+      "careInstructions": "Keep away from water.",
+      "basePrice": 999,
+      "salePrice": 849,
+      "discountPercent": 15,
+      "totalStock": 38,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "altText": "Tarini Matte Gold Payal Anklet Pair view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "altText": "Tarini Matte Gold Payal Anklet Pair view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Brass",
+        "plating": "Matte Antique Gold",
+        "stoneType": "Faux Pearl",
+        "weightGrams": 34,
+        "dimensions": "25 cm Length",
+        "closureType": "S-Hook Lock",
+        "occasionWear": "Festive, Wedding, Daily Wear"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_14-11",
+          "size": "24 cm",
+          "colorName": "Matte Gold",
+          "colorHex": "#CA8A04",
+          "stock": 19,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_14-12",
+          "size": "26 cm",
+          "colorName": "Matte Gold",
+          "colorHex": "#CA8A04",
+          "stock": 19,
+          "variantImageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg"
+        }
+      ],
+      "occasions": [
+        "Festive",
+        "Wedding",
+        "Daily Wear"
+      ],
+      "likesCount": 76,
+      "viewsCount": 840,
+      "cartAddsCount": 28,
+      "salesCount": 21,
+      "trendScore": 265,
+      "averageRating": 4.5,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-18T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_15",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Meher Ivory Chanderi Tissue Kurta Set",
+      "slug": "meher-ivory-chanderi-tissue-kurta-set",
+      "sku": "KK-PRD_15",
+      "category": "Clothing",
+      "subCategory": "Kurta Sets",
+      "description": "Luminous ivory tissue-chanderi A-line kurta detailed with subtle gotta-patti edge work and relaxed palazzo pants.",
+      "careInstructions": "Dry clean only.",
+      "basePrice": 4899,
+      "salePrice": 4164,
+      "discountPercent": 15,
+      "totalStock": 16,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "thumbUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "altText": "Meher Ivory Chanderi Tissue Kurta Set view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Meher Ivory Chanderi Tissue Kurta Set view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "Chanderi Tissue Silk",
+        "fit": "Flared A-Line",
+        "pattern": "Subtle Gotta Patti Trim",
+        "sleeveType": "Full Sleeves",
+        "neckType": "V-Neck",
+        "washCare": "Dry Clean Only"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_15-11",
+          "size": "XS",
+          "colorName": "Champagne Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-12",
+          "size": "S",
+          "colorName": "Champagne Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-13",
+          "size": "M",
+          "colorName": "Champagne Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-14",
+          "size": "L",
+          "colorName": "Champagne Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-15",
+          "size": "XL",
+          "colorName": "Champagne Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-21",
+          "size": "XS",
+          "colorName": "Dusty Rose",
+          "colorHex": "#BE123C",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-22",
+          "size": "S",
+          "colorName": "Dusty Rose",
+          "colorHex": "#BE123C",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-23",
+          "size": "M",
+          "colorName": "Dusty Rose",
+          "colorHex": "#BE123C",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-24",
+          "size": "L",
+          "colorName": "Dusty Rose",
+          "colorHex": "#BE123C",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_15-25",
+          "size": "XL",
+          "colorName": "Dusty Rose",
+          "colorHex": "#BE123C",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        }
+      ],
+      "occasions": [
+        "Festive",
+        "Wedding",
+        "Party"
+      ],
+      "likesCount": 164,
+      "viewsCount": 1710,
+      "cartAddsCount": 66,
+      "salesCount": 40,
+      "trendScore": 562,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Newly Added",
+        "Special Offer",
+        "Fast Selling",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-10T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_16",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Vanya Block-Print Mulmul Everyday Tunic",
+      "slug": "vanya-block-print-mulmul-everyday-tunic",
+      "sku": "KK-PRD_16",
+      "category": "Clothing",
+      "subCategory": "Kurtis & Tunics",
+      "description": "Featherweight Bagru hand-block printed cotton mulmul tunic with mother-of-pearl buttons and side pockets.",
+      "careInstructions": "Cold hand wash separately.",
+      "basePrice": 1799,
+      "salePrice": 1799,
+      "discountPercent": 0,
+      "totalStock": 52,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "thumbUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "altText": "Vanya Block-Print Mulmul Everyday Tunic view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "thumbUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "altText": "Vanya Block-Print Mulmul Everyday Tunic view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "100% Cotton Mulmul",
+        "fit": "Easy Straight Fit",
+        "pattern": "Hand-Block Botanical",
+        "sleeveType": "Three-Quarter Roll-Up",
+        "neckType": "Notch Mandarin",
+        "washCare": "Gentle Cold Wash"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_16-11",
+          "size": "S",
+          "colorName": "Olive & Chalk",
+          "colorHex": "#657153",
+          "stock": 10,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_16-12",
+          "size": "M",
+          "colorName": "Olive & Chalk",
+          "colorHex": "#657153",
+          "stock": 10,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_16-13",
+          "size": "L",
+          "colorName": "Olive & Chalk",
+          "colorHex": "#657153",
+          "stock": 10,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_16-14",
+          "size": "XL",
+          "colorName": "Olive & Chalk",
+          "colorHex": "#657153",
+          "stock": 10,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_16-15",
+          "size": "XXL",
+          "colorName": "Olive & Chalk",
+          "colorHex": "#657153",
+          "stock": 10,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        }
+      ],
+      "occasions": [
+        "Daily Wear",
+        "Casual",
+        "Office Wear"
+      ],
+      "likesCount": 121,
+      "viewsCount": 1340,
+      "cartAddsCount": 53,
+      "salesCount": 45,
+      "trendScore": 505,
+      "averageRating": 4.7,
+      "reviewCount": 0,
+      "badges": [
+        "Newly Added",
+        "Fast Selling",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-13T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_17",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Suhana Crimson Velvet Festive Cape Set",
+      "slug": "suhana-crimson-velvet-festive-cape-set",
+      "sku": "KK-PRD_17",
+      "category": "Clothing",
+      "subCategory": "Fusion Wear",
+      "description": "Draped crepe crop top and palazzo paired with an embroidered deep garnet silk-velvet longline cape.",
+      "careInstructions": "Dry clean only.",
+      "basePrice": 6499,
+      "salePrice": 5199,
+      "discountPercent": 20,
+      "totalStock": 11,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Suhana Crimson Velvet Festive Cape Set view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "thumbUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "altText": "Suhana Crimson Velvet Festive Cape Set view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "Silk Velvet & Modal Crepe",
+        "fit": "Draped Contemporary",
+        "pattern": "Zari Border Cape",
+        "sleeveType": "Sleeveless Inner + Cape",
+        "neckType": "Scoop Neck",
+        "washCare": "Dry Clean Only"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_17-11",
+          "size": "S",
+          "colorName": "Crimson Garnet",
+          "colorHex": "#881337",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_17-12",
+          "size": "M",
+          "colorName": "Crimson Garnet",
+          "colorHex": "#881337",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_17-13",
+          "size": "L",
+          "colorName": "Crimson Garnet",
+          "colorHex": "#881337",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Party",
+        "Festive"
+      ],
+      "likesCount": 178,
+      "viewsCount": 1860,
+      "cartAddsCount": 71,
+      "salesCount": 33,
+      "trendScore": 556,
+      "averageRating": 4.9,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Most Demanding",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-05T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_18",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Aranya Raw Silk Tailored Nehru Jacket",
+      "slug": "aranya-raw-silk-tailored-nehru-jacket",
+      "sku": "KK-PRD_18",
+      "category": "Clothing",
+      "subCategory": "Jackets & Layers",
+      "description": "Structured raw silk waist-length jacket featuring antique brass shank buttons and crisp mandarin collar.",
+      "careInstructions": "Dry clean only.",
+      "basePrice": 3699,
+      "salePrice": 3181,
+      "discountPercent": 14,
+      "totalStock": 21,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "thumbUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "altText": "Aranya Raw Silk Tailored Nehru Jacket view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Aranya Raw Silk Tailored Nehru Jacket view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "Handspun Raw Silk",
+        "fit": "Tailored Structured",
+        "pattern": "Solid Slub Texture",
+        "sleeveType": "Sleeveless",
+        "neckType": "Mandarin Collar",
+        "washCare": "Dry Clean Only"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_18-11",
+          "size": "S",
+          "colorName": "Warm Oats",
+          "colorHex": "#D6D3D1",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_18-12",
+          "size": "M",
+          "colorName": "Warm Oats",
+          "colorHex": "#D6D3D1",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_18-13",
+          "size": "L",
+          "colorName": "Warm Oats",
+          "colorHex": "#D6D3D1",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_18-14",
+          "size": "XL",
+          "colorName": "Warm Oats",
+          "colorHex": "#D6D3D1",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_18-21",
+          "size": "S",
+          "colorName": "Charcoal Ink",
+          "colorHex": "#27272A",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_18-22",
+          "size": "M",
+          "colorName": "Charcoal Ink",
+          "colorHex": "#27272A",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_18-23",
+          "size": "L",
+          "colorName": "Charcoal Ink",
+          "colorHex": "#27272A",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_18-24",
+          "size": "XL",
+          "colorName": "Charcoal Ink",
+          "colorHex": "#27272A",
+          "stock": 2,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        }
+      ],
+      "occasions": [
+        "Office Wear",
+        "Festive",
+        "Party"
+      ],
+      "likesCount": 94,
+      "viewsCount": 980,
+      "cartAddsCount": 34,
+      "salesCount": 24,
+      "trendScore": 316,
+      "averageRating": 4.7,
+      "reviewCount": 0,
+      "badges": [
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-31T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_19",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Kora Handspun Khadi Pleated Midi Dress",
+      "slug": "kora-handspun-khadi-pleated-midi-dress",
+      "sku": "KK-PRD_19",
+      "category": "Clothing",
+      "subCategory": "Dresses",
+      "description": "Box-pleated unbleached khadi cotton dress with concealed pockets and tie waist belt.",
+      "careInstructions": "Machine wash gentle cold.",
+      "basePrice": 2699,
+      "salePrice": 2429,
+      "discountPercent": 10,
+      "totalStock": 29,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "thumbUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "altText": "Kora Handspun Khadi Pleated Midi Dress view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "thumbUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "altText": "Kora Handspun Khadi Pleated Midi Dress view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "Handspun Khadi Cotton",
+        "fit": "Relaxed A-Line",
+        "pattern": "Minimalist Solid",
+        "sleeveType": "Elbow Length",
+        "neckType": "Crew Neck",
+        "washCare": "Cold Wash"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_19-11",
+          "size": "XS",
+          "colorName": "Unbleached Khadi",
+          "colorHex": "#E7E5E4",
+          "stock": 7,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_19-12",
+          "size": "S",
+          "colorName": "Unbleached Khadi",
+          "colorHex": "#E7E5E4",
+          "stock": 7,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_19-13",
+          "size": "M",
+          "colorName": "Unbleached Khadi",
+          "colorHex": "#E7E5E4",
+          "stock": 7,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_19-14",
+          "size": "L",
+          "colorName": "Unbleached Khadi",
+          "colorHex": "#E7E5E4",
+          "stock": 7,
+          "variantImageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg"
+        }
+      ],
+      "occasions": [
+        "Casual",
+        "Office Wear",
+        "Daily Wear"
+      ],
+      "likesCount": 105,
+      "viewsCount": 1120,
+      "cartAddsCount": 38,
+      "salesCount": 28,
+      "trendScore": 359,
+      "averageRating": 4.6,
+      "reviewCount": 0,
+      "badges": [
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-24T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_20",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Meera Silk Organza Scallop Dupatta",
+      "slug": "meera-silk-organza-scallop-dupatta",
+      "sku": "KK-PRD_20",
+      "category": "Accessories",
+      "subCategory": "Stoles & Dupattas",
+      "description": "Translucent pure organza dupatta edged with delicate gold zari scallops and micro-sequin booti motifs.",
+      "careInstructions": "Dry clean only.",
+      "basePrice": 1999,
+      "salePrice": 1599,
+      "discountPercent": 20,
+      "totalStock": 25,
+      "images": [
+        {
+          "url": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "thumbUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "altText": "Meera Silk Organza Scallop Dupatta view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Meera Silk Organza Scallop Dupatta view 2",
+          "sortOrder": 1
+        }
+      ],
+      "variants": [
+        {
+          "variantSku": "KK-PRD_20-11",
+          "size": "2.4 Meters",
+          "colorName": "Garnet Gold",
+          "colorHex": "#881337",
+          "stock": 12,
+          "variantImageUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_20-21",
+          "size": "2.4 Meters",
+          "colorName": "Champagne",
+          "colorHex": "#D6B88D",
+          "stock": 12,
+          "variantImageUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive",
+        "Party"
+      ],
+      "likesCount": 132,
+      "viewsCount": 1290,
+      "cartAddsCount": 47,
+      "salesCount": 32,
+      "trendScore": 433,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Newly Added",
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-07T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_21",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Begum Pearl-Handle Satin Box Clutch",
+      "slug": "begum-pearl-handle-satin-box-clutch",
+      "sku": "KK-PRD_21",
+      "category": "Accessories",
+      "subCategory": "Potlis & Clutches",
+      "description": "Hard-shell silk satin minaudiere clutch with hand-woven pearl top handle and detachable brass chain.",
+      "careInstructions": "Store in dust bag.",
+      "basePrice": 2499,
+      "salePrice": 2049,
+      "discountPercent": 18,
+      "totalStock": 17,
+      "images": [
+        {
+          "url": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "thumbUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "altText": "Begum Pearl-Handle Satin Box Clutch view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "thumbUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "altText": "Begum Pearl-Handle Satin Box Clutch view 2",
+          "sortOrder": 1
+        }
+      ],
+      "variants": [
+        {
+          "variantSku": "KK-PRD_21-11",
+          "size": "One Size",
+          "colorName": "Plum Satin",
+          "colorHex": "#4C1D3D",
+          "stock": 17,
+          "variantImageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Party"
+      ],
+      "likesCount": 149,
+      "viewsCount": 1510,
+      "cartAddsCount": 58,
+      "salesCount": 35,
+      "trendScore": 498,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-02T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_22",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Surya Kundan Saree Brooch & Pallu Pin",
+      "slug": "surya-kundan-saree-brooch-pallu-pin",
+      "sku": "KK-PRD_22",
+      "category": "Accessories",
+      "subCategory": "Hair & Saree Pins",
+      "description": "Sunburst kundan safety brooch engineered with a fabric-safe lock to secure heavy Banarasi or organza pallus.",
+      "careInstructions": "Wipe dry after wear.",
+      "basePrice": 799,
+      "salePrice": 703,
+      "discountPercent": 12,
+      "totalStock": 48,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Surya Kundan Saree Brooch & Pallu Pin view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "altText": "Surya Kundan Saree Brooch & Pallu Pin view 2",
+          "sortOrder": 1
+        }
+      ],
+      "variants": [
+        {
+          "variantSku": "KK-PRD_22-11",
+          "size": "6 cm",
+          "colorName": "Antique Gold",
+          "colorHex": "#A16207",
+          "stock": 48,
+          "variantImageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive",
+        "Office Wear"
+      ],
+      "likesCount": 88,
+      "viewsCount": 870,
+      "cartAddsCount": 36,
+      "salesCount": 30,
+      "trendScore": 346,
+      "averageRating": 4.7,
+      "reviewCount": 0,
+      "badges": [
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-29T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_23",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Alia Pearls & Brass Juda Hair Pins (Set of 4)",
+      "slug": "alia-pearls-brass-juda-hair-pins-set-of-4",
+      "sku": "KK-PRD_23",
+      "category": "Accessories",
+      "subCategory": "Hair & Saree Pins",
+      "description": "Four sculpted floral brass U-pins topped with cluster pearls for bridal buns and festive braids.",
+      "careInstructions": "Store in rigid box.",
+      "basePrice": 649,
+      "salePrice": 649,
+      "discountPercent": 0,
+      "totalStock": 55,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "altText": "Alia Pearls & Brass Juda Hair Pins (Set of 4) view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "thumbUrl": "/src/assets/images/hero_kala_karat_1794740129596.jpg",
+          "altText": "Alia Pearls & Brass Juda Hair Pins (Set of 4) view 2",
+          "sortOrder": 1
+        }
+      ],
+      "variants": [
+        {
+          "variantSku": "KK-PRD_23-11",
+          "size": "Set of 4",
+          "colorName": "Pearl & Gold",
+          "colorHex": "#CA8A04",
+          "stock": 55,
+          "variantImageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive",
+        "Party"
+      ],
+      "likesCount": 109,
+      "viewsCount": 990,
+      "cartAddsCount": 41,
+      "salesCount": 38,
+      "trendScore": 422,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Newly Added",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-14T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_24",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Zari Embroidered Velvet Kamarbandh Waist Belt",
+      "slug": "zari-embroidered-velvet-kamarbandh-waist-belt",
+      "sku": "KK-PRD_24",
+      "category": "Accessories",
+      "subCategory": "Belts & Sashes",
+      "description": "Structured deep plum velvet saree belt embellished with antique gold zardozi floral motifs and hook closure.",
+      "careInstructions": "Spot clean only.",
+      "basePrice": 1399,
+      "salePrice": 1189,
+      "discountPercent": 15,
+      "totalStock": 23,
+      "images": [
+        {
+          "url": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "thumbUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "altText": "Zari Embroidered Velvet Kamarbandh Waist Belt view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Zari Embroidered Velvet Kamarbandh Waist Belt view 2",
+          "sortOrder": 1
+        }
+      ],
+      "variants": [
+        {
+          "variantSku": "KK-PRD_24-11",
+          "size": "S/M",
+          "colorName": "Deep Plum",
+          "colorHex": "#4C1D3D",
+          "stock": 11,
+          "variantImageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_24-12",
+          "size": "L/XL",
+          "colorName": "Deep Plum",
+          "colorHex": "#4C1D3D",
+          "stock": 11,
+          "variantImageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Festive",
+        "Party"
+      ],
+      "likesCount": 97,
+      "viewsCount": 940,
+      "cartAddsCount": 33,
+      "salesCount": 25,
+      "trendScore": 321,
+      "averageRating": 4.7,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-26T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_25",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "sellerTrusted": true,
+      "title": "Devika Bridal Cocktail Kundan Statement Ring",
+      "slug": "devika-bridal-cocktail-kundan-statement-ring",
+      "sku": "KK-PRD_25",
+      "category": "Artificial Jewellery",
+      "subCategory": "Rings",
+      "description": "Adjustable oversized floral kundan cocktail ring edged with micro pearls and deep emerald enamel.",
+      "careInstructions": "Remove before washing hands.",
+      "basePrice": 899,
+      "salePrice": 809,
+      "discountPercent": 10,
+      "totalStock": 42,
+      "images": [
+        {
+          "url": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "altText": "Devika Bridal Cocktail Kundan Statement Ring view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "thumbUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "altText": "Devika Bridal Cocktail Kundan Statement Ring view 2",
+          "sortOrder": 1
+        }
+      ],
+      "jewellerySpecs": {
+        "baseMetal": "Brass",
+        "plating": "22k Antique Gold",
+        "stoneType": "Glass Kundan & Meenakari",
+        "weightGrams": 16,
+        "dimensions": "3.2 cm Motif",
+        "closureType": "Adjustable Split Shank",
+        "occasionWear": "Wedding, Party, Festive"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_25-11",
+          "size": "Adjustable",
+          "colorName": "Emerald Gold",
+          "colorHex": "#14532D",
+          "stock": 42,
+          "variantImageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg"
+        }
+      ],
+      "occasions": [
+        "Wedding",
+        "Party",
+        "Festive"
+      ],
+      "likesCount": 114,
+      "viewsCount": 1090,
+      "cartAddsCount": 46,
+      "salesCount": 39,
+      "trendScore": 447,
+      "averageRating": 4.8,
+      "reviewCount": 0,
+      "badges": [
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-11-04T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "prd_26",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "sellerTrusted": true,
+      "title": "Nila Handloom Silk-Cotton Festive Kurta",
+      "slug": "nila-handloom-silk-cotton-festive-kurta",
+      "sku": "KK-PRD_26",
+      "category": "Clothing",
+      "subCategory": "Kurta Sets",
+      "description": "Lustrous silk-cotton straight kurta with subtle gold zari selvedge trim and breathable cotton voile lining.",
+      "careInstructions": "Gentle hand wash or dry clean.",
+      "basePrice": 2999,
+      "salePrice": 2519,
+      "discountPercent": 16,
+      "totalStock": 26,
+      "images": [
+        {
+          "url": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "thumbUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "altText": "Nila Handloom Silk-Cotton Festive Kurta view 1",
+          "sortOrder": 0
+        },
+        {
+          "url": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "thumbUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "altText": "Nila Handloom Silk-Cotton Festive Kurta view 2",
+          "sortOrder": 1
+        }
+      ],
+      "clothingSpecs": {
+        "fabric": "Silk Cotton Blend",
+        "fit": "Straight Classic",
+        "pattern": "Woven Zari Selvedge",
+        "sleeveType": "Three-Quarter",
+        "neckType": "Round Split Neck",
+        "washCare": "Gentle Wash"
+      },
+      "variants": [
+        {
+          "variantSku": "KK-PRD_26-11",
+          "size": "S",
+          "colorName": "Garnet Red",
+          "colorHex": "#881337",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_26-12",
+          "size": "M",
+          "colorName": "Garnet Red",
+          "colorHex": "#881337",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_26-13",
+          "size": "L",
+          "colorName": "Garnet Red",
+          "colorHex": "#881337",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_26-14",
+          "size": "XL",
+          "colorName": "Garnet Red",
+          "colorHex": "#881337",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_26-21",
+          "size": "S",
+          "colorName": "Warm Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_26-22",
+          "size": "M",
+          "colorName": "Warm Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_26-23",
+          "size": "L",
+          "colorName": "Warm Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        },
+        {
+          "variantSku": "KK-PRD_26-24",
+          "size": "XL",
+          "colorName": "Warm Ivory",
+          "colorHex": "#E7E5E4",
+          "stock": 3,
+          "variantImageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+        }
+      ],
+      "occasions": [
+        "Festive",
+        "Office Wear",
+        "Casual"
+      ],
+      "likesCount": 101,
+      "viewsCount": 1040,
+      "cartAddsCount": 37,
+      "salesCount": 27,
+      "trendScore": 347,
+      "averageRating": 4.6,
+      "reviewCount": 0,
+      "badges": [
+        "Special Offer",
+        "Seller Trusted"
+      ],
+      "isProductTrusted": true,
+      "isActive": true,
+      "createdAt": "2026-10-23T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    }
+  ],
+  "likes": [],
+  "reviews": [
+    {
+      "_id": "rev_01",
+      "productId": "prd_01",
+      "userId": "usr_buyer_1",
+      "userName": "Ananya Mehta",
+      "orderId": "ord_01",
+      "rating": 5,
+      "comment": "The emerald meenakari detailing and pearl drops look genuinely heirloom quality. Sits comfortably without pinching.",
+      "images": [
+        "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg"
+      ],
+      "reviewClasses": [
+        "Quality",
+        "Finish & Shine",
+        "Packaging"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 5,
+      "createdAt": "2026-11-07T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_02",
+      "productId": "prd_01",
+      "userId": "usr_buyer_1",
+      "userName": "Priya Nair",
+      "orderId": "ord_02",
+      "rating": 5,
+      "comment": "Wore this for my sister’s sangeet. Zero tarnish and arrived in a velvet travel box.",
+      "images": [],
+      "reviewClasses": [
+        "Finish & Shine",
+        "Value for Money"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 4,
+      "createdAt": "2026-11-04T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_03",
+      "productId": "prd_01",
+      "userId": "usr_buyer_1",
+      "userName": "Kavya Sharma",
+      "orderId": "ord_03",
+      "rating": 4,
+      "comment": "Stunning kundan shine, slightly heavy for very long ceremonies but balanced well by the silk dori.",
+      "images": [],
+      "reviewClasses": [
+        "Quality",
+        "Finish & Shine"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 2,
+      "createdAt": "2026-11-02T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_04",
+      "productId": "prd_02",
+      "userId": "usr_buyer_1",
+      "userName": "Ananya Mehta",
+      "orderId": "ord_01",
+      "rating": 5,
+      "comment": "Featherlight despite the ornate bell carving. Dual-tone finish pairs with both silver and gold sarees.",
+      "images": [
+        "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg"
+      ],
+      "reviewClasses": [
+        "Quality",
+        "Finish & Shine",
+        "Value for Money"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 4,
+      "createdAt": "2026-11-09T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_05",
+      "productId": "prd_02",
+      "userId": "usr_buyer_1",
+      "userName": "Rhea Kapoor",
+      "orderId": "ord_04",
+      "rating": 5,
+      "comment": "Exact filigree texture as shown in the zoom gallery. Secure push backs.",
+      "images": [],
+      "reviewClasses": [
+        "Finish & Shine",
+        "Packaging"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 3,
+      "createdAt": "2026-11-08T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_06",
+      "productId": "prd_03",
+      "userId": "usr_buyer_1",
+      "userName": "Sanya Verma",
+      "orderId": "ord_05",
+      "rating": 5,
+      "comment": "Matte gold finish is tasteful and not brassy. Size 2.6 fits true to Indian bangle measurements.",
+      "images": [],
+      "reviewClasses": [
+        "Finish & Shine",
+        "Fit & Sizing"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 3,
+      "createdAt": "2026-10-31T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_07",
+      "productId": "prd_03",
+      "userId": "usr_buyer_1",
+      "userName": "Neha Joshi",
+      "orderId": "ord_06",
+      "rating": 4,
+      "comment": "Loved the polki cuff piece, great value for the full stack.",
+      "images": [],
+      "reviewClasses": [
+        "Value for Money"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 3,
+      "createdAt": "2026-10-28T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_08",
+      "productId": "prd_04",
+      "userId": "usr_buyer_1",
+      "userName": "Ananya Mehta",
+      "orderId": "ord_02",
+      "rating": 5,
+      "comment": "Rich garnet shade and soft mulmul lining inside. The organza dupatta drapes like a dream.",
+      "images": [
+        "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg"
+      ],
+      "reviewClasses": [
+        "Quality",
+        "Fit & Sizing",
+        "Value for Money"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 5,
+      "createdAt": "2026-11-10T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_09",
+      "productId": "prd_04",
+      "userId": "usr_buyer_1",
+      "userName": "Divya Menon",
+      "orderId": "ord_07",
+      "rating": 5,
+      "comment": "Clean zari embroidery with zero loose threads. True to size M.",
+      "images": [],
+      "reviewClasses": [
+        "Quality",
+        "Fit & Sizing"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 4,
+      "createdAt": "2026-11-09T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_10",
+      "productId": "prd_05",
+      "userId": "usr_buyer_1",
+      "userName": "Ananya Mehta",
+      "orderId": "ord_03",
+      "rating": 5,
+      "comment": "Crisp handloom linen that stays breathable through Mumbai summers. Tailoring is sharp.",
+      "images": [],
+      "reviewClasses": [
+        "Quality",
+        "Fit & Sizing"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 4,
+      "createdAt": "2026-11-13T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_11",
+      "productId": "prd_06",
+      "userId": "usr_buyer_1",
+      "userName": "Tara Deshmukh",
+      "orderId": "ord_04",
+      "rating": 5,
+      "comment": "Easily fits a large phone and lipstick. The braided pearl handle elevates any festive outfit.",
+      "images": [
+        "/src/assets/images/accessory_potli_clutch_1794740131878.jpg"
+      ],
+      "reviewClasses": [
+        "Quality",
+        "Finish & Shine",
+        "Packaging"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 4,
+      "createdAt": "2026-11-06T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_12",
+      "productId": "prd_06",
+      "userId": "usr_buyer_1",
+      "userName": "Ishita Bose",
+      "orderId": "ord_08",
+      "rating": 5,
+      "comment": "Zardozi detailing is immaculate.",
+      "images": [],
+      "reviewClasses": [
+        "Finish & Shine"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 3,
+      "createdAt": "2026-11-05T11:05:21.590Z"
+    },
+    {
+      "_id": "rev_13",
+      "productId": "prd_07",
+      "userId": "usr_buyer_1",
+      "userName": "Ananya Mehta",
+      "orderId": "ord_05",
+      "rating": 5,
+      "comment": "Subtle champagne zari sheen works wonderfully over workwear shirts and kurtas alike.",
+      "images": [],
+      "reviewClasses": [
+        "Quality",
+        "Value for Money"
+      ],
+      "sentiment": "Positive",
+      "sentimentScore": 4,
+      "createdAt": "2026-11-01T11:05:21.590Z"
+    }
+  ],
+  "orders": [
+    {
+      "_id": "ord_12",
+      "orderNumber": "ORD-2026-90412",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_1",
+      "items": [
+        {
+          "productId": "prd_02",
+          "variantSku": "KK-PRD_02-11",
+          "title": "Chandbali Filigree Dual-Tone Jhumka Earrings",
+          "size": "Free Size",
+          "colorName": "Dual Tone Silver Gold",
+          "imageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "quantity": 1,
+          "unitPrice": 1104
+        },
+        {
+          "productId": "prd_06",
+          "variantSku": "KK-PRD_06-11",
+          "title": "Nizam Velvet Zardozi Potli Clutch",
+          "size": "One Size",
+          "colorName": "Royal Plum",
+          "imageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "quantity": 1,
+          "unitPrice": 1595
+        }
+      ],
+      "totalAmount": 2699,
+      "status": "Pending",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-11-15T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-11-15T11:05:21.590Z",
+      "updatedAt": "2026-11-15T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_11",
+      "orderNumber": "ORD-2026-90411",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_2",
+      "items": [
+        {
+          "productId": "prd_05",
+          "variantSku": "KK-PRD_05-11",
+          "title": "Sanganer Handloom Linen Panel Co-ord Set",
+          "size": "S",
+          "colorName": "Ivory & Sage",
+          "imageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "quantity": 1,
+          "unitPrice": 2969
+        }
+      ],
+      "totalAmount": 2969,
+      "status": "Confirmed",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-11-14T11:05:21.590Z"
+        },
+        {
+          "status": "Confirmed",
+          "note": "Order marked as Confirmed",
+          "timestamp": "2026-11-15T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-11-14T11:05:21.590Z",
+      "updatedAt": "2026-11-15T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_10",
+      "orderNumber": "ORD-2026-90410",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_1",
+      "items": [
+        {
+          "productId": "prd_01",
+          "variantSku": "KK-PRD_01-11",
+          "title": "Rajwada Meenakari Kundan Bridal Choker",
+          "size": "Free Size",
+          "colorName": "Antique Gold Emerald",
+          "imageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "quantity": 1,
+          "unitPrice": 2799
+        },
+        {
+          "productId": "prd_03",
+          "variantSku": "KK-PRD_03-11",
+          "title": "Panchratna Polki Stacked Bangles & Cuff Set",
+          "size": "2.4",
+          "colorName": "Matte Gold",
+          "imageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "quantity": 1,
+          "unitPrice": 2099
+        }
+      ],
+      "totalAmount": 4898,
+      "status": "Shipped",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "courierTracking": {
+        "companyName": "BlueDart Express",
+        "trackingId": "BD78451209IN",
+        "trackingUrl": "https://www.bluedart.com/tracking?track=BD78451209IN",
+        "shippedAt": "2026-11-14T11:05:21.590Z"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-11-13T11:05:21.590Z"
+        },
+        {
+          "status": "Shipped",
+          "note": "Order marked as Shipped",
+          "timestamp": "2026-11-14T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-11-13T11:05:21.590Z",
+      "updatedAt": "2026-11-14T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_09",
+      "orderNumber": "ORD-2026-90409",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_2",
+      "items": [
+        {
+          "productId": "prd_04",
+          "variantSku": "KK-PRD_04-11",
+          "title": "Gulbahar Garnet Zari Embroidered Anarkali Set",
+          "size": "XS",
+          "colorName": "Deep Garnet",
+          "imageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "quantity": 1,
+          "unitPrice": 4509
+        },
+        {
+          "productId": "prd_06",
+          "variantSku": "KK-PRD_06-11",
+          "title": "Nizam Velvet Zardozi Potli Clutch",
+          "size": "One Size",
+          "colorName": "Royal Plum",
+          "imageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "quantity": 1,
+          "unitPrice": 1595
+        }
+      ],
+      "totalAmount": 6104,
+      "status": "Out for Delivery",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "courierTracking": {
+        "companyName": "Delhivery Surface",
+        "trackingId": "DLV44890211",
+        "trackingUrl": "https://www.delhivery.com/track/package/DLV44890211",
+        "shippedAt": "2026-11-13T11:05:21.590Z"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-11-12T11:05:21.590Z"
+        },
+        {
+          "status": "Out for Delivery",
+          "note": "Order marked as Out for Delivery",
+          "timestamp": "2026-11-13T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-11-12T11:05:21.590Z",
+      "updatedAt": "2026-11-13T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_08",
+      "orderNumber": "ORD-2026-90408",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_1",
+      "items": [
+        {
+          "productId": "prd_11",
+          "variantSku": "KK-PRD_11-11",
+          "title": "Jaipur Hammered Brass Sculptural Cuff",
+          "size": "Adjustable",
+          "colorName": "Hammered Brass",
+          "imageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "quantity": 1,
+          "unitPrice": 1199
+        }
+      ],
+      "totalAmount": 1199,
+      "status": "Packed",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-11-11T11:05:21.590Z"
+        },
+        {
+          "status": "Packed",
+          "note": "Order marked as Packed",
+          "timestamp": "2026-11-12T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-11-11T11:05:21.590Z",
+      "updatedAt": "2026-11-12T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_07",
+      "orderNumber": "ORD-2026-90407",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_2",
+      "items": [
+        {
+          "productId": "prd_04",
+          "variantSku": "KK-PRD_04-11",
+          "title": "Gulbahar Garnet Zari Embroidered Anarkali Set",
+          "size": "XS",
+          "colorName": "Deep Garnet",
+          "imageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "quantity": 1,
+          "unitPrice": 4509
+        },
+        {
+          "productId": "prd_02",
+          "variantSku": "KK-PRD_02-11",
+          "title": "Chandbali Filigree Dual-Tone Jhumka Earrings",
+          "size": "Free Size",
+          "colorName": "Dual Tone Silver Gold",
+          "imageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "quantity": 1,
+          "unitPrice": 1104
+        }
+      ],
+      "totalAmount": 5613,
+      "status": "Delivered",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "courierTracking": {
+        "companyName": "BlueDart Express",
+        "trackingId": "BD78450911IN",
+        "trackingUrl": "https://www.bluedart.com/tracking?track=BD78450911IN",
+        "shippedAt": "2026-11-06T11:05:21.590Z"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-11-05T11:05:21.590Z"
+        },
+        {
+          "status": "Delivered",
+          "note": "Order marked as Delivered",
+          "timestamp": "2026-11-06T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-11-05T11:05:21.590Z",
+      "updatedAt": "2026-11-06T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_06",
+      "orderNumber": "ORD-2026-90406",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_1",
+      "items": [
+        {
+          "productId": "prd_03",
+          "variantSku": "KK-PRD_03-11",
+          "title": "Panchratna Polki Stacked Bangles & Cuff Set",
+          "size": "2.4",
+          "colorName": "Matte Gold",
+          "imageUrl": "/src/assets/images/jewellery_bangles_set_1794740130584.jpg",
+          "quantity": 1,
+          "unitPrice": 2099
+        }
+      ],
+      "totalAmount": 2099,
+      "status": "Delivered",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-10-30T11:05:21.590Z"
+        },
+        {
+          "status": "Delivered",
+          "note": "Order marked as Delivered",
+          "timestamp": "2026-10-31T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-10-30T11:05:21.590Z",
+      "updatedAt": "2026-10-31T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_05",
+      "orderNumber": "ORD-2026-90405",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_2",
+      "items": [
+        {
+          "productId": "prd_07",
+          "variantSku": "KK-PRD_07-11",
+          "title": "Banarasi Modal Zari Geometric Stole",
+          "size": "200 cm x 70 cm",
+          "colorName": "Champagne Gold",
+          "imageUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "quantity": 2,
+          "unitPrice": 1407
+        }
+      ],
+      "totalAmount": 2814,
+      "status": "Delivered",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-10-24T11:05:21.590Z"
+        },
+        {
+          "status": "Delivered",
+          "note": "Order marked as Delivered",
+          "timestamp": "2026-10-25T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-10-24T11:05:21.590Z",
+      "updatedAt": "2026-10-25T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_04",
+      "orderNumber": "ORD-2026-90404",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_2",
+      "items": [
+        {
+          "productId": "prd_06",
+          "variantSku": "KK-PRD_06-11",
+          "title": "Nizam Velvet Zardozi Potli Clutch",
+          "size": "One Size",
+          "colorName": "Royal Plum",
+          "imageUrl": "/src/assets/images/accessory_potli_clutch_1794740131878.jpg",
+          "quantity": 1,
+          "unitPrice": 1595
+        },
+        {
+          "productId": "prd_02",
+          "variantSku": "KK-PRD_02-11",
+          "title": "Chandbali Filigree Dual-Tone Jhumka Earrings",
+          "size": "Free Size",
+          "colorName": "Dual Tone Silver Gold",
+          "imageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "quantity": 1,
+          "unitPrice": 1104
+        }
+      ],
+      "totalAmount": 2699,
+      "status": "Delivered",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-10-12T11:05:21.590Z"
+        },
+        {
+          "status": "Delivered",
+          "note": "Order marked as Delivered",
+          "timestamp": "2026-10-13T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-10-12T11:05:21.590Z",
+      "updatedAt": "2026-10-13T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_03",
+      "orderNumber": "ORD-2026-90403",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_2",
+      "items": [
+        {
+          "productId": "prd_05",
+          "variantSku": "KK-PRD_05-11",
+          "title": "Sanganer Handloom Linen Panel Co-ord Set",
+          "size": "S",
+          "colorName": "Ivory & Sage",
+          "imageUrl": "/src/assets/images/clothing_linen_co_ord_1794740132428.jpg",
+          "quantity": 1,
+          "unitPrice": 2969
+        },
+        {
+          "productId": "prd_07",
+          "variantSku": "KK-PRD_07-11",
+          "title": "Banarasi Modal Zari Geometric Stole",
+          "size": "200 cm x 70 cm",
+          "colorName": "Champagne Gold",
+          "imageUrl": "/src/assets/images/accessory_silk_stole_1794740132659.jpg",
+          "quantity": 1,
+          "unitPrice": 1407
+        }
+      ],
+      "totalAmount": 4376,
+      "status": "Delivered",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-09-27T11:05:21.590Z"
+        },
+        {
+          "status": "Delivered",
+          "note": "Order marked as Delivered",
+          "timestamp": "2026-09-28T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-09-27T11:05:21.590Z",
+      "updatedAt": "2026-09-28T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_02",
+      "orderNumber": "ORD-2026-90402",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_2",
+      "items": [
+        {
+          "productId": "prd_04",
+          "variantSku": "KK-PRD_04-11",
+          "title": "Gulbahar Garnet Zari Embroidered Anarkali Set",
+          "size": "XS",
+          "colorName": "Deep Garnet",
+          "imageUrl": "/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg",
+          "quantity": 1,
+          "unitPrice": 4509
+        },
+        {
+          "productId": "prd_01",
+          "variantSku": "KK-PRD_01-11",
+          "title": "Rajwada Meenakari Kundan Bridal Choker",
+          "size": "Free Size",
+          "colorName": "Antique Gold Emerald",
+          "imageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "quantity": 1,
+          "unitPrice": 2799
+        }
+      ],
+      "totalAmount": 7308,
+      "status": "Delivered",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-09-08T11:05:21.590Z"
+        },
+        {
+          "status": "Delivered",
+          "note": "Order marked as Delivered",
+          "timestamp": "2026-09-09T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-09-08T11:05:21.590Z",
+      "updatedAt": "2026-09-09T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_01",
+      "orderNumber": "ORD-2026-90401",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_1",
+      "items": [
+        {
+          "productId": "prd_01",
+          "variantSku": "KK-PRD_01-11",
+          "title": "Rajwada Meenakari Kundan Bridal Choker",
+          "size": "Free Size",
+          "colorName": "Antique Gold Emerald",
+          "imageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "quantity": 1,
+          "unitPrice": 2799
+        },
+        {
+          "productId": "prd_02",
+          "variantSku": "KK-PRD_02-11",
+          "title": "Chandbali Filigree Dual-Tone Jhumka Earrings",
+          "size": "Free Size",
+          "colorName": "Dual Tone Silver Gold",
+          "imageUrl": "/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg",
+          "quantity": 1,
+          "unitPrice": 1104
+        }
+      ],
+      "totalAmount": 3903,
+      "status": "Delivered",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-08-12T11:05:21.590Z"
+        },
+        {
+          "status": "Delivered",
+          "note": "Order marked as Delivered",
+          "timestamp": "2026-08-13T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-08-12T11:05:21.590Z",
+      "updatedAt": "2026-08-13T11:05:21.590Z"
+    },
+    {
+      "_id": "ord_00",
+      "orderNumber": "ORD-2026-90400",
+      "buyerId": "usr_buyer_1",
+      "buyerName": "Ananya Mehta",
+      "sellerId": "usr_seller_1",
+      "items": [
+        {
+          "productId": "prd_08",
+          "variantSku": "KK-PRD_08-11",
+          "title": "Mayuri Temple Coin Haram Long Necklace",
+          "size": "Free Size",
+          "colorName": "Temple Gold",
+          "imageUrl": "/src/assets/images/jewellery_kundan_choker_1794740131002.jpg",
+          "quantity": 1,
+          "unitPrice": 2261
+        }
+      ],
+      "totalAmount": 2261,
+      "status": "Cancelled",
+      "shippingAddress": {
+        "fullName": "Ananya Mehta",
+        "phone": "+919876543210",
+        "street": "42B Linking Road, Bandra West",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050"
+      },
+      "statusTimeline": [
+        {
+          "status": "Pending",
+          "note": "Order placed via Kala & Karat",
+          "timestamp": "2026-11-03T11:05:21.590Z"
+        },
+        {
+          "status": "Cancelled",
+          "note": "Order marked as Cancelled",
+          "timestamp": "2026-11-04T11:05:21.590Z"
+        }
+      ],
+      "createdAt": "2026-11-03T11:05:21.590Z",
+      "updatedAt": "2026-11-04T11:05:21.590Z"
+    }
+  ],
+  "carts": {},
+  "sellerInvites": [
+    {
+      "_id": "sinv_0d09043372",
+      "token": "inv_a86c5a2e3cc6f992961f229f7af3ad79",
+      "email": "invited.artisan.1794742298372@example.com",
+      "storeName": "Banaras Guild",
+      "note": "",
+      "invitedByUserId": "usr_admin_1",
+      "invitedByName": "Kala & Karat Ops",
+      "status": "accepted",
+      "acceptedUserId": "usr_ba1ce85b6d",
+      "acceptedAt": "2026-11-15T11:31:38.406Z",
+      "revokedAt": null,
+      "expiresAt": "2026-11-22T11:31:38.380Z",
+      "createdAt": "2026-11-15T11:31:38.380Z"
+    },
+    {
+      "_id": "sinv_51c00bea8f",
+      "token": "inv_eaa1b64004b22dfbac5ccd89cacb49ca",
+      "email": "invited.artisan.1794742268243@example.com",
+      "storeName": "Banaras Guild",
+      "note": "",
+      "invitedByUserId": "usr_admin_1",
+      "invitedByName": "Kala & Karat Ops",
+      "status": "pending",
+      "acceptedUserId": null,
+      "acceptedAt": null,
+      "revokedAt": null,
+      "expiresAt": "2026-11-22T11:31:08.253Z",
+      "createdAt": "2026-11-15T11:31:08.253Z"
+    }
+  ]
+}
