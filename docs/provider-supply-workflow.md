@@ -78,7 +78,7 @@ bun run build:workspace
 - `ENCRYPTION_MASTER_KEY`: base64-encoded 32-byte key (generate with `openssl rand -base64 32`).
 - `APP_URL`: canonical app origin.
 - `CORS_ALLOWED_ORIGINS`: exact comma-separated frontend origins.
-- `VITE_CUSTOMER_APP_URL`: optional sign-in URL for a separately hosted provider portal.
+- `VITE_CUSTOMER_APP_URL`: optional customer app origin for provider sign-in return flow.
 
 MongoDB must be configured for production persistence. The current provider settlement ledger uses unique idempotency keys and conditional writes. Wallet / other transactional commerce operations still require a replica set or sharded MongoDB deployment.
 
