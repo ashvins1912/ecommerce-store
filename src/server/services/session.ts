@@ -9,7 +9,7 @@ export interface AuthSessionRecord {
   sessionId: string;
   userId: string;
   role: User['role'];
-  provider: 'google' | 'meta' | 'invite' | 'demo';
+  provider: 'supabase' | 'invite' | 'demo';
   tokenFingerprint: string;
   csrfToken: string;
   tlsSecure: boolean;
@@ -124,7 +124,7 @@ export function buildTokenFingerprint(token: string): string {
 export function createSessionArtifact(
   req: Request,
   user: User,
-  provider: 'google' | 'meta' | 'invite' | 'demo'
+  provider: 'supabase' | 'invite' | 'demo'
 ): { record: AuthSessionRecord; token: string } {
   const nowMs = Date.now();
   const expMs = nowMs + TOKEN_TTL_MS;

@@ -31,6 +31,8 @@ import type {
   CouponScope,
   CategoryControl,
   ShareEventRecord,
+  ProductListingStatus,
+  ProductControlAction,
 } from '../../shared/types.js';
 import {
   SEED_USERS,
@@ -55,6 +57,8 @@ import {
   ShareEventModel,
 } from '../models/schemas.js';
 import type { AuthSessionRecord } from './session.js';
+import { deleteStoredImageAssets } from './storage.js';
+import { purgeProductFromCartCaches } from './redis.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
@@ -166,6 +170,30 @@ function loadLocalStore(): StoreState {
         for (const p of parsed.products) {
           if (typeof p.sharesCount !== 'number') {
             p.sharesCount = 0;
+            dirty = true;
+          }
+          if (typeof p.isPublished !== 'boolean') {
+            p.isPublished = p.isActive !== false && !p.isDiscontinued;
+            dirty = true;
+          }
+          if (typeof p.isUnlisted !== 'boolean') {
+            p.isUnlisted = false;
+            dirty = true;
+          }
+          if (typeof p.isDiscontinued !== 'boolean') {
+            p.isDiscontinued = false;
+            dirty = true;
+          }
+          if (typeof p.isDeleted !== 'boolean') {
+            p.isDeleted = false;
+            dirty = true;
+          }
+          if (!p.listingStatus) {
+            p.listingStatus = p.isDiscontinued
+              ? 'discontinued'
+              : p.isPublished === false || p.isUnlisted
+                ? 'unpublished'
+                : 'published';
             dirty = true;
           }
           if (!Array.isArray(p.seasons) || p.seasons.length === 0) {
@@ -407,6 +435,53 @@ function parseFlexibleQuery(rawQuery: string): {
   };
 }
 
+export const ACTIVE_ORDER_STATUSES: OrderStatus[] = [
+  'Pending',
+  'Confirmed',
+  'Packed',
+  'Shipped',
+  'Out for Delivery',
+];
+
+export const MONGO_PUBLIC_PRODUCT_FILTER = {
+  isActive: true,
+  isPublished: { $ne: false },
+  isUnlisted: { $ne: true },
+  isDiscontinued: { $ne: true },
+  isDeleted: { $ne: true },
+};
+
+export function isProductPubliclyVisible(p: Product): boolean {
+  return (
+    p.isActive !== false &&
+    p.isPublished !== false &&
+    !p.isUnlisted &&
+    !p.isDiscontinued &&
+    !p.isDeleted
+  );
+}
+
+function normalizeProductDoc(d: any): Product {
+  const isDiscontinued = Boolean(d.isDiscontinued);
+  const isPublished = d.isPublished !== false && !isDiscontinued && d.isActive !== false;
+  const isUnlisted = Boolean(d.isUnlisted);
+  const isDeleted = Boolean(d.isDeleted);
+  const listingStatus: ProductListingStatus =
+    d.listingStatus ||
+    (isDiscontinued ? 'discontinued' : !isPublished || isUnlisted ? 'unpublished' : 'published');
+  return {
+    ...d,
+    _id: String(d._id),
+    sellerId: String(d.sellerId),
+    isPublished,
+    isUnlisted,
+    isDiscontinued,
+    isDeleted,
+    listingStatus,
+    disabledAt: d.disabledAt ? new Date(d.disabledAt).toISOString() : null,
+  };
+}
+
 export async function getSearchSuggestions(query: string): Promise<string[]> {
   const q = query.trim().toLowerCase();
   const [all, allCats] = await Promise.all([getAllProductsRaw(), getAllCategoriesRaw()]);
@@ -448,7 +523,7 @@ export async function getSearchSuggestions(query: string): Promise<string[]> {
   }
 
   for (const p of all) {
-    if (!p.isActive || disabledSet.has(p.category.toLowerCase())) continue;
+    if (!isProductPubliclyVisible(p) || disabledSet.has(p.category.toLowerCase())) continue;
     const titleLower = p.title.toLowerCase();
     const specBlob = [
       p.subCategory,
@@ -477,12 +552,17 @@ export async function getSearchSuggestions(query: string): Promise<string[]> {
   return Array.from(suggestions).slice(0, 8);
 }
 
-async function getAllProductsRaw(): Promise<Product[]> {
+async function getAllProductsRaw(options?: { includeControlled?: boolean }): Promise<Product[]> {
   if (mongoConnected) {
-    const docs = await ProductModel.find({ isActive: true }).lean();
-    return docs.map((d: any) => ({ ...d, _id: String(d._id), sellerId: String(d.sellerId) }));
+    const query = options?.includeControlled
+      ? { isDeleted: { $ne: true } }
+      : MONGO_PUBLIC_PRODUCT_FILTER;
+    const docs = await ProductModel.find(query).lean();
+    return docs.map(normalizeProductDoc);
   }
-  return localState.products;
+  return localState.products
+    .filter((p) => (options?.includeControlled ? !p.isDeleted : isProductPubliclyVisible(p)))
+    .map(normalizeProductDoc);
 }
 
 export interface ProductFilterQuery {
@@ -507,7 +587,7 @@ export interface ProductFilterQuery {
 function computeCategoryTop10Thresholds(products: Product[]): Record<string, number> {
   const byCategory = new Map<string, number[]>();
   for (const p of products) {
-    if (!p.isActive) continue;
+    if (!isProductPubliclyVisible(p)) continue;
     const list = byCategory.get(p.category) || [];
     list.push(p.trendScore || 0);
     byCategory.set(p.category, list);
@@ -534,17 +614,17 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   const page = Math.max(1, filters.page || 1);
   // Strict limit(20) pagination rule for storefront listings
   const limit = Math.min(20, Math.max(1, filters.limit || 20));
-  const [allActiveProducts, allCategories] = await Promise.all([
-    getAllProductsRaw(),
+  const [allProducts, allCategories] = await Promise.all([
+    getAllProductsRaw({ includeControlled: Boolean(filters.includeInactive) }),
     getAllCategoriesRaw(),
   ]);
   const disabledSet = new Set(
     allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase())
   );
-  const categoryTop10Thresholds = computeCategoryTop10Thresholds(allActiveProducts);
+  const categoryTop10Thresholds = computeCategoryTop10Thresholds(allProducts);
 
-  let items = allActiveProducts.filter((p) => {
-    if (!filters.includeInactive && !p.isActive) return false;
+  let items = allProducts.filter((p) => {
+    if (!filters.includeInactive && !isProductPubliclyVisible(p)) return false;
     if (!filters.includeDisabled && disabledSet.has(p.category.toLowerCase())) return false;
     return true;
   });
@@ -732,33 +812,62 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   };
 }
 
-export async function getProductByIdOrSlug(idOrSlug: string): Promise<Product | null> {
+export async function getProductByIdOrSlug(
+  idOrSlug: string,
+  options?: { includeControlled?: boolean }
+): Promise<Product | null> {
   if (mongoConnected) {
-    const query = mongoose.isValidObjectId(idOrSlug)
+    const idClause = mongoose.isValidObjectId(idOrSlug)
       ? { $or: [{ _id: idOrSlug }, { slug: idOrSlug }] }
       : { slug: idOrSlug };
+    const query = options?.includeControlled
+      ? { ...idClause, isDeleted: { $ne: true } }
+      : { ...idClause, ...MONGO_PUBLIC_PRODUCT_FILTER };
     const doc = await ProductModel.findOne(query).lean();
     if (!doc) return null;
-    return { ...(doc as any), _id: String((doc as any)._id), sellerId: String((doc as any).sellerId) };
+    return normalizeProductDoc(doc);
   }
-  return (
-    localState.products.find((p) => p._id === idOrSlug || p.slug === idOrSlug) || null
-  );
+  const found = localState.products.find((p) => p._id === idOrSlug || p.slug === idOrSlug);
+  if (!found || found.isDeleted) return null;
+  if (!options?.includeControlled && !isProductPubliclyVisible(found)) return null;
+  return normalizeProductDoc(found);
 }
 
 export async function incrementProductView(productId: string): Promise<void> {
   if (mongoConnected && mongoose.isValidObjectId(productId)) {
-    await ProductModel.updateOne({ _id: productId }, { $inc: { viewsCount: 1 } });
+    await ProductModel.updateOne(
+      { _id: productId, ...MONGO_PUBLIC_PRODUCT_FILTER },
+      { $inc: { viewsCount: 1 } }
+    );
     return;
   }
   const prod = localState.products.find((p) => p._id === productId);
-  if (prod) {
+  if (prod && isProductPubliclyVisible(prod)) {
     prod.viewsCount += 1;
     saveLocalStore(localState);
   }
 }
 
-export async function createProduct(sellerId: string, payload: Omit<Product, '_id' | 'sellerId' | 'slug' | 'likesCount' | 'viewsCount' | 'cartAddsCount' | 'salesCount' | 'trendScore' | 'averageRating' | 'reviewCount' | 'badges' | 'isProductTrusted' | 'createdAt' | 'updatedAt'>): Promise<Product> {
+export async function createProduct(
+  sellerId: string,
+  payload: Omit<
+    Product,
+    | '_id'
+    | 'sellerId'
+    | 'slug'
+    | 'likesCount'
+    | 'viewsCount'
+    | 'cartAddsCount'
+    | 'salesCount'
+    | 'trendScore'
+    | 'averageRating'
+    | 'reviewCount'
+    | 'badges'
+    | 'isProductTrusted'
+    | 'createdAt'
+    | 'updatedAt'
+  >
+): Promise<Product> {
   const seller = await findUserById(sellerId);
   const nowIso = new Date().toISOString();
   const baseSlug = payload.title
@@ -789,6 +898,13 @@ export async function createProduct(sellerId: string, payload: Omit<Product, '_i
     reviewCount: 0,
     badges,
     isProductTrusted: false,
+    isActive: true,
+    listingStatus: 'published',
+    isPublished: true,
+    isUnlisted: false,
+    isDiscontinued: false,
+    isDeleted: false,
+    disabledAt: null,
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -799,7 +915,7 @@ export async function createProduct(sellerId: string, payload: Omit<Product, '_i
       _id: new mongoose.Types.ObjectId(),
       sellerId: new mongoose.Types.ObjectId(sellerId),
     });
-    return { ...newProduct, _id: String(doc._id) };
+    return normalizeProductDoc({ ...newProduct, _id: String(doc._id) });
   }
 
   localState.products.unshift(newProduct);
@@ -821,7 +937,7 @@ export async function updateProductDiscountOrStock(
     images?: Product['images'];
   }
 ): Promise<Product | null> {
-  const existing = await getProductByIdOrSlug(productId);
+  const existing = await getProductByIdOrSlug(productId, { includeControlled: true });
   if (!existing) return null;
   if (existing.sellerId !== sellerId) {
     // Allow admin or owner
@@ -850,12 +966,24 @@ export async function updateProductDiscountOrStock(
       ? updates.images.map((img, idx) => ({ ...img, sortOrder: idx }))
       : undefined;
 
+  let nextVariants = existing.variants;
+  if (typeof updates.totalStock === 'number') {
+    if (updates.totalStock === 0) {
+      nextVariants = existing.variants.map((v) => ({ ...v, stock: 0 }));
+    } else if (existing.totalStock === 0 && updates.totalStock > 0 && existing.variants.length > 0) {
+      const perVariant = Math.max(1, Math.floor(updates.totalStock / existing.variants.length));
+      nextVariants = existing.variants.map((v) => ({ ...v, stock: perVariant }));
+    }
+  }
+
   const patch = {
     ...(updates.title ? { title: updates.title } : {}),
     ...(updates.occasions ? { occasions: updates.occasions } : {}),
     ...(updates.seasons ? { seasons: updates.seasons } : {}),
     ...(normalizedImages ? { images: normalizedImages } : {}),
-    ...(typeof updates.totalStock === 'number' ? { totalStock: updates.totalStock } : {}),
+    ...(typeof updates.totalStock === 'number'
+      ? { totalStock: updates.totalStock, variants: nextVariants }
+      : {}),
     basePrice,
     discountPercent,
     salePrice,
@@ -865,83 +993,428 @@ export async function updateProductDiscountOrStock(
 
   if (mongoConnected && mongoose.isValidObjectId(productId)) {
     const updated = await ProductModel.findByIdAndUpdate(productId, { $set: patch }, { new: true }).lean();
-    return updated ? { ...(updated as any), _id: String((updated as any)._id) } : null;
+    return updated ? normalizeProductDoc(updated) : null;
   }
 
-  Object.assign(existing, patch);
+  const rawProd = localState.products.find((p) => p._id === productId);
+  if (!rawProd) return null;
+  Object.assign(rawProd, patch);
   saveLocalStore(localState);
-  return existing;
+  return normalizeProductDoc(rawProd);
 }
 
-// --- Users & Auth ---
+// --- Seller Product Lifecycle Control Panel (Unpublish / Unlist / Out of Stock / Discontinue / Full Purge Remove) ---
+
+export async function getActiveOrderCountForProduct(productId: string): Promise<number> {
+  if (mongoConnected) {
+    const prodMatch = mongoose.isValidObjectId(productId)
+      ? { $in: [productId, new mongoose.Types.ObjectId(productId)] }
+      : productId;
+    return OrderModel.countDocuments({
+      status: { $in: ACTIVE_ORDER_STATUSES },
+      'items.productId': prodMatch,
+    });
+  }
+  return localState.orders.filter(
+    (o) =>
+      ACTIVE_ORDER_STATUSES.includes(o.status) &&
+      o.items.some((item) => item.productId === productId)
+  ).length;
+}
+
+async function getActiveOrderCountsByProduct(): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (mongoConnected) {
+    const activeOrders = await OrderModel.find({
+      status: { $in: ACTIVE_ORDER_STATUSES },
+    })
+      .select('items.productId')
+      .lean();
+    for (const order of activeOrders as any[]) {
+      const seenInOrder = new Set<string>();
+      for (const item of order.items || []) {
+        const pid = String(item.productId);
+        if (!seenInOrder.has(pid)) {
+          seenInOrder.add(pid);
+          counts.set(pid, (counts.get(pid) || 0) + 1);
+        }
+      }
+    }
+    return counts;
+  }
+
+  for (const order of localState.orders) {
+    if (!ACTIVE_ORDER_STATUSES.includes(order.status)) continue;
+    const seenInOrder = new Set<string>();
+    for (const item of order.items) {
+      if (!seenInOrder.has(item.productId)) {
+        seenInOrder.add(item.productId);
+        counts.set(item.productId, (counts.get(item.productId) || 0) + 1);
+      }
+    }
+  }
+  return counts;
+}
+
+export async function listSellerManagedProducts(
+  actorId: string,
+  role: string,
+  filters?: { q?: string; statusFilter?: string }
+): Promise<Product[]> {
+  const [all, activeCounts] = await Promise.all([
+    getAllProductsRaw({ includeControlled: true }),
+    getActiveOrderCountsByProduct(),
+  ]);
+
+  let items = all
+    .filter((p) => (role === 'ADMIN' ? true : p.sellerId === actorId))
+    .map((p) => ({
+      ...p,
+      activeOrderCount: activeCounts.get(p._id) || 0,
+    }));
+
+  const q = (filters?.q || '').trim().toLowerCase();
+  if (q) {
+    items = items.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q) ||
+        p.occasions.some((o) => o.toLowerCase().includes(q))
+    );
+  }
+
+  const sf = filters?.statusFilter || 'all';
+  if (sf === 'published') {
+    items = items.filter((p) => isProductPubliclyVisible(p) && p.totalStock > 0);
+  } else if (sf === 'unpublished') {
+    items = items.filter((p) => !p.isDiscontinued && (p.isPublished === false || Boolean(p.isUnlisted)));
+  } else if (sf === 'unlisted') {
+    items = items.filter((p) => !p.isDiscontinued && Boolean(p.isUnlisted));
+  } else if (sf === 'out_of_stock') {
+    items = items.filter((p) => !p.isDiscontinued && p.totalStock <= 0);
+  } else if (sf === 'discontinued') {
+    items = items.filter((p) => Boolean(p.isDiscontinued));
+  }
+
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return items;
+}
+
+export async function updateProductControlState(
+  productId: string,
+  actorId: string,
+  role: string,
+  action: ProductControlAction,
+  stockValue?: number
+): Promise<Product | null> {
+  const existing = await getProductByIdOrSlug(productId, { includeControlled: true });
+  if (!existing) return null;
+  if (role !== 'ADMIN' && existing.sellerId !== actorId) return null;
+
+  const nowIso = new Date().toISOString();
+  const patch: Record<string, any> = { updatedAt: nowIso };
+
+  switch (action) {
+    case 'publish': {
+      patch.isActive = true;
+      patch.isPublished = true;
+      patch.isUnlisted = false;
+      patch.isDiscontinued = false;
+      patch.listingStatus = 'published';
+      patch.disabledAt = null;
+      break;
+    }
+    case 'unpublish': {
+      patch.isPublished = false;
+      patch.listingStatus = existing.isDiscontinued ? 'discontinued' : 'unpublished';
+      patch.disabledAt = nowIso;
+      break;
+    }
+    case 'unlist': {
+      patch.isUnlisted = true;
+      patch.listingStatus = existing.isDiscontinued ? 'discontinued' : 'unpublished';
+      patch.disabledAt = nowIso;
+      break;
+    }
+    case 'relist': {
+      patch.isUnlisted = false;
+      patch.isPublished = true;
+      patch.isActive = true;
+      patch.isDiscontinued = false;
+      patch.listingStatus = 'published';
+      patch.disabledAt = null;
+      break;
+    }
+    case 'mark_out_of_stock': {
+      patch.totalStock = 0;
+      patch.variants = existing.variants.map((v) => ({ ...v, stock: 0 }));
+      break;
+    }
+    case 'restock': {
+      const targetStock = Math.max(1, Math.floor(stockValue ?? 15));
+      const count = Math.max(1, existing.variants.length);
+      const perVariant = Math.max(1, Math.floor(targetStock / count));
+      patch.totalStock = targetStock;
+      patch.variants = existing.variants.map((v) => ({ ...v, stock: perVariant }));
+      break;
+    }
+    case 'discontinue': {
+      patch.isDiscontinued = true;
+      patch.isActive = false;
+      patch.isPublished = false;
+      patch.isUnlisted = true;
+      patch.listingStatus = 'discontinued';
+      patch.disabledAt = nowIso;
+      break;
+    }
+  }
+
+  let updated: Product | null = null;
+  if (mongoConnected && mongoose.isValidObjectId(productId)) {
+    const doc = await ProductModel.findByIdAndUpdate(
+      productId,
+      { $set: patch },
+      { new: true }
+    ).lean();
+    updated = doc ? normalizeProductDoc(doc) : null;
+  } else {
+    const raw = localState.products.find((p) => p._id === productId);
+    if (!raw) return null;
+    Object.assign(raw, patch);
+    saveLocalStore(localState);
+    updated = normalizeProductDoc(raw);
+  }
+
+  if (!updated) return null;
+  const activeOrderCount = await getActiveOrderCountForProduct(updated._id);
+  return { ...updated, activeOrderCount };
+}
+
+export async function removeProductCompletely(
+  productId: string,
+  actorId: string,
+  role: string
+): Promise<{
+  ok: boolean;
+  notFound?: boolean;
+  unauthorized?: boolean;
+  blockedByActiveOrders?: boolean;
+  activeOrderCount?: number;
+  removedProductId?: string;
+  purgedImages?: string[];
+  error?: string;
+}> {
+  const existing = await getProductByIdOrSlug(productId, { includeControlled: true });
+  if (!existing) {
+    return { ok: false, notFound: true, error: 'Product not found or already removed.' };
+  }
+  if (role !== 'ADMIN' && existing.sellerId !== actorId) {
+    return { ok: false, unauthorized: true, error: 'Unauthorized to remove this product.' };
+  }
+
+  // Strictly block permanent removal while any active ongoing order exists
+  const activeOrderCount = await getActiveOrderCountForProduct(existing._id);
+  if (activeOrderCount > 0) {
+    return {
+      ok: false,
+      blockedByActiveOrders: true,
+      activeOrderCount,
+      error: `Cannot permanently remove "${existing.title}" because ${activeOrderCount} active ongoing order(s) exist. Mark it as Discontinued instead.`,
+    };
+  }
+
+  // Collect all CDN/uploaded image URLs associated strictly with this product
+  const candidateUrls: string[] = [];
+  for (const img of existing.images || []) {
+    if (img.url) candidateUrls.push(img.url);
+    if (img.thumbUrl) candidateUrls.push(img.thumbUrl);
+  }
+  for (const v of existing.variants || []) {
+    if (v.variantImageUrl) candidateUrls.push(v.variantImageUrl);
+  }
+
+  // Ensure we don't delete an uploaded file if another catalog product explicitly shares it
+  const otherProducts = (await getAllProductsRaw({ includeControlled: true })).filter(
+    (p) => p._id !== existing._id
+  );
+  const sharedUrlSet = new Set<string>();
+  for (const op of otherProducts) {
+    for (const img of op.images || []) {
+      if (img.url) sharedUrlSet.add(img.url);
+      if (img.thumbUrl) sharedUrlSet.add(img.thumbUrl);
+    }
+    for (const v of op.variants || []) {
+      if (v.variantImageUrl) sharedUrlSet.add(v.variantImageUrl);
+    }
+  }
+  const urlsToDelete = candidateUrls.filter((u) => !sharedUrlSet.has(u));
+  const storagePurge = await deleteStoredImageAssets(urlsToDelete);
+
+  // Mongo-level disable mark + full trace deletion across collections (Orders History preserved!)
+  if (mongoConnected && mongoose.isValidObjectId(existing._id)) {
+    const objId = new mongoose.Types.ObjectId(existing._id);
+    // Explicitly mark disabled at Mongo level before purging the catalog document
+    await ProductModel.updateOne(
+      { _id: objId },
+      {
+        $set: {
+          isActive: false,
+          isPublished: false,
+          isUnlisted: true,
+          isDiscontinued: true,
+          isDeleted: true,
+          listingStatus: 'discontinued',
+          disabledAt: new Date(),
+        },
+      }
+    );
+    await Promise.all([
+      ProductModel.deleteOne({ _id: objId }),
+      LikeModel.deleteMany({ productId: objId }),
+      ReviewModel.deleteMany({ productId: objId }),
+      ShareEventModel.deleteMany({ productId: existing._id }),
+      SalesCampaignModel.updateMany({}, { $pull: { productIds: existing._id } }),
+      CouponModel.updateMany({}, { $pull: { productIds: existing._id } }),
+    ]);
+  }
+
+  // Local persistent store + Redis carts purge (preserving Orders History untouched)
+  localState.products = localState.products.filter((p) => p._id !== existing._id);
+  localState.likes = localState.likes.filter((l) => l.productId !== existing._id);
+  localState.reviews = localState.reviews.filter((r) => r.productId !== existing._id);
+  localState.shareEvents = localState.shareEvents.filter((s) => s.productId !== existing._id);
+  for (const cmp of localState.salesCampaigns) {
+    cmp.productIds = cmp.productIds.filter((id) => id !== existing._id);
+  }
+  for (const cpn of localState.coupons) {
+    cpn.productIds = cpn.productIds.filter((id) => id !== existing._id);
+  }
+  const cartKeys = Object.keys(localState.carts);
+  for (const ck of cartKeys) {
+    localState.carts[ck] = (localState.carts[ck] || []).filter(
+      (item) => item.productId !== existing._id
+    );
+  }
+  await purgeProductFromCartCaches(cartKeys, existing._id);
+  saveLocalStore(localState);
+
+  return {
+    ok: true,
+    removedProductId: existing._id,
+    purgedImages: storagePurge.deletedKeys,
+  };
+}
+
+// --- Users & Auth (Supabase + Secure Persistent Fallback) ---
+
+function sanitizeUser(doc: any): User {
+  const { passwordHash: _omitted, ...safe } = doc;
+  return {
+    ...safe,
+    _id: String(safe._id),
+    oauthAccounts: Array.isArray(safe.oauthAccounts) ? safe.oauthAccounts : [],
+    shippingAddresses: Array.isArray(safe.shippingAddresses) ? safe.shippingAddresses : [],
+  };
+}
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+function verifyPassword(password: string, storedHash?: string): boolean {
+  if (!storedHash || !storedHash.includes(':')) return false;
+  const [salt, expectedHex] = storedHash.split(':');
+  if (!salt || !expectedHex) return false;
+  const actualBuf = crypto.scryptSync(password, salt, 64);
+  const expectedBuf = Buffer.from(expectedHex, 'hex');
+  if (actualBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(actualBuf, expectedBuf);
+}
 
 export async function findUserById(id: string): Promise<User | null> {
   if (mongoConnected && mongoose.isValidObjectId(id)) {
     const doc = await UserModel.findById(id).lean();
-    return doc ? { ...(doc as any), _id: String((doc as any)._id) } : null;
+    return doc ? sanitizeUser(doc) : null;
   }
-  return localState.users.find((u) => u._id === id) || null;
+  const found = localState.users.find((u) => u._id === id);
+  return found ? sanitizeUser(found) : null;
 }
 
 export async function findUserByEmail(email: string): Promise<User | null> {
   const emailLower = email.trim().toLowerCase();
   if (mongoConnected) {
     const doc = await UserModel.findOne({ email: emailLower }).lean();
-    return doc ? { ...(doc as any), _id: String((doc as any)._id) } : null;
+    return doc ? sanitizeUser(doc) : null;
   }
-  return localState.users.find((u) => u.email.toLowerCase() === emailLower) || null;
+  const found = localState.users.find((u) => u.email.toLowerCase() === emailLower);
+  return found ? sanitizeUser(found) : null;
 }
 
-export async function findOrCreateOAuthUser(profile: {
-  provider: 'google' | 'meta';
-  providerAccountId: string;
+export async function syncSupabaseCustomerUser(profile: {
+  supabaseUid: string;
   email: string;
   name: string;
-  avatarUrl?: string;
-  role?: 'BUYER' | 'SELLER' | 'ADMIN';
+  mobileNumber?: string;
 }): Promise<User> {
-  const emailLower = profile.email.toLowerCase();
+  const emailLower = profile.email.trim().toLowerCase();
+  const cleanName = profile.name.trim() || emailLower.split('@')[0];
+
   if (mongoConnected) {
-    let doc = await UserModel.findOne({ email: emailLower });
+    let doc = await UserModel.findOne({
+      $or: [{ supabaseUid: profile.supabaseUid }, { email: emailLower }],
+    });
     if (!doc) {
       doc = await UserModel.create({
-        role: profile.role || 'BUYER',
-        name: profile.name,
+        role: 'BUYER',
+        name: cleanName,
         email: emailLower,
-        avatarUrl: profile.avatarUrl,
-        oauthAccounts: [
-          { provider: profile.provider, providerAccountId: profile.providerAccountId },
-        ],
+        supabaseUid: profile.supabaseUid,
+        authProvider: 'supabase',
+        oauthAccounts: [],
+        mobileNumber: profile.mobileNumber || undefined,
         isWhatsappVerified: false,
         shippingAddresses: [],
       });
-    } else if (
-      !doc.oauthAccounts.some(
-        (a: any) => a.provider === profile.provider && a.providerAccountId === profile.providerAccountId
-      )
-    ) {
-      doc.oauthAccounts.push({
-        provider: profile.provider,
-        providerAccountId: profile.providerAccountId,
-      });
-      await doc.save();
+    } else {
+      let dirty = false;
+      if (!doc.supabaseUid) {
+        doc.supabaseUid = profile.supabaseUid;
+        dirty = true;
+      }
+      if (doc.authProvider !== 'supabase') {
+        doc.authProvider = 'supabase';
+        dirty = true;
+      }
+      if (profile.mobileNumber && !doc.mobileNumber) {
+        doc.mobileNumber = profile.mobileNumber;
+        dirty = true;
+      }
+      if (cleanName && (!doc.name || doc.name === emailLower.split('@')[0])) {
+        doc.name = cleanName;
+        dirty = true;
+      }
+      if (dirty) await doc.save();
     }
-    const obj = doc.toObject();
-    return { ...obj, _id: String(obj._id) };
+    return sanitizeUser(doc.toObject());
   }
 
-  let user = localState.users.find((u) => u.email.toLowerCase() === emailLower);
+  let user = localState.users.find(
+    (u) => u.supabaseUid === profile.supabaseUid || u.email.toLowerCase() === emailLower
+  );
+  const nowIso = new Date().toISOString();
   if (!user) {
-    const nowIso = new Date().toISOString();
     user = {
       _id: `usr_${crypto.randomBytes(5).toString('hex')}`,
-      role: profile.role || 'BUYER',
-      name: profile.name,
+      role: 'BUYER',
+      name: cleanName,
       email: emailLower,
-      avatarUrl: profile.avatarUrl,
-      oauthAccounts: [
-        { provider: profile.provider, providerAccountId: profile.providerAccountId },
-      ],
+      supabaseUid: profile.supabaseUid,
+      authProvider: 'supabase',
+      oauthAccounts: [],
+      mobileNumber: profile.mobileNumber || undefined,
       isWhatsappVerified: false,
       shippingAddresses: [],
       createdAt: nowIso,
@@ -949,8 +1422,111 @@ export async function findOrCreateOAuthUser(profile: {
     };
     localState.users.push(user);
     saveLocalStore(localState);
+  } else {
+    let dirty = false;
+    if (!user.supabaseUid) {
+      user.supabaseUid = profile.supabaseUid;
+      dirty = true;
+    }
+    if (profile.mobileNumber && !user.mobileNumber) {
+      user.mobileNumber = profile.mobileNumber;
+      dirty = true;
+    }
+    if (dirty) {
+      user.updatedAt = nowIso;
+      saveLocalStore(localState);
+    }
   }
-  return user;
+  return sanitizeUser(user);
+}
+
+export async function registerCustomerAccount(input: {
+  name: string;
+  email: string;
+  password: string;
+  mobileNumber?: string;
+}): Promise<User> {
+  const emailLower = input.email.trim().toLowerCase();
+  const cleanName = input.name.trim();
+  const pwHash = hashPassword(input.password);
+
+  if (mongoConnected) {
+    const existing = await UserModel.findOne({ email: emailLower }).lean();
+    if (existing) {
+      const err = new Error('An account with this email already exists. Please sign in.') as Error & {
+        status?: number;
+      };
+      err.status = 409;
+      throw err;
+    }
+    const created = await UserModel.create({
+      role: 'BUYER',
+      name: cleanName,
+      email: emailLower,
+      passwordHash: pwHash,
+      authProvider: 'supabase',
+      oauthAccounts: [],
+      mobileNumber: input.mobileNumber || undefined,
+      isWhatsappVerified: false,
+      shippingAddresses: [],
+    });
+    return sanitizeUser(created.toObject());
+  }
+
+  const existing = localState.users.find((u) => u.email.toLowerCase() === emailLower);
+  if (existing) {
+    const err = new Error('An account with this email already exists. Please sign in.') as Error & {
+      status?: number;
+    };
+    err.status = 409;
+    throw err;
+  }
+
+  const nowIso = new Date().toISOString();
+  const newUser = {
+    _id: `usr_${crypto.randomBytes(5).toString('hex')}`,
+    role: 'BUYER' as const,
+    name: cleanName,
+    email: emailLower,
+    passwordHash: pwHash,
+    authProvider: 'supabase' as const,
+    oauthAccounts: [],
+    mobileNumber: input.mobileNumber || undefined,
+    isWhatsappVerified: false,
+    shippingAddresses: [],
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+  localState.users.push(newUser as User & { passwordHash?: string });
+  saveLocalStore(localState);
+  return sanitizeUser(newUser);
+}
+
+export async function authenticateCustomerAccount(input: {
+  email: string;
+  password: string;
+}): Promise<User> {
+  const emailLower = input.email.trim().toLowerCase();
+
+  if (mongoConnected) {
+    const doc = await UserModel.findOne({ email: emailLower }).select('+passwordHash').lean();
+    if (!doc || !verifyPassword(input.password, (doc as any).passwordHash)) {
+      const err = new Error('Invalid email or password.') as Error & { status?: number };
+      err.status = 401;
+      throw err;
+    }
+    return sanitizeUser(doc);
+  }
+
+  const user = localState.users.find((u) => u.email.toLowerCase() === emailLower) as
+    | (User & { passwordHash?: string })
+    | undefined;
+  if (!user || !verifyPassword(input.password, user.passwordHash)) {
+    const err = new Error('Invalid email or password.') as Error & { status?: number };
+    err.status = 401;
+    throw err;
+  }
+  return sanitizeUser(user);
 }
 
 export async function updateUserCheckoutProfile(
@@ -979,8 +1555,7 @@ export async function updateUserCheckoutProfile(
     });
     doc.shippingAddresses.unshift(newAddress);
     await doc.save();
-    const obj = doc.toObject();
-    return { ...obj, _id: String(obj._id) };
+    return sanitizeUser(doc.toObject());
   }
 
   const user = localState.users.find((u) => u._id === userId);
@@ -992,7 +1567,7 @@ export async function updateUserCheckoutProfile(
   ];
   user.updatedAt = new Date().toISOString();
   saveLocalStore(localState);
-  return user;
+  return sanitizeUser(user);
 }
 
 export async function activateSellerProfile(
@@ -1023,7 +1598,7 @@ export async function activateSellerProfile(
       },
       { new: true }
     ).lean();
-    return doc ? { ...(doc as any), _id: String((doc as any)._id) } : null;
+    return doc ? sanitizeUser(doc) : null;
   }
 
   const user = localState.users.find((u) => u._id === userId);
@@ -1034,7 +1609,7 @@ export async function activateSellerProfile(
   user.sellerProfile = user.sellerProfile || sellerProfile;
   user.updatedAt = new Date().toISOString();
   saveLocalStore(localState);
-  return user;
+  return sanitizeUser(user);
 }
 
 // --- Likes & Guest-to-User Merge ---
@@ -1071,11 +1646,16 @@ export async function getLikedProductsForActor(actor: {
   if (mongoConnected) {
     const validIds = likedIds.filter((id) => mongoose.isValidObjectId(id));
     if (validIds.length === 0) return [];
-    const docs = await ProductModel.find({ _id: { $in: validIds }, isActive: true }).lean();
-    return docs.map((d: any) => ({ ...d, _id: String(d._id), sellerId: String(d.sellerId) }));
+    const docs = await ProductModel.find({
+      _id: { $in: validIds },
+      ...MONGO_PUBLIC_PRODUCT_FILTER,
+    }).lean();
+    return docs.map(normalizeProductDoc);
   }
   const idSet = new Set(likedIds);
-  return localState.products.filter((p) => p.isActive && idSet.has(p._id));
+  return localState.products
+    .filter((p) => isProductPubliclyVisible(p) && idSet.has(p._id))
+    .map(normalizeProductDoc);
 }
 
 export async function toggleProductLike(
@@ -1207,8 +1787,8 @@ export async function logShareEvent(input: {
   const nowIso = new Date().toISOString();
 
   if (mongoConnected && mongoose.isValidObjectId(input.productId)) {
-    const updated = await ProductModel.findByIdAndUpdate(
-      input.productId,
+    const updated = await ProductModel.findOneAndUpdate(
+      { _id: input.productId, ...MONGO_PUBLIC_PRODUCT_FILTER },
       { $inc: { sharesCount: 1, trendScore: 2 } },
       { new: true }
     ).lean();
@@ -1227,7 +1807,7 @@ export async function logShareEvent(input: {
   }
 
   const prod = localState.products.find(
-    (p) => p._id === input.productId || p.slug === input.productId
+    (p) => (p._id === input.productId || p.slug === input.productId) && isProductPubliclyVisible(p)
   );
   if (!prod) return null;
 
@@ -1357,6 +1937,29 @@ function matchesOrderTab(status: OrderStatus, tab: OrderTab): boolean {
   return status === 'Delivered' || status === 'Cancelled';
 }
 
+async function enrichOrdersWithCatalogStatus(orders: Order[]): Promise<Order[]> {
+  if (orders.length === 0) return orders;
+  const allProducts = await getAllProductsRaw({ includeControlled: true });
+  const prodMap = new Map(allProducts.map((p) => [p._id, p]));
+  return orders.map((order) => ({
+    ...order,
+    items: order.items.map((item) => {
+      const prod = prodMap.get(String(item.productId));
+      let catalogStatus: 'active' | 'unpublished' | 'discontinued' | 'removed' = 'removed';
+      if (prod && !prod.isDeleted) {
+        if (prod.isDiscontinued) catalogStatus = 'discontinued';
+        else if (!isProductPubliclyVisible(prod)) catalogStatus = 'unpublished';
+        else catalogStatus = 'active';
+      }
+      return {
+        ...item,
+        productId: String(item.productId),
+        catalogStatus,
+      };
+    }),
+  }));
+}
+
 export async function getOrdersForUser(
   actorId: string,
   role: 'BUYER' | 'SELLER' | 'ADMIN',
@@ -1382,12 +1985,14 @@ export async function getOrdersForUser(
       OrderModel.find(match).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).lean(),
       OrderModel.countDocuments(match),
     ]);
-    const orders = docs.map((d: any) => ({
-      ...d,
-      _id: String(d._id),
-      buyerId: String(d.buyerId),
-      sellerId: String(d.sellerId),
-    }));
+    const orders = await enrichOrdersWithCatalogStatus(
+      docs.map((d: any) => ({
+        ...d,
+        _id: String(d._id),
+        buyerId: String(d.buyerId),
+        sellerId: String(d.sellerId),
+      }))
+    );
     return {
       orders,
       total,
@@ -1404,7 +2009,7 @@ export async function getOrdersForUser(
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const slice = filtered.slice(skip, skip + safeLimit);
+  const slice = await enrichOrdersWithCatalogStatus(filtered.slice(skip, skip + safeLimit));
   return {
     orders: slice,
     total: filtered.length,
@@ -1423,6 +2028,17 @@ export async function createOrder(input: {
   }
   const addr =
     input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
+
+  // Validate product availability & stock (reject unpublished, unlisted, discontinued, removed, or 0-stock items)
+  for (const item of input.items) {
+    const prod = await getProductByIdOrSlug(item.productId, { includeControlled: true });
+    if (!prod || !isProductPubliclyVisible(prod)) {
+      throw new Error(`"${item.title}" is no longer available for purchase.`);
+    }
+    if (prod.totalStock < item.quantity) {
+      throw new Error(`"${item.title}" is currently out of stock or has insufficient units.`);
+    }
+  }
 
   let appliedCouponRecord: Coupon | null = null;
   let totalCouponDiscount = 0;
@@ -1731,7 +2347,7 @@ export async function getHybridRecommendations(productId: string, limit = 4): Pr
   }
 
   const all = (await getAllProductsRaw()).filter(
-    (p) => p.isActive && p._id !== target._id
+    (p) => isProductPubliclyVisible(p) && p._id !== target._id
   );
 
   const ranked = all.map((cand) => {
@@ -2225,9 +2841,8 @@ export async function acceptSellerInvite(input: {
       throw new Error('This seller invitation could not be redeemed.');
     }
 
-    const userObj = userDoc.toObject();
     return {
-      user: { ...userObj, _id: String(userObj._id) },
+      user: sanitizeUser(userDoc.toObject()),
       invite: {
         ...(updatedInvite as any),
         _id: String((updatedInvite as any)._id),
@@ -2277,7 +2892,7 @@ export async function acceptSellerInvite(input: {
   invite.acceptedUserId = user._id;
   saveLocalStore(localState);
 
-  return { user, invite };
+  return { user: sanitizeUser(user), invite };
 }
 
 // --- SSL Token Authentication Session Manager ---
@@ -2318,7 +2933,10 @@ export async function findActiveAuthSession(sessionId: string): Promise<AuthSess
       sessionId: (doc as any).sessionId,
       userId: String((doc as any).userId),
       role: (doc as any).role,
-      provider: (doc as any).provider || 'google',
+      provider:
+        (doc as any).provider === 'invite' || (doc as any).provider === 'demo'
+          ? (doc as any).provider
+          : 'supabase',
       tokenFingerprint: (doc as any).tokenFingerprint,
       csrfToken: (doc as any).csrfToken,
       tlsSecure: Boolean((doc as any).tlsSecure),
@@ -2363,7 +2981,7 @@ export async function listUserSessions(userId: string): Promise<AuthSessionRecor
       sessionId: d.sessionId,
       userId: String(d.userId),
       role: d.role,
-      provider: d.provider || 'google',
+      provider: d.provider === 'invite' || d.provider === 'demo' ? d.provider : 'supabase',
       tokenFingerprint: d.tokenFingerprint,
       csrfToken: d.csrfToken,
       tlsSecure: Boolean(d.tlsSecure),
@@ -2453,7 +3071,7 @@ export async function listStorefrontCampaigns(): Promise<StorefrontCampaign[]> {
     if (phase === 'ended') continue;
     const products = c.productIds
       .map((id) => productMap.get(id))
-      .filter((p): p is Product => Boolean(p && p.isActive));
+      .filter((p): p is Product => Boolean(p && isProductPubliclyVisible(p)));
     enriched.push({
       ...c,
       phase,
@@ -2493,7 +3111,7 @@ export async function listSellerCampaigns(sellerId: string, role: string): Promi
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  const allProducts = await getAllProductsRaw();
+  const allProducts = await getAllProductsRaw({ includeControlled: true });
   const productMap = new Map(allProducts.map((p) => [p._id, p]));
 
   return raw.map((c) => ({
@@ -3031,7 +3649,7 @@ export async function listCategories(includeDisabled = false): Promise<CategoryC
   const [cats, allProducts] = await Promise.all([getAllCategoriesRaw(), getAllProductsRaw()]);
   const countByCat = new Map<string, number>();
   for (const p of allProducts) {
-    if (!p.isActive) continue;
+    if (!isProductPubliclyVisible(p)) continue;
     const key = p.category.toLowerCase();
     countByCat.set(key, (countByCat.get(key) || 0) + 1);
   }
@@ -3157,9 +3775,19 @@ export async function updateCategoryControl(
   saveLocalStore(localState);
 
   const count = localState.products.filter(
-    (p) => p.isActive && p.category.toLowerCase() === found.name.toLowerCase()
+    (p) => isProductPubliclyVisible(p) && p.category.toLowerCase() === found.name.toLowerCase()
   ).length;
   return { ...found, productCount: count };
+}
+
+export async function sanitizeCartItems(items: CartItem[]): Promise<CartItem[]> {
+  if (!items || items.length === 0) return [];
+  const all = await getAllProductsRaw({ includeControlled: true });
+  const byId = new Map(all.map((p) => [p._id, p]));
+  return items.filter((item) => {
+    const prod = byId.get(item.productId);
+    return Boolean(prod && isProductPubliclyVisible(prod) && prod.totalStock > 0);
+  });
 }
 
 export async function deleteCategoryControl(categoryId: string): Promise<{ ok: boolean; error?: string }> {
@@ -3188,6 +3816,7 @@ export async function deleteCategoryControl(categoryId: string): Promise<{ ok: b
   saveLocalStore(localState);
   return { ok: true };
 }
+
 
 
 

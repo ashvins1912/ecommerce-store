@@ -9,6 +9,8 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  AlertTriangle,
+  Ban,
   Calendar,
   Check,
   CheckCircle2,
@@ -22,6 +24,8 @@ import {
   Link2,
   Lock,
   Mail,
+  Package,
+  PackageX,
   Plus,
   RefreshCw,
   Share2,
@@ -46,7 +50,7 @@ import type {
   OrderTab,
   Product,
   ProductCategory,
-  ProductListResponse,
+  ProductControlAction,
   ReviewClass,
   SeasonType,
   SellerAnalyticsResponse,
@@ -116,6 +120,26 @@ interface SellerHubViewProps {
   onReturnToStore?: () => void;
 }
 
+function CatalogThumb({ src, alt }: { src?: string; alt: string }) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-[#E8E6E1] bg-[#FAF9F6] text-[#A8A29E]">
+        <Package className="h-4 w-4" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      referrerPolicy="no-referrer"
+      onError={() => setBroken(true)}
+      className="h-10 w-10 shrink-0 rounded object-cover border border-[#E8E6E1] bg-[#F2EFE9]"
+    />
+  );
+}
+
 export function SellerHubView({
   user,
   onUserUpdated,
@@ -172,13 +196,21 @@ export function SellerHubView({
   const [analytics, setAnalytics] = useState<SellerAnalyticsResponse | null>(null);
   const [cronNotice, setCronNotice] = useState<string | null>(null);
 
-  // Seller Catalog & Dynamic Offers state
+  // Seller Catalog & Dynamic Offers / Lifecycle Control state
   const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogStatusFilter, setCatalogStatusFilter] = useState<
+    'all' | 'published' | 'unpublished' | 'unlisted' | 'out_of_stock' | 'discontinued'
+  >('all');
   const [sellerProducts, setSellerProducts] = useState<Product[]>([]);
   const [discountEdits, setDiscountEdits] = useState<
     Record<string, { discount: number; stock: number }>
   >({});
   const [savingProdId, setSavingProdId] = useState<string | null>(null);
+  const [controllingProdId, setControllingProdId] = useState<string | null>(null);
+  const [controlNotice, setControlNotice] = useState<string | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
+  const [removingProduct, setRemovingProduct] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
 
   // Seller Category Control Panel state
@@ -334,20 +366,17 @@ export function SellerHubView({
   const loadSellerCatalog = useCallback(async () => {
     if (!isVerifiedSellerOrAdmin || !user) return;
     const params = new URLSearchParams({
-      sort: 'newly_added',
-      page: '1',
-      includeDisabled: 'true',
-      ...(user.role === 'SELLER' ? { sellerId: user._id } : {}),
+      status: catalogStatusFilter,
       ...(catalogSearch.trim() ? { q: catalogSearch.trim() } : {}),
     });
-    const res = await apiFetch<ProductListResponse>(`/api/products?${params}`);
+    const res = await apiFetch<{ products: Product[] }>(`/api/seller/products?${params}`);
     setSellerProducts(res.products);
     const edits: Record<string, { discount: number; stock: number }> = {};
     for (const p of res.products) {
       edits[p._id] = { discount: p.discountPercent, stock: p.totalStock };
     }
     setDiscountEdits(edits);
-  }, [isVerifiedSellerOrAdmin, user, catalogSearch]);
+  }, [isVerifiedSellerOrAdmin, user, catalogSearch, catalogStatusFilter]);
 
   const loadSellerCategories = useCallback(async () => {
     if (!isVerifiedSellerOrAdmin) return;
@@ -978,6 +1007,7 @@ export function SellerHubView({
     const edit = discountEdits[productId];
     if (!edit) return;
     setSavingProdId(productId);
+    setControlError(null);
     try {
       await apiFetch(`/api/products/${productId}`, {
         method: 'PATCH',
@@ -988,8 +1018,68 @@ export function SellerHubView({
       });
       await loadSellerCatalog();
       onCatalogMutated();
+    } catch (err) {
+      setControlError((err as Error).message);
     } finally {
       setSavingProdId(null);
+    }
+  };
+
+  const handleProductControlAction = async (
+    product: Product,
+    action: ProductControlAction,
+    stock?: number
+  ) => {
+    setControllingProdId(product._id);
+    setControlError(null);
+    setControlNotice(null);
+    try {
+      await apiFetch<{ product: Product }>(`/api/products/${product._id}/control`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action, ...(stock ? { stock } : {}) }),
+      });
+      setControlNotice(t('seller.controlUpdated', { title: product.title }));
+      setRemoveTarget(null);
+      await loadSellerCatalog();
+      onCatalogMutated();
+    } catch (err) {
+      setControlError((err as Error).message);
+    } finally {
+      setControllingProdId(null);
+    }
+  };
+
+  const handleConfirmRemoveProduct = async (product: Product) => {
+    setRemovingProduct(true);
+    setControlError(null);
+    setControlNotice(null);
+    try {
+      const res = await apiFetch<{
+        ok: boolean;
+        removedProductId: string;
+        purgedImages: string[];
+      }>(`/api/products/${product._id}`, {
+        method: 'DELETE',
+      });
+      setRemoveTarget(null);
+      setControlNotice(
+        t('seller.removedNotice', {
+          title: product.title,
+          count: res.purgedImages?.length || 0,
+        })
+      );
+      await Promise.all([loadSellerCatalog(), loadSellerCampaigns(), loadSellerCoupons()]);
+      onCatalogMutated();
+    } catch (err) {
+      const typedErr = err as Error & { status?: number };
+      if (typedErr.status === 409) {
+        setControlError(typedErr.message);
+        await loadSellerCatalog();
+      } else {
+        setControlError(typedErr.message);
+      }
+    } finally {
+      setRemovingProduct(false);
     }
   };
 
@@ -1741,27 +1831,81 @@ export function SellerHubView({
         </div>
       )}
 
-      {/* TAB 2: CATALOG & INLINE DYNAMIC OFFERS */}
+      {/* TAB 2: CATALOG, LIFECYCLE CONTROLS & INLINE DYNAMIC OFFERS */}
       {sellerTab === 'catalog' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <input
               type="search"
               value={catalogSearch}
               onChange={(e) => setCatalogSearch(e.target.value)}
               placeholder={t('seller.searchCatalog')}
-              className="w-full max-w-md rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs focus:border-[#881337] focus:outline-none"
+              className="w-full lg:max-w-sm rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs focus:border-[#881337] focus:outline-none"
             />
-            <span className="text-xs text-[#6B6A65] tabular-nums">
-              {t('seller.listedPieces', { count: sellerProducts.length })}
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex max-w-full overflow-x-auto items-center gap-1 rounded-lg bg-[#F0EEE9] p-1">
+                {(
+                  [
+                    { id: 'all', label: t('seller.filterAll') },
+                    { id: 'published', label: t('seller.filterPublished') },
+                    { id: 'unpublished', label: t('seller.filterUnpublished') },
+                    { id: 'unlisted', label: t('seller.filterUnlisted') },
+                    { id: 'out_of_stock', label: t('seller.filterOutOfStock') },
+                    { id: 'discontinued', label: t('seller.filterDiscontinued') },
+                  ] as const
+                ).map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setCatalogStatusFilter(f.id)}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer ${
+                      catalogStatusFilter === f.id
+                        ? 'bg-white text-[#141413] shadow-xs'
+                        : 'text-[#57534E] hover:text-[#141413]'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-[#6B6A65] tabular-nums whitespace-nowrap">
+                {t('seller.listedPieces', { count: sellerProducts.length })}
+              </span>
+            </div>
           </div>
 
+          {controlNotice && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-900">
+              <span>{controlNotice}</span>
+              <button
+                type="button"
+                onClick={() => setControlNotice(null)}
+                className="font-semibold underline cursor-pointer shrink-0"
+              >
+                {t('detail.close')}
+              </button>
+            </div>
+          )}
+
+          {controlError && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-800">
+              <span>{controlError}</span>
+              <button
+                type="button"
+                onClick={() => setControlError(null)}
+                className="font-semibold underline cursor-pointer shrink-0"
+              >
+                {t('detail.close')}
+              </button>
+            </div>
+          )}
+
           <div className="overflow-x-auto rounded-lg border border-[#E8E6E1] bg-white">
-            <table className="w-full min-w-[640px] text-left text-xs">
+            <table className="w-full min-w-[920px] text-left text-xs">
               <thead className="border-b border-[#E8E6E1] bg-[#FAF9F6] text-[#6B6A65]">
                 <tr>
                   <th className="px-4 py-3 font-medium">{t('seller.colPiece')}</th>
+                  <th className="px-4 py-3 font-medium">{t('admin.colStatus')}</th>
                   <th className="px-4 py-3 font-medium">{t('seller.colBase')}</th>
                   <th className="px-4 py-3 font-medium">{t('seller.colSale')}</th>
                   <th className="px-4 py-3 font-medium">{t('seller.colDiscount')}</th>
@@ -1770,92 +1914,223 @@ export function SellerHubView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F0EEE9] tabular-nums">
-                {sellerProducts.map((p) => {
-                  const edit = discountEdits[p._id] || {
-                    discount: p.discountPercent,
-                    stock: p.totalStock,
-                  };
-                  const previewSale = Math.round(p.basePrice * (1 - edit.discount / 100));
-                  return (
-                    <tr key={p._id} className="hover:bg-[#FAF9F6]">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={p.images[0]?.url}
-                            alt={p.title}
-                            referrerPolicy="no-referrer"
-                            className="h-10 w-10 rounded object-cover border border-[#E8E6E1]"
-                          />
-                          <div className="min-w-0">
-                            <div className="font-semibold text-[#141413] truncate max-w-[240px]">
-                              {p.title}
-                            </div>
-                            <div className="text-[11px] text-[#6B6A65]">
-                              {tc(p.category)} · {p.occasions.map((o) => to(o)).join(', ')}
+                {sellerProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-[#6B6A65]">
+                      {t('seller.noMatchingProducts')}
+                    </td>
+                  </tr>
+                ) : (
+                  sellerProducts.map((p) => {
+                    const edit = discountEdits[p._id] || {
+                      discount: p.discountPercent,
+                      stock: p.totalStock,
+                    };
+                    const previewSale = Math.round(p.basePrice * (1 - edit.discount / 100));
+                    const isPublished = p.isPublished !== false;
+                    const isUnlisted = Boolean(p.isUnlisted);
+                    const isDiscontinued = Boolean(p.isDiscontinued);
+                    const isLive = p.isActive && isPublished && !isUnlisted && !isDiscontinued;
+                    const activeOrders = p.activeOrderCount || 0;
+                    const isBusy = controllingProdId === p._id;
+
+                    return (
+                      <tr key={p._id} className="hover:bg-[#FAF9F6]">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <CatalogThumb src={p.images[0]?.thumbUrl || p.images[0]?.url} alt={p.title} />
+                            <div className="min-w-0">
+                              <div className="font-semibold text-[#141413] truncate max-w-[240px]">
+                                {p.title}
+                              </div>
+                              <div className="text-[11px] text-[#6B6A65] truncate max-w-[240px]">
+                                {tc(p.category)} · {p.occasions.map((o) => to(o)).join(', ')}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-[#6B6A65]">{formatINR(p.basePrice)}</td>
-                      <td className="px-4 py-3 font-semibold text-[#141413]">
-                        {formatINR(previewSale)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <input
-                          type="number"
-                          min={0}
-                          max={90}
-                          value={edit.discount}
-                          onChange={(e) =>
-                            setDiscountEdits((prev) => ({
-                              ...prev,
-                              [p._id]: { ...edit, discount: Number(e.target.value) },
-                            }))
-                          }
-                          className="w-16 rounded border border-[#D6D3CD] px-2 py-1 text-xs tabular-nums"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <input
-                          type="number"
-                          min={0}
-                          value={edit.stock}
-                          onChange={(e) =>
-                            setDiscountEdits((prev) => ({
-                              ...prev,
-                              [p._id]: { ...edit, stock: Number(e.target.value) },
-                            }))
-                          }
-                          className="w-16 rounded border border-[#D6D3CD] px-2 py-1 text-xs tabular-nums"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditImagesTarget(p);
-                              setEditImagesList(p.images.map((img, i) => ({ ...img, sortOrder: i })));
-                              setEditImageUrlInput('');
-                            }}
-                            className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] bg-white px-2.5 py-1 text-xs font-medium text-[#141413] hover:border-[#141413] whitespace-nowrap cursor-pointer"
-                          >
-                            <ImageIcon className="h-3 w-3" />
-                            <span>{t('seller.manageImages', { count: p.images.length })}</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={savingProdId === p._id}
-                            onClick={() => handleSaveInlineOffer(p._id)}
-                            className="rounded border border-[#881337] px-3 py-1 text-xs font-medium text-[#881337] hover:bg-[#881337] hover:text-white transition-colors whitespace-nowrap cursor-pointer"
-                          >
-                            {savingProdId === p._id ? t('seller.saving') : t('seller.updateOffer')}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {isDiscontinued ? (
+                              <span className="rounded border border-stone-300 bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-[#44403C]">
+                                {t('seller.statusDiscontinued')}
+                              </span>
+                            ) : isLive ? (
+                              <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                                {t('seller.statusPublished')}
+                              </span>
+                            ) : (
+                              <>
+                                {!isPublished && (
+                                  <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                                    {t('seller.statusUnpublished')}
+                                  </span>
+                                )}
+                                {isUnlisted && (
+                                  <span className="rounded border border-stone-300 bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-[#57534E]">
+                                    {t('seller.statusUnlisted')}
+                                  </span>
+                                )}
+                              </>
+                            )}
+                            {p.totalStock <= 0 && !isDiscontinued && (
+                              <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-800">
+                                {t('seller.statusOutOfStock')}
+                              </span>
+                            )}
+                            {activeOrders > 0 && (
+                              <span className="rounded border border-[#881337]/30 bg-[#881337]/5 px-2 py-0.5 text-[10px] font-semibold text-[#881337]">
+                                {t('seller.activeOrdersBadge', { count: activeOrders })}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-[#6B6A65]">{formatINR(p.basePrice)}</td>
+                        <td className="px-4 py-3 font-semibold text-[#141413]">
+                          {formatINR(previewSale)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min={0}
+                            max={90}
+                            value={edit.discount}
+                            onChange={(e) =>
+                              setDiscountEdits((prev) => ({
+                                ...prev,
+                                [p._id]: { ...edit, discount: Number(e.target.value) },
+                              }))
+                            }
+                            className="w-16 rounded border border-[#D6D3CD] px-2 py-1 text-xs tabular-nums"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min={0}
+                            value={edit.stock}
+                            onChange={(e) =>
+                              setDiscountEdits((prev) => ({
+                                ...prev,
+                                [p._id]: { ...edit, stock: Number(e.target.value) },
+                              }))
+                            }
+                            className="w-16 rounded border border-[#D6D3CD] px-2 py-1 text-xs tabular-nums"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditImagesTarget(p);
+                                setEditImagesList(p.images.map((img, i) => ({ ...img, sortOrder: i })));
+                                setEditImageUrlInput('');
+                              }}
+                              className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] bg-white px-2 py-1 text-[11px] font-medium text-[#141413] hover:border-[#141413] whitespace-nowrap cursor-pointer"
+                            >
+                              <ImageIcon className="h-3 w-3" />
+                              <span>{t('seller.manageImages', { count: p.images.length })}</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={savingProdId === p._id}
+                              onClick={() => handleSaveInlineOffer(p._id)}
+                              className="rounded border border-[#881337] px-2.5 py-1 text-[11px] font-medium text-[#881337] hover:bg-[#881337] hover:text-white transition-colors whitespace-nowrap cursor-pointer"
+                            >
+                              {savingProdId === p._id ? t('seller.saving') : t('seller.updateOffer')}
+                            </button>
+                            {!isDiscontinued && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    handleProductControlAction(
+                                      p,
+                                      isPublished ? 'unpublish' : 'publish'
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] bg-white px-2 py-1 text-[11px] font-medium text-[#44403C] hover:border-[#141413] whitespace-nowrap cursor-pointer"
+                                >
+                                  {isPublished ? (
+                                    <>
+                                      <EyeOff className="h-3 w-3" />
+                                      <span>{t('seller.btnUnpublish')}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Eye className="h-3 w-3" />
+                                      <span>{t('seller.btnPublish')}</span>
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    handleProductControlAction(p, isUnlisted ? 'relist' : 'unlist')
+                                  }
+                                  className="rounded border border-[#D6D3CD] bg-white px-2 py-1 text-[11px] font-medium text-[#44403C] hover:border-[#141413] whitespace-nowrap cursor-pointer"
+                                >
+                                  {isUnlisted ? t('seller.btnRelist') : t('seller.btnUnlist')}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    handleProductControlAction(
+                                      p,
+                                      p.totalStock > 0 ? 'mark_out_of_stock' : 'restock',
+                                      p.totalStock > 0 ? undefined : Math.max(15, edit.stock || 15)
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] bg-white px-2 py-1 text-[11px] font-medium text-[#44403C] hover:border-[#141413] whitespace-nowrap cursor-pointer"
+                                >
+                                  <PackageX className="h-3 w-3" />
+                                  <span>
+                                    {p.totalStock > 0
+                                      ? t('seller.btnMarkOos')
+                                      : t('seller.btnRestock')}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleProductControlAction(p, 'discontinue')}
+                                  className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 whitespace-nowrap cursor-pointer"
+                                >
+                                  <Ban className="h-3 w-3" />
+                                  <span>{t('seller.btnDiscontinue')}</span>
+                                </button>
+                              </>
+                            )}
+                            {isDiscontinued && (
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleProductControlAction(p, 'relist')}
+                                className="inline-flex items-center gap-1 rounded border border-emerald-700 bg-emerald-700 px-2 py-1 text-[11px] font-medium text-white hover:bg-emerald-800 whitespace-nowrap cursor-pointer"
+                              >
+                                <Eye className="h-3 w-3" />
+                                <span>{t('seller.btnRelist')}</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => setRemoveTarget(p)}
+                              className="inline-flex items-center gap-1 rounded border border-red-200 bg-white px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 whitespace-nowrap cursor-pointer"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              <span>{t('seller.btnRemove')}</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -2603,8 +2878,23 @@ export function SellerHubView({
                   </div>
                 </div>
 
-                <div className="text-xs text-[#57534E]">
-                  {ord.items.map((i) => `${i.title} (${i.size} · x${i.quantity})`).join(', ')}
+                <div className="space-y-1">
+                  {ord.items.map((item, iIdx) => (
+                    <div key={`${item.variantSku}-${iIdx}`} className="flex flex-wrap items-center gap-2 text-xs text-[#57534E]">
+                      <span>
+                        {item.title} ({item.size} · x{item.quantity})
+                      </span>
+                      {item.catalogStatus && item.catalogStatus !== 'active' && (
+                        <span className="rounded bg-[#F0EEE9] px-1.5 py-0.5 text-[10px] font-medium text-[#6B6A65]">
+                          {item.catalogStatus === 'removed'
+                            ? t('orders.itemRemoved')
+                            : item.catalogStatus === 'discontinued'
+                              ? t('orders.itemDiscontinued')
+                              : t('orders.itemUnpublished')}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
 
                 {ord.whatsappDispatch && (
@@ -2765,6 +3055,91 @@ export function SellerHubView({
                 {t('seller.shipTracking')}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Product Removal Confirmation / Active Order Block Modal */}
+      {removeTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-[#F0EEE9] pb-3">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle
+                  className={`h-5 w-5 shrink-0 ${
+                    (removeTarget.activeOrderCount || 0) > 0 ? 'text-amber-700' : 'text-red-700'
+                  }`}
+                />
+                <h3 className="font-display text-2xl font-semibold text-[#141413]">
+                  {(removeTarget.activeOrderCount || 0) > 0
+                    ? t('seller.removeBlockedTitle')
+                    : t('seller.removeModalTitle')}
+                </h3>
+              </div>
+              <button
+                type="button"
+                aria-label={t('detail.close')}
+                onClick={() => setRemoveTarget(null)}
+                className="p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {(removeTarget.activeOrderCount || 0) > 0 ? (
+              <div className="space-y-4 text-xs leading-relaxed text-[#44403C]">
+                <p>
+                  {t('seller.removeBlockedDesc', {
+                    title: removeTarget.title,
+                    count: removeTarget.activeOrderCount || 0,
+                  })}
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRemoveTarget(null)}
+                    className="rounded-md border border-[#D6D3CD] px-4 py-2 text-xs font-medium text-[#141413] cursor-pointer"
+                  >
+                    {t('detail.close')}
+                  </button>
+                  {!removeTarget.isDiscontinued && (
+                    <button
+                      type="button"
+                      disabled={controllingProdId === removeTarget._id}
+                      onClick={() => handleProductControlAction(removeTarget, 'discontinue')}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-amber-700 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-800 cursor-pointer"
+                    >
+                      <Ban className="h-3.5 w-3.5" />
+                      <span>{t('seller.btnDiscontinueInstead')}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 text-xs leading-relaxed text-[#44403C]">
+                <p>{t('seller.removeModalDesc', { title: removeTarget.title })}</p>
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRemoveTarget(null)}
+                    className="rounded-md border border-[#D6D3CD] px-4 py-2 text-xs font-medium text-[#141413] cursor-pointer"
+                  >
+                    {t('detail.close')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={removingProduct}
+                    onClick={() => handleConfirmRemoveProduct(removeTarget)}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-red-700 px-4 py-2 text-xs font-semibold text-white hover:bg-red-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>
+                      {removingProduct ? t('seller.removingBtn') : t('seller.removeConfirmCta')}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

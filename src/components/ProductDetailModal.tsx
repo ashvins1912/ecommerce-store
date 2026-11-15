@@ -1,10 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
-import InnerImageZoom from 'react-inner-image-zoom';
-import 'react-inner-image-zoom/lib/styles.min.css';
-import Lightbox from 'yet-another-react-lightbox';
-import Zoom from 'yet-another-react-lightbox/plugins/zoom';
-import 'yet-another-react-lightbox/styles.css';
 import {
   ChevronLeft,
   ChevronRight,
@@ -30,6 +25,7 @@ import type {
 import { apiFetch, formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { ProductCard } from './ProductCard';
+import { ProductZoomViewer } from './ProductZoomViewer';
 import { SizeGuideModal } from './SizeGuideModal';
 
 const REVIEW_CLASSES: ReviewClass[] = [
@@ -93,6 +89,12 @@ export function ProductDetailModal({
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxInitialZoom, setLightboxInitialZoom] = useState(1);
+  const [hoverZoom, setHoverZoom] = useState<{
+    idx: number;
+    xPct: number;
+    yPct: number;
+  } | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
   const [supportsHoverZoom, setSupportsHoverZoom] = useState(() => {
@@ -121,64 +123,82 @@ export function ProductDetailModal({
     watchDrag: (_api, evt) => 'touches' in evt,
   });
 
-  const loadProduct = useCallback(
-    async (idOrSlug: string) => {
-      setLoading(true);
-      setReviewError(null);
+  const onProductLoadedRef = useRef(onProductLoaded);
+  onProductLoadedRef.current = onProductLoaded;
+
+  const initialVariantSkuRef = useRef(initialVariantSku);
+  initialVariantSkuRef.current = initialVariantSku;
+
+  const loadProduct = useCallback(async (idOrSlug: string) => {
+    setLoading(true);
+    setReviewError(null);
+    try {
+      const data = await apiFetch<{
+        product: Product;
+        reviews: Review[];
+        recommendations: Product[];
+        recommendationStrategy: string;
+      }>(`/api/products/${encodeURIComponent(idOrSlug)}`);
+      setProduct(data.product);
+      onProductLoadedRef.current?.(data.product);
+      setReviews(data.reviews);
+      setRecommendations(data.recommendations);
+      setRecStrategy(data.recommendationStrategy);
+      const skuToMatch = initialVariantSkuRef.current;
+      const matchedInitial = skuToMatch
+        ? data.product.variants.find((v) => v.variantSku === skuToMatch)
+        : null;
+      setSelectedVariant(matchedInitial || data.product.variants[0] || null);
+      setQuantity(1);
+      setActiveSlide(0);
       try {
-        const data = await apiFetch<{
-          product: Product;
-          reviews: Review[];
-          recommendations: Product[];
-          recommendationStrategy: string;
-        }>(`/api/products/${encodeURIComponent(idOrSlug)}`);
-        setProduct(data.product);
-        onProductLoaded?.(data.product);
-        setReviews(data.reviews);
-        setRecommendations(data.recommendations);
-        setRecStrategy(data.recommendationStrategy);
-        const matchedInitial = initialVariantSku
-          ? data.product.variants.find((v) => v.variantSku === initialVariantSku)
-          : null;
-        setSelectedVariant(matchedInitial || data.product.variants[0] || null);
-        setQuantity(1);
-        setActiveSlide(0);
-        try {
-          const cRes = await apiFetch<{ coupons: Coupon[] }>(
-            `/api/coupons/applicable?productId=${encodeURIComponent(data.product._id)}`
-          );
-          setProductCoupons(cRes.coupons || []);
-        } catch {
-          setProductCoupons([]);
-        }
+        const cRes = await apiFetch<{ coupons: Coupon[] }>(
+          `/api/coupons/applicable?productId=${encodeURIComponent(data.product._id)}`
+        );
+        setProductCoupons(cRes.coupons || []);
       } catch {
-        setProduct(null);
         setProductCoupons([]);
-      } finally {
-        setLoading(false);
       }
-    },
-    [initialVariantSku, onProductLoaded]
-  );
+    } catch {
+      setProduct(null);
+      setProductCoupons([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (productIdOrSlug) {
       setQueuedCouponCode(null);
+      setHoverZoom(null);
+      setLightboxOpen(false);
       loadProduct(productIdOrSlug);
     } else {
       setProduct(null);
       setProductCoupons([]);
+      setHoverZoom(null);
+      setLightboxOpen(false);
     }
   }, [productIdOrSlug, user?._id, loadProduct]);
 
   useEffect(() => {
     if (!emblaApi) return;
-    const onSelect = () => setActiveSlide(emblaApi.selectedScrollSnap());
+    const onSelect = () => {
+      setActiveSlide(emblaApi.selectedScrollSnap());
+      setHoverZoom(null);
+    };
     emblaApi.on('select', onSelect);
     return () => {
       emblaApi.off('select', onSelect);
     };
   }, [emblaApi]);
+
+  const openZoomViewer = (idx: number, initialZoomLevel = 1) => {
+    setHoverZoom(null);
+    setLightboxIndex(idx);
+    setLightboxInitialZoom(initialZoomLevel);
+    setLightboxOpen(true);
+  };
 
   if (!productIdOrSlug) return null;
 
@@ -267,67 +287,109 @@ export function ProductDetailModal({
                 <div className="relative overflow-hidden rounded-lg border border-[#E8E6E1] bg-[#F2EFE9]">
                   <div className="overflow-hidden" ref={emblaRef}>
                     <div className="flex">
-                      {product.images.map((img, idx) => (
-                        <div
-                          key={`${img.url}-${idx}`}
-                          className="relative aspect-[4/3] min-w-full [&_.iiz]:block [&_.iiz]:h-full [&_.iiz]:w-full [&_.iiz]:cursor-crosshair [&_.iiz>div]:h-full [&_.iiz__img]:h-full [&_.iiz__img]:w-full [&_.iiz__img]:object-cover [&_.iiz__zoom-img]:max-w-none"
-                        >
-                          {supportsHoverZoom ? (
-                            <InnerImageZoom
+                      {product.images.map((img, idx) => {
+                        const isHoveringThisSlide =
+                          supportsHoverZoom && hoverZoom?.idx === idx;
+                        return (
+                          <div
+                            key={`${img.url}-${idx}`}
+                            onMouseMove={(e) => {
+                              if (!supportsHoverZoom) return;
+                              if ((e.target as HTMLElement).closest('button')) {
+                                setHoverZoom((prev) => (prev?.idx === idx ? null : prev));
+                                return;
+                              }
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              if (rect.width <= 0 || rect.height <= 0) return;
+                              const xPct = Math.min(
+                                100,
+                                Math.max(0, ((e.clientX - rect.left) / rect.width) * 100)
+                              );
+                              const yPct = Math.min(
+                                100,
+                                Math.max(0, ((e.clientY - rect.top) / rect.height) * 100)
+                              );
+                              setHoverZoom({ idx, xPct, yPct });
+                            }}
+                            onMouseLeave={() => {
+                              setHoverZoom((prev) => (prev?.idx === idx ? null : prev));
+                            }}
+                            onClick={() => openZoomViewer(idx, 1)}
+                            className={`relative aspect-[4/3] min-w-full overflow-hidden select-none ${
+                              supportsHoverZoom ? 'cursor-zoom-in' : 'cursor-pointer'
+                            }`}
+                          >
+                            {/* Base image always remains visible so hover transitions never blink */}
+                            <img
                               src={img.url}
-                              zoomSrc={img.url}
-                              zoomType="hover"
-                              moveType="pan"
-                              zoomScale={2.5}
-                              zoomPreload
-                              fadeDuration={200}
-                              hideHint
-                              imgAttributes={{
-                                alt: img.altText || product.title,
-                                referrerPolicy: 'no-referrer',
-                              }}
+                              alt={img.altText || product.title}
+                              referrerPolicy="no-referrer"
+                              draggable={false}
+                              className="h-full w-full object-cover select-none"
                             />
-                          ) : (
+
+                            {/* Crisp 2.5x GPU-composited hover loupe overlay on desktop */}
+                            {isHoveringThisSlide && hoverZoom && (
+                              <>
+                                <img
+                                  src={img.url}
+                                  alt=""
+                                  aria-hidden="true"
+                                  referrerPolicy="no-referrer"
+                                  draggable={false}
+                                  style={{
+                                    transform: 'scale(2.5)',
+                                    transformOrigin: `${hoverZoom.xPct}% ${hoverZoom.yPct}%`,
+                                  }}
+                                  className="pointer-events-none absolute inset-0 h-full w-full object-cover select-none will-change-transform"
+                                />
+                                <div
+                                  aria-hidden="true"
+                                  style={{
+                                    left: `${hoverZoom.xPct}%`,
+                                    top: `${hoverZoom.yPct}%`,
+                                  }}
+                                  className="pointer-events-none absolute h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 shadow-sm ring-1 ring-black/20"
+                                />
+                              </>
+                            )}
+
+                            {/* Interactive Magnifying Glass button: opens viewer zoomed to 2.2x */}
                             <button
                               type="button"
-                              onClick={() => {
-                                setLightboxIndex(idx);
-                                setLightboxOpen(true);
+                              onMouseEnter={() => setHoverZoom(null)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openZoomViewer(idx, 2.2);
                               }}
-                              aria-label={t('detail.tapToZoom')}
-                              className="block h-full w-full cursor-zoom-in text-left"
+                              aria-label={t('detail.zoomIn')}
+                              className="absolute bottom-3 left-3 z-20 inline-flex min-h-[40px] items-center gap-1.5 rounded-md bg-white/95 px-3 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
                             >
-                              <img
-                                src={img.url}
-                                alt={img.altText || product.title}
-                                referrerPolicy="no-referrer"
-                                className="h-full w-full object-cover"
-                              />
+                              <ZoomIn className="h-3.5 w-3.5 text-[#881337]" />
+                              <span>
+                                {supportsHoverZoom
+                                  ? t('detail.hoverZoom')
+                                  : t('detail.tapToZoom')}
+                              </span>
                             </button>
-                          )}
 
-                          <div className="pointer-events-none inline-flex items-center gap-1.5 absolute bottom-3 left-3 z-10 rounded-md bg-white/90 px-2.5 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs">
-                            <ZoomIn className="h-3.5 w-3.5 text-[#881337]" />
-                            <span>
-                              {supportsHoverZoom ? t('detail.hoverZoom') : t('detail.tapToZoom')}
-                            </span>
+                            {/* Interactive Fullscreen button */}
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHoverZoom(null)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openZoomViewer(idx, 1);
+                              }}
+                              aria-label={t('detail.fullscreen')}
+                              className="absolute bottom-3 right-3 z-20 inline-flex min-h-[40px] items-center gap-1.5 rounded-md bg-white/95 px-3 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
+                            >
+                              <Expand className="h-3.5 w-3.5" />
+                              <span>{t('detail.fullscreen')}</span>
+                            </button>
                           </div>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setLightboxIndex(idx);
-                              setLightboxOpen(true);
-                            }}
-                            aria-label={t('detail.fullscreen')}
-                            className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-md bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
-                          >
-                            <Expand className="h-3.5 w-3.5" />
-                            <span>{t('detail.fullscreen')}</span>
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -336,16 +398,18 @@ export function ProductDetailModal({
                       <button
                         type="button"
                         aria-label={t('pagination.prev')}
+                        onMouseEnter={() => setHoverZoom(null)}
                         onClick={() => emblaApi?.scrollPrev()}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
                       >
                         <ChevronLeft className="h-4 w-4" />
                       </button>
                       <button
                         type="button"
                         aria-label={t('pagination.next')}
+                        onMouseEnter={() => setHoverZoom(null)}
                         onClick={() => emblaApi?.scrollNext()}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
                       >
                         <ChevronRight className="h-4 w-4" />
                       </button>
@@ -952,23 +1016,15 @@ export function ProductDetailModal({
         )}
       </div>
 
-      {/* Lightbox with Desktop Fullscreen & Mobile Pinch-to-Zoom */}
+      {/* Flicker-free Portal Zoom & Fullscreen Viewer */}
       {product && (
-        <Lightbox
+        <ProductZoomViewer
           open={lightboxOpen}
-          close={() => setLightboxOpen(false)}
-          index={lightboxIndex}
-          slides={product.images.map((img) => ({
-            src: img.url,
-            alt: img.altText || product.title,
-          }))}
-          plugins={[Zoom]}
-          zoom={{
-            maxZoomPixelRatio: 4,
-            pinchZoomDistanceFactor: 100,
-            doubleTapDelay: 250,
-            scrollToZoom: true,
-          }}
+          images={product.images}
+          initialIndex={lightboxIndex}
+          initialZoom={lightboxInitialZoom}
+          title={product.title}
+          onClose={() => setLightboxOpen(false)}
         />
       )}
 

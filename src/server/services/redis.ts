@@ -49,6 +49,17 @@ export async function deleteCartCache(key: string): Promise<void> {
   }
 }
 
+export async function purgeProductFromCartCaches(keys: string[], productId: string): Promise<void> {
+  for (const key of keys) {
+    const existing = await getCartCache(key);
+    if (!existing) continue;
+    const filtered = existing.filter((item) => item.productId !== productId);
+    if (filtered.length !== existing.length) {
+      await setCartCache(key, filtered);
+    }
+  }
+}
+
 export async function storeOtp(phone: string, code: string, ttlSeconds = 300): Promise<void> {
   memoryOtp.set(phone, { code, expiresAt: Date.now() + ttlSeconds * 1000 });
   if (upstashClient) {

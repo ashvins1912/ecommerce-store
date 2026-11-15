@@ -100,6 +100,8 @@ export interface User {
   name: string;
   email: string;
   avatarUrl?: string;
+  supabaseUid?: string;
+  authProvider?: 'supabase' | 'invite' | 'demo';
   oauthAccounts: OAuthAccount[];
   mobileNumber?: string;
   whatsappNumber?: string;
@@ -146,6 +148,17 @@ export interface ProductVariant {
   variantImageUrl?: string;
 }
 
+export type ProductListingStatus = 'published' | 'unpublished' | 'discontinued';
+
+export type ProductControlAction =
+  | 'publish'
+  | 'unpublish'
+  | 'unlist'
+  | 'relist'
+  | 'mark_out_of_stock'
+  | 'restock'
+  | 'discontinue';
+
 export interface Product {
   _id: string;
   sellerId: string;
@@ -179,6 +192,13 @@ export interface Product {
   badges: ProductBadge[];
   isProductTrusted: boolean;
   isActive: boolean;
+  listingStatus?: ProductListingStatus;
+  isPublished?: boolean;
+  isUnlisted?: boolean;
+  isDiscontinued?: boolean;
+  isDeleted?: boolean;
+  disabledAt?: string | null;
+  activeOrderCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -224,6 +244,7 @@ export interface OrderItem {
   imageUrl: string;
   quantity: number;
   unitPrice: number;
+  catalogStatus?: 'active' | 'unpublished' | 'discontinued' | 'removed';
 }
 
 export interface CourierTracking {
@@ -288,7 +309,7 @@ export interface AuthSessionSummary {
   tokenFingerprint: string;
   tlsSecure: boolean;
   protocol: string;
-  provider: 'google' | 'meta' | 'invite' | 'demo';
+  provider: 'supabase' | 'invite' | 'demo';
   userAgent: string;
   createdAt: string;
   lastActiveAt: string;
@@ -307,9 +328,8 @@ export interface AuthSessionResponse {
   sessionInfo?: AuthSessionSummary | null;
   likedProductIds: string[];
   cart: CartItem[];
-  oauthConfigured: {
-    google: boolean;
-    meta: boolean;
+  authConfig: {
+    supabaseConfigured: boolean;
   };
 }
 

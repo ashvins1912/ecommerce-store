@@ -126,6 +126,20 @@
       },
       "createdAt": "2026-11-15T11:31:38.406Z",
       "updatedAt": "2026-11-15T11:31:38.406Z"
+    },
+    {
+      "_id": "usr_4c9fd5aabe",
+      "role": "BUYER",
+      "name": "Priya Sharma",
+      "email": "customer_1794755175267@example.com",
+      "passwordHash": "e17530c24f96c80f67651d6c147d49fc:30ea7abcd25fededf2845452684549b33a9ab7f268dbd0501b1d33a9a212c8bbcea52ba9388a7172620d85a76ae5581325db74b03ac32058a68925277432a138",
+      "authProvider": "supabase",
+      "oauthAccounts": [],
+      "mobileNumber": "+919876543210",
+      "isWhatsappVerified": false,
+      "shippingAddresses": [],
+      "createdAt": "2026-11-15T15:06:15.463Z",
+      "updatedAt": "2026-11-15T15:06:15.463Z"
     }
   ],
   "products": [
@@ -216,7 +230,12 @@
       "seasons": [
         "Diwali"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_02",
@@ -290,7 +309,7 @@
       "viewsCount": 2450,
       "cartAddsCount": 112,
       "salesCount": 86,
-      "trendScore": 1008,
+      "trendScore": 1004,
       "averageRating": 4.8,
       "reviewCount": 2,
       "badges": [
@@ -310,7 +329,12 @@
         "New Year",
         "Winter"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_03",
@@ -425,7 +449,12 @@
       "seasons": [
         "Diwali"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_04",
@@ -553,7 +582,7 @@
         "Party"
       ],
       "likesCount": 195,
-      "viewsCount": 2140,
+      "viewsCount": 2141,
       "cartAddsCount": 88,
       "salesCount": 47,
       "trendScore": 694,
@@ -575,7 +604,12 @@
         "Christmas",
         "New Year"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_05",
@@ -705,7 +739,12 @@
       "seasons": [
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_06",
@@ -761,7 +800,7 @@
         "Party"
       ],
       "likesCount": 168,
-      "viewsCount": 1410,
+      "viewsCount": 1411,
       "cartAddsCount": 67,
       "salesCount": 49,
       "trendScore": 614,
@@ -783,7 +822,12 @@
         "New Year",
         "Winter"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_07",
@@ -857,7 +901,12 @@
         "Winter",
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_08",
@@ -930,7 +979,12 @@
       "seasons": [
         "Diwali"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_09",
@@ -1013,7 +1067,12 @@
       "seasons": [
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_10",
@@ -1086,7 +1145,12 @@
       "seasons": [
         "Diwali"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_11",
@@ -1163,7 +1227,12 @@
         "New Year",
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_12",
@@ -1240,7 +1309,12 @@
         "New Year",
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_13",
@@ -1313,7 +1387,12 @@
       "seasons": [
         "Diwali"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_14",
@@ -1396,7 +1475,12 @@
         "Diwali",
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_15",
@@ -1547,7 +1631,12 @@
         "New Year",
         "Winter"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_16",
@@ -1654,7 +1743,12 @@
       "seasons": [
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_17",
@@ -1747,7 +1841,12 @@
         "New Year",
         "Winter"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_18",
@@ -1878,7 +1977,12 @@
         "New Year",
         "Winter"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_19",
@@ -1974,7 +2078,12 @@
       "seasons": [
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_20",
@@ -2051,7 +2160,12 @@
         "New Year",
         "Winter"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_21",
@@ -2098,7 +2212,7 @@
         "Party"
       ],
       "likesCount": 149,
-      "viewsCount": 1510,
+      "viewsCount": 1511,
       "cartAddsCount": 58,
       "salesCount": 35,
       "trendScore": 498,
@@ -2117,7 +2231,12 @@
         "Christmas",
         "New Year"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_22",
@@ -2181,7 +2300,12 @@
       "seasons": [
         "Diwali"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_23",
@@ -2248,7 +2372,12 @@
         "Christmas",
         "New Year"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_24",
@@ -2324,7 +2453,12 @@
         "New Year",
         "Winter"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_25",
@@ -2399,7 +2533,12 @@
         "Christmas",
         "New Year"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     },
     {
       "_id": "prd_26",
@@ -2530,7 +2669,12 @@
         "Winter",
         "Summer"
       ],
-      "sharesCount": 0
+      "sharesCount": 0,
+      "isPublished": true,
+      "isUnlisted": false,
+      "isDiscontinued": false,
+      "isDeleted": false,
+      "listingStatus": "published"
     }
   ],
   "likes": [],
@@ -3421,7 +3565,9 @@
       "updatedAt": "2026-11-04T11:05:21.590Z"
     }
   ],
-  "carts": {},
+  "carts": {
+    "user:usr_buyer_1": []
+  },
   "sellerInvites": [
     {
       "_id": "sinv_0d09043372",
@@ -3455,6 +3601,96 @@
     }
   ],
   "sessions": [
+    {
+      "sessionId": "sess_f9f552da370e6563ccbb1bf7",
+      "userId": "usr_buyer_1",
+      "role": "BUYER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_df170084e122",
+      "csrfToken": "csrf_372447a63bd2ff73619e4e62",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T15:06:15.914Z",
+      "lastActiveAt": "2026-11-15T15:06:15.914Z",
+      "expiresAt": "2026-12-15T15:06:15.914Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_5e4e946125a0ed49ef82bd03",
+      "userId": "usr_4c9fd5aabe",
+      "role": "BUYER",
+      "provider": "supabase",
+      "tokenFingerprint": "tls_da07795850cd",
+      "csrfToken": "csrf_6eef2adf84e9a5889c1c2d72",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T15:06:15.736Z",
+      "lastActiveAt": "2026-11-15T15:06:15.736Z",
+      "expiresAt": "2026-12-15T15:06:15.736Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_0123e3f0b5e114d9922fde72",
+      "userId": "usr_4c9fd5aabe",
+      "role": "BUYER",
+      "provider": "supabase",
+      "tokenFingerprint": "tls_cc52f5a4b8b6",
+      "csrfToken": "csrf_a7ef25596472913ed166e70b",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T15:06:15.467Z",
+      "lastActiveAt": "2026-11-15T15:06:15.467Z",
+      "expiresAt": "2026-12-15T15:06:15.467Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_e23813ec009c2b4126b74304",
+      "userId": "usr_buyer_1",
+      "role": "BUYER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_31cbc0da8ee8",
+      "csrfToken": "csrf_a5c29e66dee3f90aca2756f0",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T13:48:41.453Z",
+      "lastActiveAt": "2026-11-15T13:48:41.453Z",
+      "expiresAt": "2026-12-15T13:48:41.453Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_82931f1abb3ceea30eaf4586",
+      "userId": "usr_seller_1",
+      "role": "SELLER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_de0eeffa02e2",
+      "csrfToken": "csrf_37ae1e336612fe8c703beaf6",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T13:48:41.244Z",
+      "lastActiveAt": "2026-11-15T13:48:41.244Z",
+      "expiresAt": "2026-12-15T13:48:41.244Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_1cebaa0ec0ef71206d7712ea",
+      "userId": "usr_seller_1",
+      "role": "SELLER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_b1af98efa49f",
+      "csrfToken": "csrf_2184fbdfe1e9379f79d651e6",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T13:48:02.535Z",
+      "lastActiveAt": "2026-11-15T13:48:02.535Z",
+      "expiresAt": "2026-12-15T13:48:02.535Z",
+      "revokedAt": null
+    },
     {
       "sessionId": "sess_8a9cec3448277b05b379e2db",
       "userId": "usr_seller_1",

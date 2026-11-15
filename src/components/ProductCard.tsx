@@ -180,7 +180,6 @@ export function ProductCard({
         {/* Hover-Triggered Quick Look Overlay */}
         <div
           className="absolute inset-0 z-10 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/65 to-black/25 p-2.5 sm:p-3.5 text-white opacity-0 pointer-events-none transition-opacity duration-200 group-hover/img:opacity-100 group-hover/img:pointer-events-auto group-focus-within/img:opacity-100 group-focus-within/img:pointer-events-auto"
-          onClick={(e) => e.stopPropagation()}
         >
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-white/85">

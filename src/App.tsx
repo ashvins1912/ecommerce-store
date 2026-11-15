@@ -36,6 +36,7 @@ import { AuthModal } from './components/AuthModal';
 import { OrdersView } from './components/OrdersView';
 import { SellerHubView } from './components/SellerHubView';
 import { WishlistView } from './components/WishlistView';
+import { CustomerSignUpView } from './components/CustomerSignUpView';
 import { JewelleryCompareModal } from './components/JewelleryCompareModal';
 import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
 import { FlashSaleSection } from './components/FlashSaleSection';
@@ -155,7 +156,7 @@ export default function App() {
   const { t, tc, to, tseason, tsort } = useI18n();
   const [activePage, setActivePage] = useState<ActivePage>('store');
   const [user, setUser] = useState<User | null>(null);
-  const [oauthConfigured, setOauthConfigured] = useState({ google: false, meta: false });
+  const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [sellerInviteToken, setSellerInviteToken] = useState<string | null>(null);
@@ -224,6 +225,17 @@ export default function App() {
 
   const recordRecentlyViewed = useCallback((product: Product) => {
     setRecentlyViewed((prev) => {
+      const first = prev[0];
+      if (
+        first &&
+        first._id === product._id &&
+        first.likesCount === product.likesCount &&
+        first.sharesCount === product.sharesCount &&
+        first.totalStock === product.totalStock &&
+        first.salePrice === product.salePrice
+      ) {
+        return prev;
+      }
       const next = [product, ...prev.filter((p) => p._id !== product._id)].slice(0, 5);
       try {
         sessionStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
@@ -265,6 +277,8 @@ export default function App() {
     if (inviteParam) {
       setSellerInviteToken(inviteParam);
       setActivePage('seller');
+    } else if (params.get('page') === 'signup' || params.get('signup') === '1') {
+      setActivePage('signup');
     }
 
     const onScroll = () => {
@@ -369,11 +383,13 @@ export default function App() {
           ? t('nav.orders')
           : activePage === 'seller'
             ? t('nav.sellerHub')
-            : category !== 'All'
-              ? `${tc(category)} Collection`
-              : season !== 'All'
-                ? `${tseason(season)} Festive Edit`
-                : 'Artisanal Jewellery, Clothing & Accessories';
+            : activePage === 'signup'
+              ? t('auth.signUpTitle')
+              : category !== 'All'
+                ? `${tc(category)} Collection`
+                : season !== 'All'
+                  ? `${tseason(season)} Festive Edit`
+                  : 'Artisanal Jewellery, Clothing & Accessories';
 
     const title = `${pageLabel} — ${t('brand')}`;
     const description =
@@ -433,7 +449,6 @@ export default function App() {
       try {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
         setUser(session.user);
-        setOauthConfigured(session.oauthConfigured);
         setLikedIds(new Set(session.likedProductIds));
 
         let activeCart = session.cart;
@@ -684,6 +699,26 @@ export default function App() {
     [recordRecentlyViewed]
   );
 
+  const handleProductLoaded = useCallback(
+    (loaded: Product) => {
+      recordRecentlyViewed(loaded);
+      setActiveProductMeta((prev) => {
+        if (
+          prev &&
+          prev._id === loaded._id &&
+          prev.likesCount === loaded.likesCount &&
+          prev.sharesCount === loaded.sharesCount &&
+          prev.totalStock === loaded.totalStock &&
+          prev.salePrice === loaded.salePrice
+        ) {
+          return prev;
+        }
+        return loaded;
+      });
+    },
+    [recordRecentlyViewed]
+  );
+
   const handleShareWhatsApp = useCallback(
     (payload: {
       product: Product;
@@ -740,12 +775,37 @@ export default function App() {
         onNavigateWishlist={() => setActivePage('wishlist')}
         onNavigateOrders={() => setActivePage('orders')}
         onNavigateSeller={() => setActivePage('seller')}
+        onNavigateSignUp={() => setActivePage('signup')}
         wishlistCount={likedIds.size}
         cartCount={cartCount}
         onOpenCart={() => setCartOpen(true)}
         user={user}
-        onOpenAuth={() => setAuthOpen(true)}
+        onOpenAuth={() => {
+          setAuthInitialMode('signin');
+          setAuthOpen(true);
+        }}
       />
+
+      {activePage === 'signup' && (
+        <div className="flex-1">
+          <CustomerSignUpView
+            user={user}
+            onAuthChanged={(payload) => {
+              setUser(payload.user);
+              if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
+              if (payload.cart) {
+                setCart(payload.cart);
+                localStorage.setItem('kk_guest_cart', JSON.stringify(payload.cart));
+              }
+            }}
+            onOpenSignIn={() => {
+              setAuthInitialMode('signin');
+              setAuthOpen(true);
+            }}
+            onNavigateStore={() => setActivePage('store')}
+          />
+        </div>
+      )}
 
       {activePage === 'wishlist' && (
         <div className="flex-1">
@@ -763,7 +823,10 @@ export default function App() {
 
       {activePage === 'orders' && (
         <div className="flex-1">
-          <OrdersView user={user} onOpenAuth={() => setAuthOpen(true)} />
+          <OrdersView user={user} onOpenAuth={() => {
+            setAuthInitialMode('signin');
+            setAuthOpen(true);
+          }} />
         </div>
       )}
 
@@ -780,7 +843,10 @@ export default function App() {
                 localStorage.setItem('kk_guest_cart', JSON.stringify(payload.cart));
               }
             }}
-            onOpenAuth={() => setAuthOpen(true)}
+            onOpenAuth={() => {
+              setAuthInitialMode('signin');
+              setAuthOpen(true);
+            }}
             onCatalogMutated={() => {
               fetchCatalog();
               fetchStoreMeta();
@@ -1424,10 +1490,7 @@ export default function App() {
         compareIds={compareIds}
         onToggleCompare={handleToggleCompare}
         categoryTop10Thresholds={catalog.categoryTop10Thresholds}
-        onProductLoaded={(loaded) => {
-          recordRecentlyViewed(loaded);
-          setActiveProductMeta(loaded);
-        }}
+        onProductLoaded={handleProductLoaded}
         onApplyCoupon={(code) => {
           setPendingCouponCode(code);
           setSelectedProductKey(null);
@@ -1476,7 +1539,8 @@ export default function App() {
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
         user={user}
-        oauthConfigured={oauthConfigured}
+        initialMode={authInitialMode}
+        onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));

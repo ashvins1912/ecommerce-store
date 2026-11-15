@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import sharp from 'sharp';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 const UPLOAD_DIR = path.resolve(process.cwd(), 'data', 'uploads');
 
@@ -112,4 +112,108 @@ export async function processAndStoreImage(
 export function getUploadDir(): string {
   ensureUploadDir();
   return UPLOAD_DIR;
+}
+
+/**
+ * Deletes uploaded product assets from Cloudflare R2 / CDN and local /data/uploads directory.
+ * Static seeded assets under /src/assets/ are untouched.
+ */
+export async function deleteStoredImageAssets(urls: string[]): Promise<{
+  deletedCount: number;
+  deletedKeys: string[];
+  skippedUrls: string[];
+}> {
+  const uniqueUrls = Array.from(new Set(urls.map((u) => (u || '').trim()).filter(Boolean)));
+  const r2Keys = new Set<string>();
+  const localFilenames = new Set<string>();
+  const skippedUrls: string[] = [];
+  const cdnBase = (process.env.R2_PUBLIC_CDN_URL || '').replace(/\/$/, '');
+
+  for (const rawUrl of uniqueUrls) {
+    if (rawUrl.startsWith('/src/assets/') || rawUrl.startsWith('data:')) {
+      skippedUrls.push(rawUrl);
+      continue;
+    }
+
+    let pathname = rawUrl;
+    if (/^https?:\/\//i.test(rawUrl)) {
+      try {
+        pathname = new URL(rawUrl).pathname;
+      } catch {
+        skippedUrls.push(rawUrl);
+        continue;
+      }
+    }
+
+    if (cdnBase && rawUrl.startsWith(cdnBase)) {
+      const relKey = rawUrl.slice(cdnBase.length).replace(/^\/+/, '');
+      if (relKey) r2Keys.add(relKey);
+    } else if (pathname.startsWith('/uploads/')) {
+      const safeFile = path.basename(pathname);
+      if (safeFile && safeFile !== '.' && safeFile !== '..') {
+        localFilenames.add(safeFile);
+        r2Keys.add(`products/${safeFile}`);
+      }
+    } else if (pathname.includes('/products/')) {
+      const relKey = pathname.replace(/^\/+/, '');
+      r2Keys.add(relKey);
+    } else {
+      skippedUrls.push(rawUrl);
+    }
+  }
+
+  // Ensure companion thumb/main variants are also queued if one was passed
+  for (const file of Array.from(localFilenames)) {
+    if (file.endsWith('-thumb.webp')) {
+      localFilenames.add(file.replace(/-thumb\.webp$/, '.webp'));
+    } else if (file.endsWith('.webp')) {
+      localFilenames.add(file.replace(/\.webp$/, '-thumb.webp'));
+    }
+  }
+  for (const key of Array.from(r2Keys)) {
+    if (key.endsWith('-thumb.webp')) {
+      r2Keys.add(key.replace(/-thumb\.webp$/, '.webp'));
+    } else if (key.endsWith('.webp')) {
+      r2Keys.add(key.replace(/\.webp$/, '-thumb.webp'));
+    }
+  }
+
+  const deletedKeys: string[] = [];
+
+  if (r2Client && process.env.R2_BUCKET_NAME && r2Keys.size > 0) {
+    await Promise.all(
+      Array.from(r2Keys).map(async (key) => {
+        try {
+          await r2Client.send(
+            new DeleteObjectCommand({
+              Bucket: process.env.R2_BUCKET_NAME!,
+              Key: key,
+            })
+          );
+          deletedKeys.push(`r2:${key}`);
+        } catch {
+          // Ignore missing object or transient CDN deletion errors
+        }
+      })
+    );
+  }
+
+  for (const file of localFilenames) {
+    const resolved = path.resolve(UPLOAD_DIR, file);
+    if (!resolved.startsWith(UPLOAD_DIR + path.sep)) continue;
+    try {
+      if (fs.existsSync(resolved)) {
+        fs.unlinkSync(resolved);
+        deletedKeys.push(`local:${file}`);
+      }
+    } catch {
+      // Ignore unlink failure
+    }
+  }
+
+  return {
+    deletedCount: deletedKeys.length,
+    deletedKeys,
+    skippedUrls,
+  };
 }

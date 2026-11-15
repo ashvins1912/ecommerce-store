@@ -2,7 +2,7 @@ import { Globe, Heart, ShoppingBag, User as UserIcon } from 'lucide-react';
 import type { ProductCategory, User } from '../shared/types';
 import { useI18n, type Language } from '../lib/i18n';
 
-export type ActivePage = 'store' | 'wishlist' | 'orders' | 'seller';
+export type ActivePage = 'store' | 'wishlist' | 'orders' | 'seller' | 'signup';
 
 interface TopBarProps {
   activePage: ActivePage;
@@ -11,6 +11,7 @@ interface TopBarProps {
   onNavigateWishlist: () => void;
   onNavigateOrders: () => void;
   onNavigateSeller: () => void;
+  onNavigateSignUp: () => void;
   wishlistCount: number;
   cartCount: number;
   onOpenCart: () => void;
@@ -25,6 +26,7 @@ export function TopBar({
   onNavigateWishlist,
   onNavigateOrders,
   onNavigateSeller,
+  onNavigateSignUp,
   wishlistCount,
   cartCount,
   onOpenCart,
@@ -178,6 +180,19 @@ export function TopBar({
                 : t('nav.signIn')}
             </span>
           </button>
+          {!user && (
+            <button
+              type="button"
+              onClick={onNavigateSignUp}
+              className={`hidden sm:inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                activePage === 'signup'
+                  ? 'border-[#881337] bg-[#FFF8F6] text-[#881337]'
+                  : 'border-[#E8E6E1] bg-white text-[#141413] hover:border-[#881337]'
+              }`}
+            >
+              {t('nav.signUp')}
+            </button>
+          )}
           <button
             type="button"
             onClick={onOpenCart}
@@ -240,6 +255,15 @@ export function TopBar({
         >
           {t('nav.sellerHub')}
         </button>
+        {!user && (
+          <button
+            type="button"
+            onClick={onNavigateSignUp}
+            className={`whitespace-nowrap shrink-0 ${activePage === 'signup' ? 'text-[#881337] font-semibold' : ''}`}
+          >
+            {t('nav.signUp')}
+          </button>
+        )}
       </div>
     </header>
   );

@@ -20,9 +20,12 @@ const UserSchema = new Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     avatarUrl: { type: String },
+    supabaseUid: { type: String, index: true },
+    passwordHash: { type: String, select: false },
+    authProvider: { type: String, enum: ['supabase', 'invite', 'demo'], default: 'supabase' },
     oauthAccounts: [
       {
-        provider: { type: String, enum: ['google', 'meta'], required: true },
+        provider: { type: String, required: true },
         providerAccountId: { type: String, required: true },
       },
     ],
@@ -123,9 +126,28 @@ const ProductSchema = new Schema(
     },
     isProductTrusted: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true, index: true },
+    listingStatus: {
+      type: String,
+      enum: ['published', 'unpublished', 'discontinued'],
+      default: 'published',
+      index: true,
+    },
+    isPublished: { type: Boolean, default: true, index: true },
+    isUnlisted: { type: Boolean, default: false, index: true },
+    isDiscontinued: { type: Boolean, default: false, index: true },
+    isDeleted: { type: Boolean, default: false, index: true },
+    disabledAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
+
+ProductSchema.index({
+  isActive: 1,
+  isPublished: 1,
+  isUnlisted: 1,
+  isDiscontinued: 1,
+  isDeleted: 1,
+});
 
 const LikeSchema = new Schema(
   {
@@ -269,7 +291,7 @@ const AuthSessionSchema = new Schema(
     sessionId: { type: String, required: true, unique: true, index: true },
     userId: { type: String, required: true, index: true },
     role: { type: String, enum: ['BUYER', 'SELLER', 'ADMIN'], required: true },
-    provider: { type: String, enum: ['google', 'meta', 'invite', 'demo'], default: 'google' },
+    provider: { type: String, enum: ['supabase', 'invite', 'demo'], default: 'supabase' },
     tokenFingerprint: { type: String, required: true },
     csrfToken: { type: String, required: true },
     tlsSecure: { type: Boolean, default: true },

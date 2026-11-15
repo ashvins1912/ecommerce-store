@@ -16,7 +16,9 @@ import {
   updateProductDiscountOrStock,
   findUserById,
   findUserByEmail,
-  findOrCreateOAuthUser,
+  syncSupabaseCustomerUser,
+  registerCustomerAccount,
+  authenticateCustomerAccount,
   updateUserCheckoutProfile,
   createSellerInvite,
   listSellerInvites,
@@ -62,6 +64,10 @@ import {
   updateCategoryControl,
   deleteCategoryControl,
   logShareEvent,
+  listSellerManagedProducts,
+  updateProductControlState,
+  removeProductCompletely,
+  sanitizeCartItems,
 } from './src/server/services/store.js';
 import {
   verifySslSessionToken,
@@ -72,6 +78,11 @@ import {
   attachSslSecurityHeaders,
   type AuthSessionRecord,
 } from './src/server/services/session.js';
+import {
+  isSupabaseAuthConfigured,
+  supabaseSignUpCustomer,
+  supabaseSignInWithPassword,
+} from './src/server/services/supabaseAuth.js';
 import {
   getCartCache,
   setCartCache,
@@ -96,6 +107,7 @@ import type {
   OccasionType,
   SeasonType,
   ReviewClass,
+  ProductControlAction,
   User,
 } from './src/shared/types.js';
 
@@ -183,7 +195,7 @@ async function issueUserSession(
   req: Request,
   res: Response,
   user: User,
-  provider: 'google' | 'meta' | 'invite' | 'demo'
+  provider: 'supabase' | 'invite' | 'demo'
 ) {
   const { record, token } = createSessionArtifact(req, user, provider);
   await saveAuthSession(record);
@@ -200,8 +212,12 @@ async function issueUserSession(
 async function loadCartForActor(actor: { userId?: string | null; guestToken: string }): Promise<CartItem[]> {
   const cacheKey = actor.userId ? `user:${actor.userId}` : `guest:${actor.guestToken}`;
   const cached = await getCartCache(cacheKey);
-  if (cached) return cached;
-  return getLocalCartBackup(cacheKey);
+  const raw = cached ?? (await getLocalCartBackup(cacheKey));
+  const sanitized = await sanitizeCartItems(raw);
+  if (sanitized.length !== raw.length) {
+    await saveCartForActor(actor, sanitized);
+  }
+  return sanitized;
 }
 
 async function saveCartForActor(
@@ -252,197 +268,19 @@ async function startServer() {
       sessionInfo: session ? toSessionSummary(session, session.sessionId) : null,
       likedProductIds,
       cart,
-      oauthConfigured: {
-        google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-        meta: Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET),
+      authConfig: {
+        supabaseConfigured: isSupabaseAuthConfigured(),
       },
     });
   });
 
-  // Google & Meta OAuth 2.0 Popup URLs
-  app.get('/api/auth/oauth/:provider/url', (req, res) => {
-    const provider = req.params.provider;
-    const baseUrl = getAppBaseUrl(req);
-    if (provider === 'google') {
-      if (!process.env.GOOGLE_CLIENT_ID) {
-        return res.status(400).json({ error: 'GOOGLE_CLIENT_ID is not configured' });
-      }
-      const params = new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        redirect_uri: `${baseUrl}/api/auth/oauth/google/callback`,
-        response_type: 'code',
-        scope: 'openid email profile',
-        prompt: 'select_account',
-      });
-      return res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
-    }
-    if (provider === 'meta') {
-      if (!process.env.META_APP_ID) {
-        return res.status(400).json({ error: 'META_APP_ID is not configured' });
-      }
-      const params = new URLSearchParams({
-        client_id: process.env.META_APP_ID,
-        redirect_uri: `${baseUrl}/api/auth/oauth/meta/callback`,
-        response_type: 'code',
-        scope: 'email,public_profile',
-      });
-      return res.json({ url: `https://www.facebook.com/v20.0/dialog/oauth?${params}` });
-    }
-    return res.status(404).json({ error: 'Unknown provider' });
-  });
-
-  app.get(
-    ['/api/auth/oauth/google/callback', '/api/auth/oauth/google/callback/'],
-    async (req, res) => {
-      try {
-        const code = String(req.query.code || '');
-        const baseUrl = getAppBaseUrl(req);
-        const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            code,
-            client_id: process.env.GOOGLE_CLIENT_ID || '',
-            client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-            redirect_uri: `${baseUrl}/api/auth/oauth/google/callback`,
-            grant_type: 'authorization_code',
-          }),
-        });
-        const tokenJson = (await tokenResp.json()) as { access_token?: string };
-        if (!tokenJson.access_token) throw new Error('Token exchange failed');
-        const profileResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-          headers: { Authorization: `Bearer ${tokenJson.access_token}` },
-        });
-        const profile = (await profileResp.json()) as {
-          id: string;
-          email: string;
-          name: string;
-          picture?: string;
-        };
-        const user = await findOrCreateOAuthUser({
-          provider: 'google',
-          providerAccountId: profile.id,
-          email: profile.email,
-          name: profile.name,
-          avatarUrl: profile.picture,
-        });
-        const { guestToken } = await resolveActor(req, res);
-        await mergeGuestIntoUser(guestToken, user._id);
-        const guestCart = await loadCartForActor({ userId: null, guestToken });
-        if (guestCart.length > 0) {
-          const existing = await loadCartForActor({ userId: user._id, guestToken });
-          const merged = [...existing];
-          for (const item of guestCart) {
-            const match = merged.find(
-              (m) => m.productId === item.productId && m.variantSku === item.variantSku
-            );
-            if (match) match.quantity += item.quantity;
-            else merged.push(item);
-          }
-          await saveCartForActor({ userId: user._id, guestToken }, merged);
-          await deleteCartCache(`guest:${guestToken}`);
-        }
-        await issueUserSession(req, res, user, 'google');
-        res.send(`<html><body><script>
-          if (window.opener) {
-            window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-            window.close();
-          } else {
-            window.location.href = '/';
-          }
-        </script><p>Signed in via Google. Closing window...</p></body></html>`);
-      } catch (err) {
-        res.status(400).send(`Google OAuth error: ${(err as Error).message}`);
-      }
-    }
-  );
-
-  app.get(
-    ['/api/auth/oauth/meta/callback', '/api/auth/oauth/meta/callback/'],
-    async (req, res) => {
-      try {
-        const code = String(req.query.code || '');
-        const baseUrl = getAppBaseUrl(req);
-        const tokenParams = new URLSearchParams({
-          client_id: process.env.META_APP_ID || '',
-          client_secret: process.env.META_APP_SECRET || '',
-          redirect_uri: `${baseUrl}/api/auth/oauth/meta/callback`,
-          code,
-        });
-        const tokenResp = await fetch(
-          `https://graph.facebook.com/v20.0/oauth/access_token?${tokenParams}`
-        );
-        const tokenJson = (await tokenResp.json()) as { access_token?: string };
-        if (!tokenJson.access_token) throw new Error('Meta token exchange failed');
-        const profileResp = await fetch(
-          `https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${tokenJson.access_token}`
-        );
-        const profile = (await profileResp.json()) as {
-          id: string;
-          name: string;
-          email?: string;
-          picture?: { data?: { url?: string } };
-        };
-        const user = await findOrCreateOAuthUser({
-          provider: 'meta',
-          providerAccountId: profile.id,
-          email: profile.email || `meta-${profile.id}@users.kalaandkarat.in`,
-          name: profile.name,
-          avatarUrl: profile.picture?.data?.url,
-        });
-        const { guestToken } = await resolveActor(req, res);
-        await mergeGuestIntoUser(guestToken, user._id);
-        await issueUserSession(req, res, user, 'meta');
-        res.send(`<html><body><script>
-          if (window.opener) {
-            window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-            window.close();
-          } else {
-            window.location.href = '/';
-          }
-        </script><p>Signed in via Meta. Closing window...</p></body></html>`);
-      } catch (err) {
-        res.status(400).send(`Meta OAuth error: ${(err as Error).message}`);
-      }
-    }
-  );
-
-  // Instant Profile Sign-In & Guest Cart/Likes Merge + SSL Token Issue
-  app.post('/api/auth/signin', async (req, res) => {
-    const schema = z.object({
-      email: z.string().email(),
-      name: z.string().min(2).max(80).optional(),
-      provider: z.enum(['google', 'meta']).default('google'),
-      quickDemoUserId: z.string().optional(),
-    });
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid credentials' });
-    }
-    const { guestToken } = await resolveActor(req, res);
-    let user = parsed.data.quickDemoUserId
-      ? await findUserById(parsed.data.quickDemoUserId)
-      : null;
-
-    if (!user && parsed.data.quickDemoUserId) {
-      user = await findUserByEmail(parsed.data.email);
-    }
-
-    if (!user) {
-      user = await findOrCreateOAuthUser({
-        provider: parsed.data.provider,
-        providerAccountId: `${parsed.data.provider}-${parsed.data.email}`,
-        email: parsed.data.email,
-        name: parsed.data.name || parsed.data.email.split('@')[0],
-        role: 'BUYER',
-      });
-    }
-
-    await mergeGuestIntoUser(guestToken, user._id);
+  // Helper to merge guest likes + cart into authenticated user account
+  async function mergeGuestSessionData(guestToken: string, userId: string) {
+    await mergeGuestIntoUser(guestToken, userId);
 
     const guestCart = await loadCartForActor({ userId: null, guestToken });
     if (guestCart.length > 0) {
-      const userCart = await loadCartForActor({ userId: user._id, guestToken });
+      const userCart = await loadCartForActor({ userId, guestToken });
       const merged = [...userCart];
       for (const item of guestCart) {
         const match = merged.find(
@@ -451,26 +289,174 @@ async function startServer() {
         if (match) match.quantity += item.quantity;
         else merged.push(item);
       }
-      await saveCartForActor({ userId: user._id, guestToken }, merged);
+      await saveCartForActor({ userId, guestToken }, merged);
       await deleteCartCache(`guest:${guestToken}`);
     }
+  }
 
-    const issued = await issueUserSession(
-      req,
-      res,
-      user,
-      parsed.data.quickDemoUserId ? 'demo' : parsed.data.provider
-    );
-    const likedProductIds = await getLikedProductIds({ userId: user._id, guestToken });
-    const cart = await loadCartForActor({ userId: user._id, guestToken });
-    res.json({
-      user,
-      accessToken: issued.accessToken,
-      csrfToken: issued.csrfToken,
-      sessionInfo: issued.sessionInfo,
-      likedProductIds,
-      cart,
+  function normalizeCustomerMobile(raw?: string): string | undefined {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return undefined;
+    const digits = trimmed.replace(/[^\d+]/g, '');
+    const normalized = /^\d{10}$/.test(digits) ? `+91${digits}` : digits;
+    if (!isValidE164(normalized)) {
+      throw new Error('Mobile number must be a valid 10-digit Indian number or E.164 format (e.g., +919876543210).');
+    }
+    return normalized;
+  }
+
+  // Customer Sign-Up via Supabase Auth (with persistent salted scrypt fallback)
+  app.post('/api/auth/signup', async (req, res) => {
+    const allowed = await checkRateLimit(`signup:${req.ip}`, 20, 600);
+    if (!allowed) {
+      return res.status(429).json({ error: 'Too many sign-up attempts. Please wait a few minutes.' });
+    }
+
+    const schema = z.object({
+      name: z.string().trim().min(2, 'Please enter your full name (at least 2 characters).').max(80),
+      email: z.string().trim().email('Please enter a valid email address.'),
+      password: z.string().min(6, 'Password must be at least 6 characters.').max(128),
+      mobileNumber: z.string().trim().max(24).optional(),
     });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid sign-up details' });
+    }
+
+    let mobileNumber: string | undefined;
+    try {
+      mobileNumber = normalizeCustomerMobile(parsed.data.mobileNumber);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+
+    const { guestToken } = await resolveActor(req, res);
+
+    try {
+      let user: User;
+      if (isSupabaseAuthConfigured()) {
+        const supa = await supabaseSignUpCustomer({
+          name: parsed.data.name,
+          email: parsed.data.email,
+          password: parsed.data.password,
+          mobileNumber,
+          redirectTo: getAppBaseUrl(req),
+        });
+        user = await syncSupabaseCustomerUser({
+          supabaseUid: supa.supabaseUid,
+          email: supa.email,
+          name: supa.name,
+          mobileNumber: supa.mobileNumber,
+        });
+
+        if (!supa.hasSession) {
+          return res.status(200).json({
+            ok: true,
+            requiresEmailVerification: true,
+            email: supa.email,
+            message:
+              'Account created in Supabase. Please check your inbox to confirm your email before signing in.',
+          });
+        }
+      } else {
+        user = await registerCustomerAccount({
+          name: parsed.data.name,
+          email: parsed.data.email,
+          password: parsed.data.password,
+          mobileNumber,
+        });
+      }
+
+      await mergeGuestSessionData(guestToken, user._id);
+      const issued = await issueUserSession(req, res, user, 'supabase');
+      const likedProductIds = await getLikedProductIds({ userId: user._id, guestToken });
+      const cart = await loadCartForActor({ userId: user._id, guestToken });
+
+      return res.status(201).json({
+        user,
+        accessToken: issued.accessToken,
+        csrfToken: issued.csrfToken,
+        sessionInfo: issued.sessionInfo,
+        likedProductIds,
+        cart,
+      });
+    } catch (err) {
+      const status = (err as { status?: number }).status || 400;
+      return res.status(status).json({ error: (err as Error).message || 'Sign up failed' });
+    }
+  });
+
+  // Customer Sign-In via Supabase Auth (or 1-click dummy test role switch) + SSL Token Issue
+  app.post('/api/auth/signin', async (req, res) => {
+    const schema = z.union([
+      z.object({
+        quickDemoUserId: z.string().min(1),
+        email: z.string().email().optional(),
+      }),
+      z.object({
+        email: z.string().trim().email('Please enter a valid email address.'),
+        password: z.string().min(1, 'Please enter your password.'),
+      }),
+    ]);
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid credentials' });
+    }
+
+    const { guestToken } = await resolveActor(req, res);
+
+    try {
+      let user: User | null = null;
+      let sessionProvider: 'supabase' | 'demo' = 'supabase';
+
+      if ('quickDemoUserId' in parsed.data) {
+        user = await findUserById(parsed.data.quickDemoUserId);
+        if (!user && parsed.data.email) {
+          user = await findUserByEmail(parsed.data.email);
+        }
+        if (!user) {
+          return res.status(404).json({ error: 'Test account not found.' });
+        }
+        sessionProvider = 'demo';
+      } else {
+        if (isSupabaseAuthConfigured()) {
+          const supa = await supabaseSignInWithPassword({
+            email: parsed.data.email,
+            password: parsed.data.password,
+          });
+          user = await syncSupabaseCustomerUser({
+            supabaseUid: supa.supabaseUid,
+            email: supa.email,
+            name: supa.name,
+            mobileNumber: supa.mobileNumber,
+          });
+        } else {
+          user = await authenticateCustomerAccount({
+            email: parsed.data.email,
+            password: parsed.data.password,
+          });
+        }
+        sessionProvider = 'supabase';
+      }
+
+      await mergeGuestSessionData(guestToken, user._id);
+      const issued = await issueUserSession(req, res, user, sessionProvider);
+      const likedProductIds = await getLikedProductIds({ userId: user._id, guestToken });
+      const cart = await loadCartForActor({ userId: user._id, guestToken });
+
+      return res.json({
+        user,
+        accessToken: issued.accessToken,
+        csrfToken: issued.csrfToken,
+        sessionInfo: issued.sessionInfo,
+        likedProductIds,
+        cart,
+      });
+    } catch (err) {
+      const status = (err as { status?: number }).status || 401;
+      return res.status(status).json({ error: (err as Error).message || 'Sign in failed' });
+    }
   });
 
   app.post('/api/auth/logout', async (req, res) => {
@@ -504,7 +490,7 @@ async function startServer() {
     if (session) {
       await revokeAuthSession(session.sessionId, user._id);
     }
-    const issued = await issueUserSession(req, res, user, session?.provider || 'google');
+    const issued = await issueUserSession(req, res, user, session?.provider || 'supabase');
     const sessions = await listUserSessions(user._id);
     res.json({
       accessToken: issued.accessToken,
@@ -983,6 +969,78 @@ async function startServer() {
     const updated = await updateProductDiscountOrStock(req.params.id, user._id, parsed.data);
     if (!updated) return res.status(404).json({ error: 'Product not found or unauthorized' });
     res.json({ product: updated });
+  });
+
+  // Seller Control Panel: Full Catalog with Active Order Counts & Lifecycle Actions
+  app.get('/api/seller/products', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const statusFilter = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const products = await listSellerManagedProducts(user._id, user.role, { q, statusFilter });
+    res.json({ products });
+  });
+
+  app.patch('/api/products/:id/control', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const schema = z.object({
+      action: z.enum([
+        'publish',
+        'unpublish',
+        'unlist',
+        'relist',
+        'mark_out_of_stock',
+        'restock',
+        'discontinue',
+      ]),
+      stock: z.number().int().min(1).max(100000).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid control action' });
+    }
+    const updated = await updateProductControlState(
+      req.params.id,
+      user._id,
+      user.role,
+      parsed.data.action as ProductControlAction,
+      parsed.data.stock
+    );
+    if (!updated) {
+      return res.status(404).json({ error: 'Product not found or unauthorized' });
+    }
+    res.json({ product: updated });
+  });
+
+  app.delete('/api/products/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const result = await removeProductCompletely(req.params.id, user._id, user.role);
+    if (result.notFound) {
+      return res.status(404).json({ error: result.error });
+    }
+    if (result.unauthorized) {
+      return res.status(403).json({ error: result.error });
+    }
+    if (result.blockedByActiveOrders) {
+      return res.status(409).json({
+        error: result.error,
+        blockedByActiveOrders: true,
+        activeOrderCount: result.activeOrderCount || 0,
+      });
+    }
+    res.json({
+      ok: true,
+      removedProductId: result.removedProductId,
+      purgedImages: result.purgedImages || [],
+    });
   });
 
   // --- Seasonal Sales Campaigns & Flash Sale Countdowns ---

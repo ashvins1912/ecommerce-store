@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react';
 import {
   apiFetch,
   clearClientSessionTokens,
@@ -12,7 +12,8 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
-  oauthConfigured: { google: boolean; meta: boolean };
+  initialMode?: 'signin' | 'signup';
+  onOpenSignUpPage?: () => void;
   onAuthChanged: (payload: {
     user: User | null;
     likedProductIds?: string[];
@@ -24,16 +25,31 @@ export function AuthModal({
   isOpen,
   onClose,
   user,
-  oauthConfigured,
+  initialMode = 'signin',
+  onOpenSignUpPage,
   onAuthChanged,
 }: AuthModalProps) {
   const { t, locale } = useI18n();
+  const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AuthSessionSummary[]>([]);
   const [rotatingToken, setRotatingToken] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+      setError(null);
+      setVerificationNotice(null);
+    }
+  }, [isOpen, initialMode]);
 
   const loadSessions = async () => {
     try {
@@ -52,53 +68,15 @@ export function AuthModal({
     }
   }, [isOpen, user?._id]);
 
-  useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        try {
-          const me = await apiFetch<{
-            user: User | null;
-            csrfToken?: string;
-            likedProductIds: string[];
-            cart: CartItem[];
-          }>('/api/auth/me');
-          setClientSessionTokens(undefined, me.csrfToken);
-          onAuthChanged(me);
-          onClose();
-        } catch (err) {
-          setError((err as Error).message);
-        }
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [onAuthChanged, onClose]);
-
   if (!isOpen) return null;
 
-  const handleOAuthPopup = async (provider: 'google' | 'meta') => {
+  const handleSignIn = async (
+    payload:
+      | { quickDemoUserId: string; email?: string }
+      | { email: string; password: string }
+  ) => {
     setError(null);
-    setLoading(true);
-    try {
-      const { url } = await apiFetch<{ url: string }>(`/api/auth/oauth/${provider}/url`);
-      const popup = window.open(url, `${provider}_oauth`, 'width=540,height=680');
-      if (!popup) {
-        setError('Popup blocked by browser. Please allow popups and try again.');
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSignIn = async (payload: {
-    email: string;
-    name?: string;
-    provider?: 'google' | 'meta';
-    quickDemoUserId?: string;
-  }) => {
-    setError(null);
+    setVerificationNotice(null);
     setLoading(true);
     try {
       const data = await apiFetch<{
@@ -114,6 +92,61 @@ export function AuthModal({
       setClientSessionTokens(data.accessToken, data.csrfToken);
       onAuthChanged(data);
       onClose();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setVerificationNotice(null);
+
+    if (password !== confirmPassword) {
+      setError(t('auth.passwordMismatch'));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = await apiFetch<{
+        ok?: boolean;
+        requiresEmailVerification?: boolean;
+        message?: string;
+        user?: User;
+        accessToken?: string;
+        csrfToken?: string;
+        likedProductIds?: string[];
+        cart?: CartItem[];
+      }>('/api/auth/signup', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          mobileNumber: mobileNumber.trim() || undefined,
+        }),
+      });
+
+      if (data.requiresEmailVerification) {
+        setVerificationNotice(
+          data.message || 'Account created. Please check your email to confirm before signing in.'
+        );
+        setMode('signin');
+        return;
+      }
+
+      if (data.user) {
+        setClientSessionTokens(data.accessToken, data.csrfToken);
+        onAuthChanged({
+          user: data.user,
+          likedProductIds: data.likedProductIds,
+          cart: data.cart,
+        });
+        onClose();
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -223,10 +256,18 @@ export function AuthModal({
         <div className="flex items-start justify-between gap-4 border-b border-[#F0EEE9] pb-4">
           <div>
             <h2 className="font-display text-2xl font-semibold text-[#141413]">
-              {user ? t('auth.sessionTitle') : t('auth.signInTitle')}
+              {user
+                ? t('auth.sessionTitle')
+                : mode === 'signup'
+                ? t('auth.signUpTitle')
+                : t('auth.signInTitle')}
             </h2>
             <p className="mt-1 text-xs text-[#6B6A65]">
-              {user ? t('auth.sessionSub') : t('auth.signInSub')}
+              {user
+                ? t('auth.sessionSub')
+                : mode === 'signup'
+                ? t('auth.signUpSub')
+                : t('auth.signInSub')}
             </p>
           </div>
           <button
@@ -242,6 +283,12 @@ export function AuthModal({
         {error && (
           <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
             {error}
+          </div>
+        )}
+
+        {verificationNotice && (
+          <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+            {verificationNotice}
           </div>
         )}
 
@@ -357,79 +404,167 @@ export function AuthModal({
           </div>
         ) : (
           <div className="mt-5 space-y-5">
-            {/* Real OAuth 2.0 Popup Triggers */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Supabase Sign In / Customer Sign Up Tab Switcher (No Google/Facebook OAuth) */}
+            <div className="grid grid-cols-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] p-1">
               <button
                 type="button"
-                disabled={loading}
-                onClick={() =>
-                  oauthConfigured.google
-                    ? handleOAuthPopup('google')
-                    : handleSignIn({
-                        email: 'guest.google@example.com',
-                        name: 'Google Shopper',
-                        provider: 'google',
-                      })
-                }
-                className="flex items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
+                onClick={() => {
+                  setMode('signin');
+                  setError(null);
+                }}
+                className={`rounded py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                  mode === 'signin'
+                    ? 'bg-white text-[#141413] shadow-xs'
+                    : 'text-[#6B6A65] hover:text-[#141413]'
+                }`}
               >
-                <span>{t('auth.google')}</span>
+                {t('auth.tabSignIn')}
               </button>
               <button
                 type="button"
-                disabled={loading}
-                onClick={() =>
-                  oauthConfigured.meta
-                    ? handleOAuthPopup('meta')
-                    : handleSignIn({
-                        email: 'guest.meta@example.com',
-                        name: 'Meta Shopper',
-                        provider: 'meta',
-                      })
-                }
-                className="flex items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
+                onClick={() => {
+                  setMode('signup');
+                  setError(null);
+                }}
+                className={`rounded py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                  mode === 'signup'
+                    ? 'bg-white text-[#141413] shadow-xs'
+                    : 'text-[#6B6A65] hover:text-[#141413]'
+                }`}
               >
-                <span>{t('auth.meta')}</span>
+                {t('auth.tabSignUp')}
               </button>
             </div>
 
-            {/* Email Buyer Sign-In */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!email.trim()) return;
-                handleSignIn({
-                  email: email.trim(),
-                  name: name.trim() || undefined,
-                  provider: 'google',
-                });
-              }}
-              className="space-y-3 border-t border-[#F0EEE9] pt-4"
-            >
-              <div className="text-xs font-medium text-[#44403C]">{t('auth.emailHeading')}</div>
-              <input
-                type="text"
-                placeholder={t('auth.namePlaceholder')}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-              />
-              <input
-                type="email"
-                required
-                placeholder={t('auth.emailPlaceholder')}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-medium text-white hover:bg-[#9F1239] cursor-pointer"
+            {mode === 'signin' ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!email.trim() || !password) return;
+                  void handleSignIn({
+                    email: email.trim(),
+                    password,
+                  });
+                }}
+                className="space-y-3"
               >
-                {loading ? t('auth.signingIn') : t('auth.signInSync')}
-              </button>
-            </form>
+                <div className="text-xs font-medium text-[#44403C]">{t('auth.emailHeading')}</div>
+                <input
+                  type="email"
+                  required
+                  placeholder={t('auth.emailPlaceholder')}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder={t('auth.passwordPlaceholder')}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 pr-10 text-sm focus:border-[#881337] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#78716C] hover:text-[#141413] cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full min-h-[42px] rounded-md bg-[#881337] px-4 py-2.5 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
+                >
+                  {loading ? t('auth.signingIn') : t('auth.signInSync')}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleSignUp} className="space-y-3">
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  placeholder={t('auth.namePlaceholder')}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                />
+                <input
+                  type="email"
+                  required
+                  placeholder={t('auth.emailPlaceholder')}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                />
+                <input
+                  type="tel"
+                  placeholder={`${t('auth.mobileLabel')} (${t('auth.mobilePlaceholder')})`}
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm tabular-nums focus:border-[#881337] focus:outline-none"
+                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    placeholder={t('auth.passwordPlaceholder')}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 pr-10 text-sm focus:border-[#881337] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#78716C] hover:text-[#141413] cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  placeholder={t('auth.confirmPasswordPlaceholder')}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full min-h-[42px] rounded-md bg-[#881337] px-4 py-2.5 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
+                >
+                  {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
+                </button>
+              </form>
+            )}
+
+            {onOpenSignUpPage && (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] px-3 py-2 text-xs">
+                <span className="text-[#57534E]">
+                  {mode === 'signin' ? t('auth.noAccountYet') : t('auth.signUpTitle')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenSignUpPage();
+                  }}
+                  className="inline-flex items-center gap-1 font-semibold text-[#881337] hover:underline cursor-pointer"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  <span>{t('auth.openSignUpPage')}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 

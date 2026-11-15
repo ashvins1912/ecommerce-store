@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, PackageCheck, Truck } from 'lucide-react';
+import { ExternalLink, Package, PackageCheck, Truck } from 'lucide-react';
 import type {
   Order,
   OrderListResponse,
@@ -14,6 +14,26 @@ import { useI18n } from '../lib/i18n';
 interface OrdersViewProps {
   user: User | null;
   onOpenAuth: () => void;
+}
+
+function OrderItemThumb({ src, alt }: { src: string; alt: string }) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) {
+    return (
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-[#E8E6E1] bg-[#FAF9F6] text-[#A8A29E]">
+        <Package className="h-5 w-5" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      referrerPolicy="no-referrer"
+      onError={() => setBroken(true)}
+      className="h-14 w-14 shrink-0 rounded-md border border-[#E8E6E1] object-cover bg-[#F2EFE9]"
+    />
+  );
 }
 
 export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
@@ -202,12 +222,7 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {order.items.map((item, idx) => (
                     <div key={`${item.variantSku}-${idx}`} className="flex items-center gap-3">
-                      <img
-                        src={item.imageUrl}
-                        alt={item.title}
-                        referrerPolicy="no-referrer"
-                        className="h-14 w-14 rounded-md border border-[#E8E6E1] object-cover bg-[#F2EFE9]"
-                      />
+                      <OrderItemThumb src={item.imageUrl} alt={item.title} />
                       <div className="min-w-0">
                         <div className="text-xs font-semibold text-[#141413] truncate">
                           {item.title}
@@ -216,6 +231,15 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                           {item.colorName} · {t('detail.sizeLabel')} {item.size} · {t('orders.qty')}{' '}
                           {item.quantity} · {formatINR(item.unitPrice)}
                         </div>
+                        {item.catalogStatus && item.catalogStatus !== 'active' && (
+                          <div className="text-[10px] font-medium text-[#78716C] mt-0.5">
+                            {item.catalogStatus === 'removed'
+                              ? t('orders.itemRemoved')
+                              : item.catalogStatus === 'discontinued'
+                                ? t('orders.itemDiscontinued')
+                                : t('orders.itemUnpublished')}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
