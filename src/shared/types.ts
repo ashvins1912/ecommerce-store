@@ -17,7 +17,6 @@ export interface CategoryControl {
   productCount?: number;
   createdAt: string;
   updatedAt: string;
-  deliveredAt?: string | null;
 }
 
 export type SeasonType = 'Diwali' | 'Christmas' | 'New Year' | 'Winter' | 'Summer';
@@ -257,6 +256,8 @@ export interface OrderItem {
   imageUrl: string;
   quantity: number;
   unitPrice: number;
+  isReturnable?: boolean;
+  returnWindowDays?: number;
   catalogStatus?: 'active' | 'unpublished' | 'discontinued' | 'removed';
 }
 
@@ -306,6 +307,7 @@ export interface Order {
   };
   createdAt: string;
   updatedAt: string;
+  deliveredAt?: string | null;
 }
 
 export interface CartItem {
