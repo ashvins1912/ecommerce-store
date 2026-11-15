@@ -814,7 +814,7 @@ export default function App() {
   }, []);
 
   const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
-    if (window.location.pathname.replace(/\\/+$/, '') === '/seller-hub') {
+    if (window.location.pathname.replace(/\/+$/, '') === '/seller-hub') {
       const nextUrl = new URL(window.location.href);
       nextUrl.pathname = '/';
       nextUrl.searchParams.delete('sellerInvite');
