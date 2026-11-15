@@ -1321,6 +1321,7 @@ export function SellerHubView({
     { id: 'categories', label: t('seller.tabCategories') },
     { id: 'campaigns', label: t('seller.tabCampaigns') },
     { id: 'coupons', label: t('seller.tabCoupons') },
+    { id: 'payments', label: 'Payments' },
     { id: 'orders', label: t('seller.tabOrders') },
   ];
 
