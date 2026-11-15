@@ -1930,7 +1930,7 @@ export async function createVerifiedReview(input: {
 
 function matchesOrderTab(status: OrderStatus, tab: OrderTab): boolean {
   if (tab === 'Current') {
-    return ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery'].includes(status);
+    return ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING', 'CANCELLATION_REQUESTED', 'RETURN_REQUESTED', 'RETURN_RECEIVED'].includes(status);
   }
   if (tab === 'Completed') {
     return status === 'Delivered';
@@ -1974,7 +1974,7 @@ export async function getOrdersForUser(
   if (mongoConnected && mongoose.isValidObjectId(actorId)) {
     const statusList: OrderStatus[] =
       tab === 'Current'
-        ? ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery']
+        ? ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING', 'CANCELLATION_REQUESTED', 'RETURN_REQUESTED', 'RETURN_RECEIVED']
         : tab === 'Completed'
           ? ['Delivered']
           : ['Delivered', 'Cancelled'];
