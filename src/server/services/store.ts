@@ -582,6 +582,7 @@ export interface ProductFilterQuery {
   sellerId?: string;
   includeInactive?: boolean;
   includeDisabled?: boolean;
+  viewerId?: string;
 }
 
 function computeCategoryTop10Thresholds(products: Product[]): Record<string, number> {
@@ -626,6 +627,7 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   let items = allProducts.filter((p) => {
     if (!filters.includeInactive && !isProductPubliclyVisible(p)) return false;
     if (!filters.includeDisabled && disabledSet.has(p.category.toLowerCase())) return false;
+    if (p.visibility === 'ASSIGNED' && (!filters.viewerId || !(p.assignedCustomerIds || []).map(String).includes(filters.viewerId))) return false;
     return true;
   });
 
