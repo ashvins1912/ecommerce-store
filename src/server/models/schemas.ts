@@ -216,6 +216,8 @@ const OrderSchema = new Schema(
     paymentStatus: { type: String, enum: ['NOT_REQUIRED', 'PENDING', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'], default: 'NOT_REQUIRED', index: true },
     paymentProvider: { type: String, enum: ['razorpay', 'stripe'], default: null },
     paymentReference: { type: String, default: null, index: true },
+    paymentTransactionId: { type: String, default: null, index: true },
+    walletAppliedPaise: { type: Number, default: 0, min: 0 },
     cancellationRequestedAt: { type: Date, default: null },
     refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'REFUNDED', 'REJECTED'], default: 'NONE' },
     appliedCoupon: {
