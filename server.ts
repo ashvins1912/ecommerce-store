@@ -1828,7 +1828,7 @@ async function startServer() {
     const parsed = z.object({
       title: z.string().trim().min(2).max(180).optional(), category: z.string().trim().min(2).max(100).optional(),
       subCategory: z.string().max(100).optional(), description: z.string().trim().min(10).max(5000).optional(),
-      brand: z.string().max(120).optional(), manufacturerName: z.string().trim().min(2).max(180).optional(),
+      brand: z.string().max(120).optional(), manufacturerName: z.string().trim().min(2).max(180).optional(), manufacturingDate: z.string().optional(),
       imageUrls: z.array(z.string().url().max(2048)).min(1).max(12).optional(),
       basePricePaise: z.number().int().positive().max(1000000000).optional(),
       sizeVariants: z.array(z.string().max(40)).max(40).optional(), colorVariants: z.array(z.string().max(60)).max(40).optional(),
