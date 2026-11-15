@@ -1964,7 +1964,7 @@ async function startServer() {
     const deadline = deliveredAt + Math.max(0, Number(item.returnWindowDays ?? 7)) * 86400000;
     if (Date.now() > deadline) return res.status(409).json({ error: 'RETURN_WINDOW_EXPIRED' });
     if (parsed.data.media.length === 0) return res.status(400).json({ error: 'RETURN_PHOTO_EVIDENCE_REQUIRED' });
-    const cdnBase = (process.env.R2_PUBLIC_CDN_URL || '').replace(/\\/$/, '');
+    const cdnBase = (process.env.R2_PUBLIC_CDN_URL || '').replace(/\/$/, '');
     if (parsed.data.media.some((item) => !(item.url.startsWith('/uploads/') || (cdnBase && item.url.startsWith(cdnBase + '/products/'))))) return res.status(400).json({ error: 'RETURN_MEDIA_MUST_BE_UPLOADED_TO_STORE' });
     if (parsed.data.selfCourier && (!parsed.data.courierName || !parsed.data.trackingId)) return res.status(400).json({ error: 'SELF_COURIER_DETAILS_REQUIRED' });
     try {
