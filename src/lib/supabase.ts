@@ -6,7 +6,7 @@ let browserClient: SupabaseClient | null = null;
 export function getSupabaseBrowserClient(): SupabaseClient | null {
   const url = import.meta.env.VITE_SUPABASE_URL?.trim();
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
-  if (!url || !anonKey || !/^https?:\\/\\//i.test(url)) return null;
+  if (!url || !anonKey || !/^https?:\/\//i.test(url)) return null;
 
   if (!browserClient) {
     browserClient = createClient(url, anonKey, {
