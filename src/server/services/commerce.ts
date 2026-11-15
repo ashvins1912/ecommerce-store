@@ -147,20 +147,26 @@ export async function createGatewayCheckout(input: {
     if (!response.ok) throw new Error(body.error?.description || 'RAZORPAY_ORDER_CREATE_FAILED');
     return { provider: 'razorpay' as const, reference: String(body.id), keyId: gateway.keyId, amountPaise: body.amount, currency: body.currency };
   }
+  const appUrl = process.env.APP_URL;
+  if (!appUrl || !/^https:\/\//i.test(appUrl)) throw new Error('APP_URL must be configured as HTTPS before creating Stripe Checkout Sessions.');
   const params = new URLSearchParams({
-    amount: String(input.amountPaise),
-    currency: (input.currency || 'INR').toLowerCase(),
+    mode: 'payment',
+    'line_items[0][price_data][currency]': (input.currency || 'INR').toLowerCase(),
+    'line_items[0][price_data][unit_amount]': String(input.amountPaise),
+    'line_items[0][price_data][product_data][name]': 'Order ' + input.orderNumber,
+    'line_items[0][quantity]': '1',
+    success_url: appUrl.replace(/\/$/, '') + '/orders?payment=success',
+    cancel_url: appUrl.replace(/\/$/, '') + '/orders?payment=cancelled',
     'metadata[orderId]': input.orderId,
     'metadata[orderNumber]': input.orderNumber,
-    'automatic_payment_methods[enabled]': 'true',
   });
-  const response = await fetch('https://api.stripe.com/v1/payment_intents', {
+  const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST', headers: { Authorization: 'Bearer ' + gateway.secret, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params,
   });
   const body = await response.json() as any;
-  if (!response.ok) throw new Error(body.error?.message || 'STRIPE_INTENT_CREATE_FAILED');
-  return { provider: 'stripe' as const, reference: String(body.id), clientSecret: String(body.client_secret), publishableKey: gateway.keyId, amountPaise: input.amountPaise, currency: input.currency || 'INR' };
+  if (!response.ok) throw new Error(body.error?.message || 'STRIPE_CHECKOUT_CREATE_FAILED');
+  return { provider: 'stripe' as const, reference: String(body.id), url: String(body.url), publishableKey: gateway.keyId, amountPaise: input.amountPaise, currency: input.currency || 'INR' };
 }
 
 export async function verifyPaymentWebhook(input: {
