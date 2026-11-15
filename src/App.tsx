@@ -40,6 +40,7 @@ import { AccountSignUpView } from './components/CustomerSignUpView';
 import { JewelleryCompareModal } from './components/JewelleryCompareModal';
 import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
 import { FlashSaleSection } from './components/FlashSaleSection';
+import ProviderPortal from '../apps/provider-portal/src/ProviderPortal';
 
 const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
 const RECENT_STORAGE_KEY = 'kk_recently_viewed';
@@ -1402,7 +1403,9 @@ export default function App() {
                   const isTopTrending =
                     typeof threshold === 'number' && product.trendScore >= threshold;
 
-                  return (
+                  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
+
+  return (
                     <ProductCard
                       key={product._id}
                       product={product}
