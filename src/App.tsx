@@ -154,7 +154,11 @@ function upsertJsonLdScript(payload: Record<string, unknown>): void {
 
 export default function App() {
   const { t, tc, to, tseason, tsort } = useI18n();
-  const [activePage, setActivePage] = useState<ActivePage>('store');
+  const [activePage, setActivePage] = useState<ActivePage>(() =>
+    typeof window !== 'undefined' && window.location.pathname.replace(/\\/+$/, '') === '/seller-hub'
+      ? 'seller'
+      : 'store'
+  );
   const [user, setUser] = useState<User | null>(null);
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
@@ -273,8 +277,9 @@ export default function App() {
     ) {
       setSeason(urlSeason as SeasonType | 'All');
     }
+    const pathIsSellerHub = window.location.pathname.replace(/\\/+$/, '') === '/seller-hub';
     const inviteParam = params.get('sellerInvite') || params.get('invite');
-    if (inviteParam) {
+    if (inviteParam || pathIsSellerHub) {
       setSellerInviteToken(inviteParam);
       setActivePage('seller');
     } else if (params.get('page') === 'signup' || params.get('signup') === '1') {
@@ -774,8 +779,6 @@ export default function App() {
         }}
         onNavigateWishlist={() => setActivePage('wishlist')}
         onNavigateOrders={() => setActivePage('orders')}
-        onNavigateSeller={() => setActivePage('seller')}
-        onNavigateSignUp={() => setActivePage('signup')}
         wishlistCount={likedIds.size}
         cartCount={cartCount}
         onOpenCart={() => setCartOpen(true)}
