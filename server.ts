@@ -1828,9 +1828,14 @@ async function startServer() {
       order.status = 'PAID_AND_PROCESSING';
       order.statusTimeline.push({ status: order.status, note: 'Stripe Checkout payment verified by signed webhook.', timestamp: new Date() });
     } else if (event.type === 'charge.refunded') {
-      order.paymentStatus = 'REFUNDED';
-      order.refundStatus = 'REFUNDED';
-      await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+      const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
+      if (hasReturnRefund) {
+        order.refundStatus = 'PARTIAL';
+        await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+      } else {
+        order.paymentStatus = 'REFUNDED';
+        order.refundStatus = 'REFUNDED';
+      }
     }
     await order.save();
     res.json({ received: true });
