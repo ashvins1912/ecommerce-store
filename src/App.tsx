@@ -36,7 +36,7 @@ import { AuthModal } from './components/AuthModal';
 import { OrdersView } from './components/OrdersView';
 import { SellerHubView } from './components/SellerHubView';
 import { WishlistView } from './components/WishlistView';
-import { CustomerSignUpView } from './components/CustomerSignUpView';
+import { AccountSignUpView } from './components/CustomerSignUpView';
 import { JewelleryCompareModal } from './components/JewelleryCompareModal';
 import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
 import { FlashSaleSection } from './components/FlashSaleSection';
@@ -834,7 +834,7 @@ export default function App() {
 
       {activePage === 'signup' && (
         <div className="flex-1">
-          <CustomerSignUpView
+          <AccountSignUpView
             user={user}
             onAuthChanged={(payload) => {
               setUser(payload.user);
