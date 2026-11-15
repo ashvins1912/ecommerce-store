@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import { RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
+import {
+  apiFetch,
+  clearClientSessionTokens,
+  setClientSessionTokens,
+} from '../lib/api';
 import { useI18n } from '../lib/i18n';
-import type { User, CartItem } from '../shared/types';
+import type { AuthSessionSummary, CartItem, User } from '../shared/types';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -23,11 +27,30 @@ export function AuthModal({
   oauthConfigured,
   onAuthChanged,
 }: AuthModalProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<AuthSessionSummary[]>([]);
+  const [rotatingToken, setRotatingToken] = useState(false);
+
+  const loadSessions = async () => {
+    try {
+      const data = await apiFetch<{ sessions: AuthSessionSummary[] }>('/api/auth/sessions');
+      setSessions(data.sessions || []);
+    } catch {
+      setSessions([]);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && user) {
+      void loadSessions();
+    } else if (!user) {
+      setSessions([]);
+    }
+  }, [isOpen, user?._id]);
 
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
@@ -35,9 +58,11 @@ export function AuthModal({
         try {
           const me = await apiFetch<{
             user: User | null;
+            csrfToken?: string;
             likedProductIds: string[];
             cart: CartItem[];
           }>('/api/auth/me');
+          setClientSessionTokens(undefined, me.csrfToken);
           onAuthChanged(me);
           onClose();
         } catch (err) {
@@ -78,12 +103,15 @@ export function AuthModal({
     try {
       const data = await apiFetch<{
         user: User;
+        accessToken?: string;
+        csrfToken?: string;
         likedProductIds: string[];
         cart: CartItem[];
       }>('/api/auth/signin', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      setClientSessionTokens(data.accessToken, data.csrfToken);
       onAuthChanged(data);
       onClose();
     } catch (err) {
@@ -93,10 +121,66 @@ export function AuthModal({
     }
   };
 
+  const handleRotateToken = async () => {
+    setRotatingToken(true);
+    setError(null);
+    try {
+      const res = await apiFetch<{
+        accessToken: string;
+        csrfToken: string;
+        sessions: AuthSessionSummary[];
+      }>('/api/auth/sessions/rotate', { method: 'POST' });
+      setClientSessionTokens(res.accessToken, res.csrfToken);
+      setSessions(res.sessions || []);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRotatingToken(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string) => {
+    setError(null);
+    try {
+      const res = await apiFetch<{ ok: boolean; loggedOutCurrent?: boolean }>(
+        `/api/auth/sessions/${encodeURIComponent(sessionId)}`,
+        { method: 'DELETE' }
+      );
+      if (res.loggedOutCurrent) {
+        clearClientSessionTokens();
+        const me = await apiFetch<{
+          user: User | null;
+          likedProductIds: string[];
+          cart: CartItem[];
+        }>('/api/auth/me');
+        onAuthChanged(me);
+        onClose();
+        return;
+      }
+      await loadSessions();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleRevokeOthers = async () => {
+    setError(null);
+    try {
+      const res = await apiFetch<{ sessions: AuthSessionSummary[] }>(
+        '/api/auth/sessions/revoke-others',
+        { method: 'POST' }
+      );
+      setSessions(res.sessions || []);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   const handleLogout = async () => {
     setLoading(true);
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
+      clearClientSessionTokens();
       const me = await apiFetch<{
         user: User | null;
         likedProductIds: string[];
@@ -135,7 +219,7 @@ export function AuthModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs">
-      <div className="max-h-[90vh] overflow-y-auto w-full max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 shadow-xl">
+      <div className="max-h-[90vh] overflow-y-auto w-full max-w-lg rounded-lg border border-[#E8E6E1] bg-white p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4 border-b border-[#F0EEE9] pb-4">
           <div>
             <h2 className="font-display text-2xl font-semibold text-[#141413]">
@@ -179,6 +263,87 @@ export function AuthModal({
                   {user.shippingAddresses[0].city} {user.shippingAddresses[0].pincode}
                 </div>
               )}
+            </div>
+
+            {/* SSL Token Authentication Session Manager */}
+            <div className="rounded-md border border-[#E8E6E1] bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#F0EEE9] pb-2.5">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-emerald-700" />
+                  <span className="text-xs font-semibold text-[#141413]">
+                    {t('ssl.title')}
+                  </span>
+                </div>
+                <span className="text-[11px] font-mono text-emerald-800">
+                  {t('ssl.tlsActive')}
+                </span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRotateToken}
+                  disabled={rotatingToken}
+                  className="inline-flex items-center gap-1.5 rounded border border-[#141413] bg-[#141413] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#2A2927] disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`h-3 w-3 ${rotatingToken ? 'animate-spin' : ''}`} />
+                  {rotatingToken ? t('ssl.rotating') : t('ssl.rotateBtn')}
+                </button>
+                {sessions.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleRevokeOthers}
+                    className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] px-3 py-1.5 text-[11px] font-medium text-[#57534E] hover:border-[#881337] hover:text-[#881337] cursor-pointer"
+                  >
+                    {t('ssl.revokeOthers')}
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-3 space-y-2 max-h-44 overflow-y-auto">
+                {sessions.length === 0 ? (
+                  <p className="text-[11px] text-[#6B6A65]">{t('ssl.noSessions')}</p>
+                ) : (
+                  sessions.map((s) => (
+                    <div
+                      key={s.sessionId}
+                      className={`flex items-center justify-between gap-2 rounded border px-3 py-2 text-[11px] ${
+                        s.isCurrent
+                          ? 'border-emerald-300 bg-emerald-50/40'
+                          : 'border-[#F0EEE9] bg-[#FAF9F6]'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 font-medium text-[#141413]">
+                          <span className="font-mono uppercase text-[10px] text-[#57534E]">
+                            {s.protocol.toUpperCase()}
+                          </span>
+                          <span>·</span>
+                          <span className="font-mono">{s.tokenFingerprint}</span>
+                          {s.isCurrent && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
+                              · {t('ssl.currentBadge')}
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate text-[10px] text-[#6B6A65] tabular-nums">
+                          {s.provider} · {t('ssl.expires')}:{' '}
+                          {new Date(s.expiresAt).toLocaleDateString(locale)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeSession(s.sessionId)}
+                        title={t('ssl.revoke')}
+                        className="inline-flex shrink-0 items-center gap-1 rounded border border-[#E8E6E1] bg-white px-2 py-1 text-[10px] font-medium text-[#6B6A65] hover:border-red-300 hover:text-red-700 cursor-pointer"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        {t('ssl.revoke')}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
             <button

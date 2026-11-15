@@ -39,7 +39,38 @@ import {
   recalculateTrendingAndBadges,
   getLocalCartBackup,
   setLocalCartBackup,
+  saveAuthSession,
+  findActiveAuthSession,
+  touchAuthSession,
+  listUserSessions,
+  revokeAuthSession,
+  revokeOtherUserSessions,
+  listStorefrontCampaigns,
+  listSellerCampaigns,
+  createSalesCampaign,
+  updateSalesCampaign,
+  deleteSalesCampaign,
+  listSellerCoupons,
+  listKnownCustomers,
+  listApplicableCoupons,
+  createSellerCoupon,
+  updateSellerCoupon,
+  deleteSellerCoupon,
+  validateCouponForCart,
+  listCategories,
+  createCategoryControl,
+  updateCategoryControl,
+  deleteCategoryControl,
 } from './src/server/services/store.js';
+import {
+  verifySslSessionToken,
+  extractBearerOrCookieToken,
+  getSslSessionCookieOpts,
+  createSessionArtifact,
+  toSessionSummary,
+  attachSslSecurityHeaders,
+  type AuthSessionRecord,
+} from './src/server/services/session.js';
 import {
   getCartCache,
   setCartCache,
@@ -62,7 +93,9 @@ import type {
   SortOption,
   ProductCategory,
   OccasionType,
+  SeasonType,
   ReviewClass,
+  User,
 } from './src/shared/types.js';
 
 const PORT = 3000;
@@ -110,15 +143,57 @@ function getAppBaseUrl(req: Request): string {
   return `${proto}://${host}`.replace(/\/$/, '');
 }
 
-async function resolveActor(req: Request, res: Response) {
+async function resolveActor(req: Request, res: Response): Promise<{
+  guestToken: string;
+  user: User | null;
+  session: AuthSessionRecord | null;
+}> {
   let guestToken = unsignValue(req.cookies?.kk_guest);
   if (!guestToken) {
     guestToken = `gst_${crypto.randomBytes(10).toString('hex')}`;
     res.cookie('kk_guest', signValue(guestToken), getCookieOpts());
   }
-  const userId = unsignValue(req.cookies?.kk_user);
-  const user = userId ? await findUserById(userId) : null;
-  return { guestToken, user };
+
+  const sslToken = extractBearerOrCookieToken(req);
+  if (sslToken) {
+    const payload = verifySslSessionToken(sslToken);
+    if (payload) {
+      const session = await findActiveAuthSession(payload.sid);
+      if (session && session.userId === payload.sub) {
+        const user = await findUserById(session.userId);
+        if (user) {
+          await touchAuthSession(session.sessionId);
+          return { guestToken, user, session };
+        }
+      }
+    }
+    if (req.cookies?.kk_session) {
+      res.clearCookie('kk_session', getSslSessionCookieOpts());
+    }
+  }
+
+  // Legacy fallback only when explicitly present without invalid SSL token
+  const legacyUserId = !sslToken ? unsignValue(req.cookies?.kk_user) : null;
+  const legacyUser = legacyUserId ? await findUserById(legacyUserId) : null;
+  return { guestToken, user: legacyUser, session: null };
+}
+
+async function issueUserSession(
+  req: Request,
+  res: Response,
+  user: User,
+  provider: 'google' | 'meta' | 'invite' | 'demo'
+) {
+  const { record, token } = createSessionArtifact(req, user, provider);
+  await saveAuthSession(record);
+  res.cookie('kk_session', token, getSslSessionCookieOpts());
+  res.clearCookie('kk_user', getCookieOpts());
+  return {
+    accessToken: token,
+    csrfToken: record.csrfToken,
+    sessionInfo: toSessionSummary(record, record.sessionId),
+    record,
+  };
 }
 
 async function loadCartForActor(actor: { userId?: string | null; guestToken: string }): Promise<CartItem[]> {
@@ -143,6 +218,10 @@ async function startServer() {
 
   const app = express();
   app.set('trust proxy', 1);
+  app.use((_req, res, next) => {
+    attachSslSecurityHeaders(res);
+    next();
+  });
   app.use(express.json({ limit: '4mb' }));
   app.use(cookieParser());
 
@@ -157,7 +236,7 @@ async function startServer() {
 
   // --- Auth & Guest Session ---
   app.get('/api/auth/me', async (req, res) => {
-    const { guestToken, user } = await resolveActor(req, res);
+    const { guestToken, user, session } = await resolveActor(req, res);
     const likedProductIds = await getLikedProductIds({
       userId: user?._id || null,
       guestToken,
@@ -168,6 +247,8 @@ async function startServer() {
       role: user ? user.role : 'GUEST',
       user,
       guestToken,
+      csrfToken: session?.csrfToken,
+      sessionInfo: session ? toSessionSummary(session, session.sessionId) : null,
       likedProductIds,
       cart,
       oauthConfigured: {
@@ -260,7 +341,7 @@ async function startServer() {
           await saveCartForActor({ userId: user._id, guestToken }, merged);
           await deleteCartCache(`guest:${guestToken}`);
         }
-        res.cookie('kk_user', signValue(user._id), getCookieOpts());
+        await issueUserSession(req, res, user, 'google');
         res.send(`<html><body><script>
           if (window.opener) {
             window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
@@ -310,7 +391,7 @@ async function startServer() {
         });
         const { guestToken } = await resolveActor(req, res);
         await mergeGuestIntoUser(guestToken, user._id);
-        res.cookie('kk_user', signValue(user._id), getCookieOpts());
+        await issueUserSession(req, res, user, 'meta');
         res.send(`<html><body><script>
           if (window.opener) {
             window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
@@ -325,7 +406,7 @@ async function startServer() {
     }
   );
 
-  // Instant Profile Sign-In & Guest Cart/Likes Merge
+  // Instant Profile Sign-In & Guest Cart/Likes Merge + SSL Token Issue
   app.post('/api/auth/signin', async (req, res) => {
     const schema = z.object({
       email: z.string().email(),
@@ -358,7 +439,6 @@ async function startServer() {
 
     await mergeGuestIntoUser(guestToken, user._id);
 
-    // Merge guest cart into authenticated user cart
     const guestCart = await loadCartForActor({ userId: null, guestToken });
     if (guestCart.length > 0) {
       const userCart = await loadCartForActor({ userId: user._id, guestToken });
@@ -374,15 +454,90 @@ async function startServer() {
       await deleteCartCache(`guest:${guestToken}`);
     }
 
-    res.cookie('kk_user', signValue(user._id), getCookieOpts());
+    const issued = await issueUserSession(
+      req,
+      res,
+      user,
+      parsed.data.quickDemoUserId ? 'demo' : parsed.data.provider
+    );
     const likedProductIds = await getLikedProductIds({ userId: user._id, guestToken });
     const cart = await loadCartForActor({ userId: user._id, guestToken });
-    res.json({ user, likedProductIds, cart });
+    res.json({
+      user,
+      accessToken: issued.accessToken,
+      csrfToken: issued.csrfToken,
+      sessionInfo: issued.sessionInfo,
+      likedProductIds,
+      cart,
+    });
   });
 
-  app.post('/api/auth/logout', (req, res) => {
+  app.post('/api/auth/logout', async (req, res) => {
+    const { session } = await resolveActor(req, res);
+    if (session) {
+      await revokeAuthSession(session.sessionId);
+    }
+    res.clearCookie('kk_session', getSslSessionCookieOpts());
     res.clearCookie('kk_user', getCookieOpts());
     res.json({ ok: true });
+  });
+
+  // --- SSL Token Authentication Session Manager ---
+  app.get('/api/auth/sessions', async (req, res) => {
+    const { user, session } = await resolveActor(req, res);
+    if (!user) {
+      return res.status(401).json({ error: 'Sign in to manage active SSL token sessions.' });
+    }
+    const sessions = await listUserSessions(user._id);
+    res.json({
+      sessions: sessions.map((s) => toSessionSummary(s, session?.sessionId)),
+      currentSessionId: session?.sessionId || null,
+    });
+  });
+
+  app.post('/api/auth/sessions/rotate', async (req, res) => {
+    const { user, session } = await resolveActor(req, res);
+    if (!user) {
+      return res.status(401).json({ error: 'Authentication required to rotate session token.' });
+    }
+    if (session) {
+      await revokeAuthSession(session.sessionId, user._id);
+    }
+    const issued = await issueUserSession(req, res, user, session?.provider || 'google');
+    const sessions = await listUserSessions(user._id);
+    res.json({
+      accessToken: issued.accessToken,
+      csrfToken: issued.csrfToken,
+      sessionInfo: issued.sessionInfo,
+      sessions: sessions.map((s) => toSessionSummary(s, issued.record.sessionId)),
+    });
+  });
+
+  app.delete('/api/auth/sessions/:sessionId', async (req, res) => {
+    const { user, session } = await resolveActor(req, res);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const targetId = req.params.sessionId;
+    const revoked = await revokeAuthSession(targetId, user._id);
+    if (!revoked) return res.status(404).json({ error: 'Session not found' });
+    const loggedOutCurrent = session?.sessionId === targetId;
+    if (loggedOutCurrent) {
+      res.clearCookie('kk_session', getSslSessionCookieOpts());
+      res.clearCookie('kk_user', getCookieOpts());
+    }
+    res.json({ ok: true, loggedOutCurrent });
+  });
+
+  app.post('/api/auth/sessions/revoke-others', async (req, res) => {
+    const { user, session } = await resolveActor(req, res);
+    if (!user || !session) {
+      return res.status(401).json({ error: 'Active SSL session required' });
+    }
+    const revokedCount = await revokeOtherUserSessions(user._id, session.sessionId);
+    const sessions = await listUserSessions(user._id);
+    res.json({
+      revokedCount,
+      sessions: sessions.map((s) => toSessionSummary(s, session.sessionId)),
+    });
   });
 
   // Mandatory Checkout Gate: Save Mobile + Shipping Address
@@ -435,32 +590,35 @@ async function startServer() {
       return res.status(403).json({ error: 'Only platform Administrators can issue seller invitations.' });
     }
     const schema = z.object({
-      email: z.string().email('Valid seller email is required'),
+      email: z.string().email('Valid seller email is required').optional().or(z.literal('')),
       storeName: z.string().max(80).optional(),
       note: z.string().max(240).optional(),
       expiresInDays: z.number().int().min(1).max(90).optional(),
     });
-    const parsed = schema.safeParse(req.body);
+    const parsed = schema.safeParse(req.body || {});
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid invite details' });
     }
     const invite = await createSellerInvite({
       adminId: user._id,
       adminName: user.name,
-      email: parsed.data.email,
+      email: parsed.data.email || '',
       storeName: parsed.data.storeName,
       note: parsed.data.note,
       expiresInDays: parsed.data.expiresInDays,
     });
     const baseUrl = getAppBaseUrl(req);
     const inviteUrl = `${baseUrl}/?sellerInvite=${encodeURIComponent(invite.token)}`;
-    const subject = encodeURIComponent(
-      `Invitation to join Kala & Karat as a Seller${invite.storeName ? ` — ${invite.storeName}` : ''}`
-    );
-    const body = encodeURIComponent(
-      `Hello,\n\nYou have been invited by ${user.name} (Kala & Karat Admin) to onboard your atelier${invite.storeName ? ` (${invite.storeName})` : ''} on Kala & Karat.\n\nUse your private onboarding link below to complete WhatsApp verification and activate your Seller Hub:\n${inviteUrl}\n\n${invite.note ? `Admin note: ${invite.note}\n\n` : ''}This invitation expires on ${new Date(invite.expiresAt).toLocaleDateString('en-IN')}.`
-    );
-    const mailtoUrl = `mailto:${encodeURIComponent(invite.email)}?subject=${subject}&body=${body}`;
+    let mailtoUrl: string | undefined;
+    if (invite.email) {
+      const subject = encodeURIComponent(
+        `Invitation to join Kala & Karat as a Seller${invite.storeName ? ` — ${invite.storeName}` : ''}`
+      );
+      const body = encodeURIComponent(
+        `Hello,\n\nYou have been invited by ${user.name} (Kala & Karat Admin) to onboard your atelier${invite.storeName ? ` (${invite.storeName})` : ''} on Kala & Karat.\n\nUse your private one-time onboarding link below to complete verification and activate your Seller Hub:\n${inviteUrl}\n\n${invite.note ? `Admin note: ${invite.note}\n\n` : ''}This invitation expires on ${new Date(invite.expiresAt).toLocaleDateString('en-IN')}.`
+      );
+      mailtoUrl = `mailto:${encodeURIComponent(invite.email)}?subject=${subject}&body=${body}`;
+    }
     res.status(201).json({ invite: { ...invite, inviteUrl }, mailtoUrl });
   });
 
@@ -534,6 +692,7 @@ async function startServer() {
     const schema = z.object({
       inviteToken: z.string().min(6),
       name: z.string().min(2).max(80),
+      email: z.string().email().optional().or(z.literal('')),
       whatsappNumber: z.string().refine(isValidE164),
       otpCode: z.string().length(6),
       storeName: z.string().min(2).max(80),
@@ -553,22 +712,31 @@ async function startServer() {
       const result = await acceptSellerInvite({
         token: parsed.data.inviteToken,
         name: parsed.data.name,
+        email: parsed.data.email || undefined,
         whatsappNumber: parsed.data.whatsappNumber,
         storeName: parsed.data.storeName,
         description: parsed.data.description,
         actingUser: user,
       });
       await mergeGuestIntoUser(guestToken, result.user._id);
-      res.cookie('kk_user', signValue(result.user._id), getCookieOpts());
+      const issued = await issueUserSession(req, res, result.user, 'invite');
       const likedProductIds = await getLikedProductIds({ userId: result.user._id, guestToken });
       const cart = await loadCartForActor({ userId: result.user._id, guestToken });
-      res.json({ user: result.user, invite: result.invite, likedProductIds, cart });
+      res.json({
+        user: result.user,
+        invite: result.invite,
+        accessToken: issued.accessToken,
+        csrfToken: issued.csrfToken,
+        sessionInfo: issued.sessionInfo,
+        likedProductIds,
+        cart,
+      });
     } catch (err) {
       res.status(403).json({ error: (err as Error).message });
     }
   });
 
-  // --- Hybrid Search, Autocomplete & Strict limit(20) Catalog ---
+  // --- Hybrid Flexible Search, Autocomplete & Strict limit(20) Catalog ---
   app.get('/api/products/suggest', async (req, res) => {
     const q = String(req.query.q || '');
     const suggestions = await getSearchSuggestions(q);
@@ -576,17 +744,26 @@ async function startServer() {
   });
 
   app.get('/api/products', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    const allowDisabled =
+      req.query.includeDisabled === 'true' &&
+      Boolean(user && (user.role === 'SELLER' || user.role === 'ADMIN'));
     const result = await queryProducts({
       q: typeof req.query.q === 'string' ? req.query.q : undefined,
       category: (req.query.category as ProductCategory | 'All') || 'All',
       occasion: (req.query.occasion as OccasionType | 'All') || 'All',
+      season: (req.query.season as SeasonType | 'All') || 'All',
+      campaignId: typeof req.query.campaignId === 'string' ? req.query.campaignId : undefined,
       color: typeof req.query.color === 'string' ? req.query.color : undefined,
       minPrice: req.query.minPrice ? Number(req.query.minPrice) : undefined,
       maxPrice: req.query.maxPrice ? Number(req.query.maxPrice) : undefined,
+      minDiscount: req.query.minDiscount ? Number(req.query.minDiscount) : undefined,
+      inStockOnly: req.query.inStockOnly === 'true',
       sort: (req.query.sort as SortOption) || 'most_demanding',
       page: req.query.page ? Number(req.query.page) : 1,
       limit: 20, // Strictly 20 products per page
       sellerId: typeof req.query.sellerId === 'string' ? req.query.sellerId : undefined,
+      includeDisabled: allowDisabled,
     });
     res.json(result);
   });
@@ -607,6 +784,82 @@ async function startServer() {
     });
   });
 
+  // --- Categories & Seller Category Control Panel ---
+  app.get('/api/categories', async (_req, res) => {
+    const categories = await listCategories(false);
+    res.json({ categories });
+  });
+
+  app.get('/api/seller/categories', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const categories = await listCategories(true);
+    res.json({ categories });
+  });
+
+  app.post('/api/seller/categories', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const schema = z.object({
+      name: z.string().min(2, 'Category name is required').max(60),
+      description: z.string().max(180).optional().default(''),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid category name' });
+    }
+    try {
+      const category = await createCategoryControl({
+        sellerId: user._id,
+        sellerName: user.sellerProfile?.storeName || user.name,
+        name: parsed.data.name,
+        description: parsed.data.description,
+      });
+      res.status(201).json({ category });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.patch('/api/seller/categories/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const schema = z.object({
+      isEnabled: z.boolean().optional(),
+      name: z.string().min(2).max(60).optional(),
+      description: z.string().max(180).optional(),
+    });
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid category update' });
+    }
+    try {
+      const updated = await updateCategoryControl(req.params.id, parsed.data);
+      if (!updated) return res.status(404).json({ error: 'Category not found' });
+      res.json({ category: updated });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/seller/categories/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const result = await deleteCategoryControl(req.params.id);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || 'Could not delete category' });
+    }
+    res.json({ ok: true });
+  });
+
   // Seller Create Product
   app.post('/api/products', async (req, res) => {
     const { user } = await resolveActor(req, res);
@@ -620,7 +873,7 @@ async function startServer() {
     const schema = z.object({
       title: z.string().min(3).max(140),
       sku: z.string().min(2).max(40),
-      category: z.enum(['Artificial Jewellery', 'Clothing', 'Accessories']),
+      category: z.string().min(2).max(60),
       subCategory: z.string().min(2),
       description: z.string().min(10),
       careInstructions: z.string().default('Store dry in protective pouch.'),
@@ -640,6 +893,9 @@ async function startServer() {
       occasions: z
         .array(z.enum(['Wedding', 'Festive', 'Party', 'Office Wear', 'Casual', 'Daily Wear']))
         .min(1),
+      seasons: z
+        .array(z.enum(['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer']))
+        .optional(),
       variants: z
         .array(
           z.object({
@@ -683,6 +939,7 @@ async function startServer() {
 
     const created = await createProduct(user._id, {
       ...parsed.data,
+      seasons: parsed.data.seasons && parsed.data.seasons.length > 0 ? parsed.data.seasons : ['Diwali', 'New Year'],
       salePrice: Math.round(
         parsed.data.basePrice * (1 - (parsed.data.discountPercent || 0) / 100)
       ),
@@ -691,7 +948,7 @@ async function startServer() {
     res.status(201).json({ product: created });
   });
 
-  // Seller Dynamic Discount / Stock Update
+  // Seller Dynamic Discount / Stock / Seasons Update
   app.patch('/api/products/:id', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
@@ -703,6 +960,9 @@ async function startServer() {
       basePrice: z.number().positive().optional(),
       totalStock: z.number().int().min(0).optional(),
       title: z.string().min(3).optional(),
+      seasons: z
+        .array(z.enum(['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer']))
+        .optional(),
       images: z
         .array(
           z.object({
@@ -722,6 +982,188 @@ async function startServer() {
     const updated = await updateProductDiscountOrStock(req.params.id, user._id, parsed.data);
     if (!updated) return res.status(404).json({ error: 'Product not found or unauthorized' });
     res.json({ product: updated });
+  });
+
+  // --- Seasonal Sales Campaigns & Flash Sale Countdowns ---
+  app.get('/api/campaigns', async (_req, res) => {
+    const campaigns = await listStorefrontCampaigns();
+    res.json({ campaigns });
+  });
+
+  app.get('/api/seller/campaigns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller account required.' });
+    }
+    const campaigns = await listSellerCampaigns(user._id, user.role);
+    res.json({ campaigns });
+  });
+
+  app.post('/api/campaigns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller account required to launch campaigns.' });
+    }
+    const schema = z.object({
+      name: z.string().min(3).max(90),
+      season: z.enum(['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer']),
+      tagline: z.string().max(180).default('Seasonal curated markdowns.'),
+      discountPercent: z.number().min(0).max(85).default(20),
+      productIds: z.array(z.string()).min(1, 'Select at least one product for this campaign'),
+      startsAt: z.string().min(8),
+      endsAt: z.string().min(8),
+      isActive: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid campaign payload' });
+    }
+    if (new Date(parsed.data.endsAt).getTime() <= new Date(parsed.data.startsAt).getTime()) {
+      return res.status(400).json({ error: 'Campaign end time must be after start time.' });
+    }
+    const campaign = await createSalesCampaign({
+      sellerId: user._id,
+      sellerName: user.sellerProfile?.storeName || user.name,
+      ...parsed.data,
+    });
+    res.status(201).json({ campaign });
+  });
+
+  app.patch('/api/campaigns/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const schema = z.object({
+      name: z.string().min(3).max(90).optional(),
+      season: z.enum(['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer']).optional(),
+      tagline: z.string().max(180).optional(),
+      discountPercent: z.number().min(0).max(85).optional(),
+      productIds: z.array(z.string()).optional(),
+      startsAt: z.string().optional(),
+      endsAt: z.string().optional(),
+      isActive: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid campaign update' });
+    const updated = await updateSalesCampaign(req.params.id, user._id, user.role, parsed.data);
+    if (!updated) return res.status(404).json({ error: 'Campaign not found or unauthorized' });
+    res.json({ campaign: updated });
+  });
+
+  app.delete('/api/campaigns/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const ok = await deleteSalesCampaign(req.params.id, user._id, user.role);
+    if (!ok) return res.status(404).json({ error: 'Campaign not found or unauthorized' });
+    res.json({ ok: true });
+  });
+
+  // --- Seller Coupons (Checkout & Direct Product Level + User Assignment) ---
+  app.get('/api/coupons/applicable', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    const productId = typeof req.query.productId === 'string' ? req.query.productId : undefined;
+    const coupons = await listApplicableCoupons({ user, productId });
+    res.json({ coupons });
+  });
+
+  app.post('/api/coupons/validate', async (req, res) => {
+    const { guestToken, user } = await resolveActor(req, res);
+    const schema = z.object({
+      code: z.string().min(2),
+      items: z.array(z.any()).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ valid: false, reason: 'Enter a valid coupon code.', discountAmount: 0, eligibleSubtotal: 0, applicableProductIds: [] });
+    }
+    const cart = parsed.data.items && parsed.data.items.length > 0
+      ? (parsed.data.items as CartItem[])
+      : await loadCartForActor({ userId: user?._id || null, guestToken });
+    const result = await validateCouponForCart({
+      code: parsed.data.code,
+      user,
+      items: cart,
+    });
+    res.json(result);
+  });
+
+  app.get('/api/seller/coupons', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const coupons = await listSellerCoupons(user._id, user.role);
+    res.json({ coupons });
+  });
+
+  app.get('/api/seller/customers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const customers = await listKnownCustomers();
+    res.json({ customers });
+  });
+
+  app.post('/api/seller/coupons', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const schema = z.object({
+      code: z.string().min(3).max(24),
+      title: z.string().min(2).max(80),
+      discountType: z.enum(['percentage', 'flat']),
+      discountValue: z.number().positive(),
+      maxDiscountAmount: z.number().positive().optional(),
+      minOrderAmount: z.number().min(0).default(0),
+      scope: z.enum(['all_seller_products', 'selected_products']).default('all_seller_products'),
+      productIds: z.array(z.string()).default([]),
+      assignedUserIds: z.array(z.string()).default([]),
+      assignedEmails: z.array(z.string()).default([]),
+      usageLimit: z.number().int().min(1).optional(),
+      expiresAt: z.string().min(8),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid coupon configuration' });
+    }
+    if (parsed.data.scope === 'selected_products' && parsed.data.productIds.length === 0) {
+      return res.status(400).json({ error: 'Select at least one product when using product-specific coupon scope.' });
+    }
+    try {
+      const coupon = await createSellerCoupon({
+        sellerId: user._id,
+        sellerName: user.sellerProfile?.storeName || user.name,
+        ...parsed.data,
+      });
+      res.status(201).json({ coupon });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.patch('/api/seller/coupons/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const updated = await updateSellerCoupon(req.params.id, user._id, user.role, req.body || {});
+    if (!updated) return res.status(404).json({ error: 'Coupon not found or unauthorized' });
+    res.json({ coupon: updated });
+  });
+
+  app.delete('/api/seller/coupons/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Seller access required.' });
+    }
+    const ok = await deleteSellerCoupon(req.params.id, user._id, user.role);
+    if (!ok) return res.status(404).json({ error: 'Coupon not found or unauthorized' });
+    res.json({ ok: true });
   });
 
   // --- Sharp WebP (<120KB) + Cloudflare R2 / Local Media Upload ---
@@ -781,7 +1223,7 @@ async function startServer() {
           variantSku: z.string(),
           title: z.string(),
           slug: z.string(),
-          category: z.enum(['Artificial Jewellery', 'Clothing', 'Accessories']),
+          category: z.string().min(2).max(60),
           size: z.string(),
           colorName: z.string(),
           colorHex: z.string(),
@@ -881,7 +1323,13 @@ async function startServer() {
       return res.status(400).json({ error: 'Your shopping bag is empty.' });
     }
 
-    const createdOrders = await createOrder({ buyer: user, items: itemsToOrder });
+    const couponCode = typeof req.body?.couponCode === 'string' ? req.body.couponCode.trim() : undefined;
+    let createdOrders;
+    try {
+      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode });
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
 
     // Trigger automated WhatsApp alert to each seller
     for (const order of createdOrders) {

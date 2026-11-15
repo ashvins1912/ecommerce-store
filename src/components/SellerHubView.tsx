@@ -9,10 +9,15 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  Calendar,
   Check,
   CheckCircle2,
   Copy,
   ExternalLink,
+  Eye,
+  EyeOff,
+  Flame,
+  FolderCog,
   Image as ImageIcon,
   Link2,
   Lock,
@@ -20,12 +25,19 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  Tag,
+  Trash2,
   Truck,
   Upload,
+  Users,
   X,
 } from 'lucide-react';
 import type {
   CartItem,
+  CategoryControl,
+  Coupon,
+  CouponDiscountType,
+  CouponScope,
   OccasionType,
   Order,
   OrderListResponse,
@@ -35,12 +47,14 @@ import type {
   ProductCategory,
   ProductListResponse,
   ReviewClass,
+  SeasonType,
   SellerAnalyticsResponse,
   SellerInvite,
+  StorefrontCampaign,
   TimeGranularity,
   User,
 } from '../shared/types';
-import { apiFetch, compressAndUploadImage, formatINR } from '../lib/api';
+import { apiFetch, compressAndUploadImage, formatINR, setClientSessionTokens } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
 const OCCASIONS: OccasionType[] = [
@@ -52,6 +66,8 @@ const OCCASIONS: OccasionType[] = [
   'Daily Wear',
 ];
 
+const SEASONS: SeasonType[] = ['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer'];
+
 const REVIEW_CLASSES: ReviewClass[] = [
   'Quality',
   'Finish & Shine',
@@ -60,7 +76,14 @@ const REVIEW_CLASSES: ReviewClass[] = [
   'Packaging',
 ];
 
-type SellerTab = 'invites' | 'analytics' | 'catalog' | 'orders';
+type SellerTab =
+  | 'invites'
+  | 'analytics'
+  | 'catalog'
+  | 'categories'
+  | 'campaigns'
+  | 'coupons'
+  | 'orders';
 
 interface AdminInviteRow extends SellerInvite {
   inviteUrl: string;
@@ -69,6 +92,7 @@ interface AdminInviteRow extends SellerInvite {
 interface ValidatedInviteInfo {
   _id: string;
   email: string;
+  hasEmail?: boolean;
   storeName?: string;
   note?: string;
   invitedByName: string;
@@ -101,7 +125,7 @@ export function SellerHubView({
   onInviteConsumed,
   onReturnToStore,
 }: SellerHubViewProps) {
-  const { t, tc, to, tr, ts, totab, locale } = useI18n();
+  const { t, tc, to, tseason, tr, ts, totab, locale } = useI18n();
   const isAdmin = user?.role === 'ADMIN';
   const [sellerTab, setSellerTab] = useState<SellerTab>(isAdmin ? 'invites' : 'analytics');
 
@@ -118,6 +142,7 @@ export function SellerHubView({
   const [validatedInvite, setValidatedInvite] = useState<ValidatedInviteInfo | null>(null);
   const [inviteInvalid, setInviteInvalid] = useState(false);
   const [sellerFullName, setSellerFullName] = useState('');
+  const [joinEmail, setJoinEmail] = useState('');
   const [waNumber, setWaNumber] = useState('+91');
   const [storeName, setStoreName] = useState('');
   const [storeDesc, setStoreDesc] = useState('');
@@ -137,7 +162,7 @@ export function SellerHubView({
   const [inviteCreateError, setInviteCreateError] = useState<string | null>(null);
   const [latestCreatedInvite, setLatestCreatedInvite] = useState<{
     invite: AdminInviteRow;
-    mailtoUrl: string;
+    mailtoUrl?: string;
   } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -154,6 +179,50 @@ export function SellerHubView({
   >({});
   const [savingProdId, setSavingProdId] = useState<string | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
+
+  // Seller Category Control Panel state
+  const [categories, setCategories] = useState<CategoryControl[]>([]);
+  const [catName, setCatName] = useState('');
+  const [catDesc, setCatDesc] = useState('');
+  const [catBusy, setCatBusy] = useState(false);
+  const [catError, setCatError] = useState<string | null>(null);
+  const [togglingCatId, setTogglingCatId] = useState<string | null>(null);
+
+  // Seller Seasonal Campaigns state
+  const [sellerCampaigns, setSellerCampaigns] = useState<StorefrontCampaign[]>([]);
+  const [cmpName, setCmpName] = useState('');
+  const [cmpSeason, setCmpSeason] = useState<SeasonType>('Diwali');
+  const [cmpTagline, setCmpTagline] = useState('');
+  const [cmpDiscount, setCmpDiscount] = useState(25);
+  const [cmpStartsAt, setCmpStartsAt] = useState(() =>
+    new Date(Date.now() + 3600_000).toISOString().slice(0, 16)
+  );
+  const [cmpEndsAt, setCmpEndsAt] = useState(() =>
+    new Date(Date.now() + 72 * 3600_000).toISOString().slice(0, 16)
+  );
+  const [cmpProductIds, setCmpProductIds] = useState<string[]>([]);
+  const [cmpBusy, setCmpBusy] = useState(false);
+  const [cmpError, setCmpError] = useState<string | null>(null);
+
+  // Seller Coupons state
+  const [sellerCoupons, setSellerCoupons] = useState<Coupon[]>([]);
+  const [knownCustomers, setKnownCustomers] = useState<
+    Array<{ _id: string; name: string; email: string }>
+  >([]);
+  const [cpnCode, setCpnCode] = useState('');
+  const [cpnTitle, setCpnTitle] = useState('');
+  const [cpnType, setCpnType] = useState<CouponDiscountType>('percentage');
+  const [cpnValue, setCpnValue] = useState(15);
+  const [cpnMinOrder, setCpnMinOrder] = useState(999);
+  const [cpnMaxCap, setCpnMaxCap] = useState<string>('1200');
+  const [cpnScope, setCpnScope] = useState<CouponScope>('all_seller_products');
+  const [cpnProductIds, setCpnProductIds] = useState<string[]>([]);
+  const [cpnAssignedUserIds, setCpnAssignedUserIds] = useState<string[]>([]);
+  const [cpnExtraEmails, setCpnExtraEmails] = useState('');
+  const [cpnUsageLimit, setCpnUsageLimit] = useState(100);
+  const [cpnExpiresDays, setCpnExpiresDays] = useState(30);
+  const [cpnBusy, setCpnBusy] = useState(false);
+  const [cpnError, setCpnError] = useState<string | null>(null);
 
   // Seller Orders state (limit 5)
   const [orderTab, setOrderTab] = useState<OrderTab>('Current');
@@ -175,6 +244,7 @@ export function SellerHubView({
   const [newDiscount, setNewDiscount] = useState(15);
   const [newStock, setNewStock] = useState(25);
   const [newOccasions, setNewOccasions] = useState<OccasionType[]>(['Festive', 'Wedding']);
+  const [newSeasons, setNewSeasons] = useState<SeasonType[]>(['Diwali']);
   const [newColorName, setNewColorName] = useState('Antique Gold');
   const [newColorHex, setNewColorHex] = useState('#A16207');
   const [newSizes, setNewSizes] = useState('Free Size');
@@ -222,6 +292,7 @@ export function SellerHubView({
         if (res.valid && res.invite) {
           setValidatedInvite(res.invite);
           setStoreName(res.invite.storeName || '');
+          setJoinEmail(res.invite.email || user?.email || '');
           setSellerFullName(user?.name || '');
         } else {
           setValidatedInvite(null);
@@ -239,7 +310,7 @@ export function SellerHubView({
     return () => {
       active = false;
     };
-  }, [inviteToken, isVerifiedSellerOrAdmin, user?.name]);
+  }, [inviteToken, isVerifiedSellerOrAdmin, user?.name, user?.email]);
 
   const loadAdminInvites = useCallback(async () => {
     if (!isAdmin) return;
@@ -264,6 +335,7 @@ export function SellerHubView({
     const params = new URLSearchParams({
       sort: 'newly_added',
       page: '1',
+      includeDisabled: 'true',
       ...(user.role === 'SELLER' ? { sellerId: user._id } : {}),
       ...(catalogSearch.trim() ? { q: catalogSearch.trim() } : {}),
     });
@@ -275,6 +347,42 @@ export function SellerHubView({
     }
     setDiscountEdits(edits);
   }, [isVerifiedSellerOrAdmin, user, catalogSearch]);
+
+  const loadSellerCategories = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const data = await apiFetch<{ categories: CategoryControl[] }>('/api/seller/categories');
+      setCategories(data.categories || []);
+    } catch {
+      // Ignore
+    }
+  }, [isVerifiedSellerOrAdmin]);
+
+  const loadSellerCampaigns = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const data = await apiFetch<{ campaigns: StorefrontCampaign[] }>('/api/seller/campaigns');
+      setSellerCampaigns(data.campaigns || []);
+    } catch {
+      // Ignore
+    }
+  }, [isVerifiedSellerOrAdmin]);
+
+  const loadSellerCoupons = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const [cpnRes, custRes] = await Promise.all([
+        apiFetch<{ coupons: Coupon[] }>('/api/seller/coupons'),
+        apiFetch<{ customers: Array<{ _id: string; name: string; email: string }> }>(
+          '/api/seller/customers'
+        ),
+      ]);
+      setSellerCoupons(cpnRes.coupons || []);
+      setKnownCustomers(custRes.customers || []);
+    } catch {
+      // Ignore
+    }
+  }, [isVerifiedSellerOrAdmin]);
 
   const loadSellerOrders = useCallback(
     async (tab: OrderTab, skipVal: number, append: boolean) => {
@@ -293,20 +401,37 @@ export function SellerHubView({
     if (isVerifiedSellerOrAdmin) {
       loadAnalytics();
       loadSellerCatalog();
+      loadSellerCategories();
     }
-  }, [isVerifiedSellerOrAdmin, loadAnalytics, loadSellerCatalog]);
+  }, [isVerifiedSellerOrAdmin, loadAnalytics, loadSellerCatalog, loadSellerCategories]);
 
   useEffect(() => {
     if (isAdmin && sellerTab === 'invites') {
       loadAdminInvites();
     }
-  }, [isAdmin, sellerTab, loadAdminInvites]);
-
-  useEffect(() => {
+    if (isVerifiedSellerOrAdmin && sellerTab === 'categories') {
+      loadSellerCategories();
+    }
+    if (isVerifiedSellerOrAdmin && sellerTab === 'campaigns') {
+      loadSellerCampaigns();
+    }
+    if (isVerifiedSellerOrAdmin && sellerTab === 'coupons') {
+      loadSellerCoupons();
+    }
     if (isVerifiedSellerOrAdmin && sellerTab === 'orders') {
       loadSellerOrders(orderTab, 0, false);
     }
-  }, [isVerifiedSellerOrAdmin, sellerTab, orderTab, loadSellerOrders]);
+  }, [
+    isAdmin,
+    isVerifiedSellerOrAdmin,
+    sellerTab,
+    orderTab,
+    loadAdminInvites,
+    loadSellerCategories,
+    loadSellerCampaigns,
+    loadSellerCoupons,
+    loadSellerOrders,
+  ]);
 
   // --- Invite Link Redemption Screen (ONLY when opened with ?sellerInvite=<token>) ---
   if (!isVerifiedSellerOrAdmin && inviteToken) {
@@ -377,6 +502,8 @@ export function SellerHubView({
       try {
         const res = await apiFetch<{
           user: User;
+          accessToken?: string;
+          csrfToken?: string;
           likedProductIds: string[];
           cart: CartItem[];
         }>('/api/seller/invites/accept', {
@@ -384,12 +511,16 @@ export function SellerHubView({
           body: JSON.stringify({
             inviteToken,
             name: sellerFullName.trim(),
+            email: (validatedInvite.email || joinEmail).trim(),
             whatsappNumber: waNumber.trim(),
             otpCode: otpCode.trim(),
             storeName: storeName.trim(),
             description: storeDesc.trim() || 'Handcrafted jewellery and apparel atelier.',
           }),
         });
+        if (res.accessToken) {
+          setClientSessionTokens(res.accessToken, res.csrfToken);
+        }
         onUserUpdated(res.user);
         onAuthSynced?.({
           user: res.user,
@@ -409,16 +540,18 @@ export function SellerHubView({
         <div className="rounded-lg border border-[#E8E6E1] bg-white p-8 space-y-5">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-wider text-[#881337]">
-              {t('seller.invitedTitle')}
+              {t('seller.joinTitle')}
             </div>
             <h1 className="mt-1 font-display text-3xl font-semibold text-[#141413]">
-              {validatedInvite.storeName || validatedInvite.email}
+              {validatedInvite.storeName || validatedInvite.email || t('seller.joinTitle')}
             </h1>
             <p className="mt-1 text-xs leading-relaxed text-[#6B6A65]">
-              {t('seller.invitedSub', {
-                admin: validatedInvite.invitedByName,
-                email: validatedInvite.email,
-              })}
+              {validatedInvite.hasEmail
+                ? t('seller.invitedSub', {
+                    admin: validatedInvite.invitedByName,
+                    email: validatedInvite.email,
+                  })
+                : t('seller.joinSub')}
             </p>
             {validatedInvite.note && (
               <div className="mt-3 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] px-3 py-2 text-xs text-[#44403C]">
@@ -435,6 +568,21 @@ export function SellerHubView({
 
           {!otpSent ? (
             <form onSubmit={handleRequestInviteOtp} className="space-y-4">
+              {!validatedInvite.hasEmail && (
+                <div>
+                  <label className="block text-xs font-medium text-[#44403C] mb-1">
+                    {t('seller.joinWorkEmail')}
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="founder@youratelier.in"
+                    value={joinEmail}
+                    onChange={(e) => setJoinEmail(e.target.value)}
+                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-[#44403C] mb-1">
                   {t('seller.invitedYourName')}
@@ -597,12 +745,12 @@ export function SellerHubView({
     setInviteCreateError(null);
     setCreatingInvite(true);
     try {
-      const res = await apiFetch<{ invite: AdminInviteRow; mailtoUrl: string }>(
+      const res = await apiFetch<{ invite: AdminInviteRow; mailtoUrl?: string }>(
         '/api/admin/seller-invites',
         {
           method: 'POST',
           body: JSON.stringify({
-            email: inviteEmail.trim(),
+            email: inviteEmail.trim() || undefined,
             storeName: inviteStoreName.trim() || undefined,
             note: inviteNote.trim() || undefined,
             expiresInDays: inviteDays,
@@ -643,7 +791,185 @@ export function SellerHubView({
     const body = encodeURIComponent(
       `Hello,\n\nYou have been invited by ${inv.invitedByName} (Kala & Karat Admin) to onboard your atelier${inv.storeName ? ` (${inv.storeName})` : ''} on Kala & Karat.\n\nOpen your private onboarding link:\n${inv.inviteUrl}\n\n${inv.note ? `Admin note: ${inv.note}\n\n` : ''}Expires: ${new Date(inv.expiresAt).toLocaleDateString('en-IN')}`
     );
-    return `mailto:${encodeURIComponent(inv.email)}?subject=${subject}&body=${body}`;
+    return `mailto:${encodeURIComponent(inv.email || '')}?subject=${subject}&body=${body}`;
+  };
+
+  // --- Category Control Panel Handlers ---
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCatError(null);
+    setCatBusy(true);
+    try {
+      await apiFetch('/api/seller/categories', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: catName.trim(),
+          description: catDesc.trim(),
+        }),
+      });
+      setCatName('');
+      setCatDesc('');
+      await loadSellerCategories();
+      onCatalogMutated();
+    } catch (err) {
+      setCatError((err as Error).message);
+    } finally {
+      setCatBusy(false);
+    }
+  };
+
+  const handleToggleCategoryStatus = async (cat: CategoryControl) => {
+    setCatError(null);
+    setTogglingCatId(cat._id);
+    try {
+      await apiFetch(`/api/seller/categories/${cat._id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isEnabled: !cat.isEnabled }),
+      });
+      await loadSellerCategories();
+      onCatalogMutated();
+    } catch (err) {
+      setCatError((err as Error).message);
+    } finally {
+      setTogglingCatId(null);
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    setCatError(null);
+    try {
+      await apiFetch(`/api/seller/categories/${categoryId}`, { method: 'DELETE' });
+      await loadSellerCategories();
+      onCatalogMutated();
+    } catch (err) {
+      setCatError((err as Error).message);
+    }
+  };
+
+  // --- Seasonal Campaigns Handlers ---
+  const applyCampaignPreset = (preset: 'live_now' | 'in_2h' | 'tomorrow') => {
+    const now = Date.now();
+    if (preset === 'live_now') {
+      setCmpStartsAt(new Date(now - 600_000).toISOString().slice(0, 16));
+      setCmpEndsAt(new Date(now + 48 * 3600_000).toISOString().slice(0, 16));
+    } else if (preset === 'in_2h') {
+      setCmpStartsAt(new Date(now + 2 * 3600_000).toISOString().slice(0, 16));
+      setCmpEndsAt(new Date(now + 74 * 3600_000).toISOString().slice(0, 16));
+    } else {
+      setCmpStartsAt(new Date(now + 24 * 3600_000).toISOString().slice(0, 16));
+      setCmpEndsAt(new Date(now + 96 * 3600_000).toISOString().slice(0, 16));
+    }
+  };
+
+  const handleCreateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCmpError(null);
+    if (cmpProductIds.length === 0) {
+      setCmpError('Select at least one product for this seasonal campaign.');
+      return;
+    }
+    setCmpBusy(true);
+    try {
+      await apiFetch('/api/campaigns', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: cmpName.trim(),
+          season: cmpSeason,
+          tagline: cmpTagline.trim() || `${cmpSeason} curated flash drop.`,
+          discountPercent: Number(cmpDiscount),
+          productIds: cmpProductIds,
+          startsAt: new Date(cmpStartsAt).toISOString(),
+          endsAt: new Date(cmpEndsAt).toISOString(),
+          isActive: true,
+        }),
+      });
+      setCmpName('');
+      setCmpTagline('');
+      setCmpProductIds([]);
+      await loadSellerCampaigns();
+      await loadSellerCatalog();
+      onCatalogMutated();
+    } catch (err) {
+      setCmpError((err as Error).message);
+    } finally {
+      setCmpBusy(false);
+    }
+  };
+
+  const handleToggleCampaignActive = async (cmp: StorefrontCampaign) => {
+    await apiFetch(`/api/campaigns/${cmp._id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive: !cmp.isActive }),
+    });
+    await loadSellerCampaigns();
+    onCatalogMutated();
+  };
+
+  const handleDeleteCampaign = async (id: string) => {
+    await apiFetch(`/api/campaigns/${id}`, { method: 'DELETE' });
+    await loadSellerCampaigns();
+    onCatalogMutated();
+  };
+
+  // --- Coupons Handlers ---
+  const handleCreateCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCpnError(null);
+    if (cpnScope === 'selected_products' && cpnProductIds.length === 0) {
+      setCpnError('Select at least one product for product-specific coupon scope.');
+      return;
+    }
+    setCpnBusy(true);
+    try {
+      const extraEmails = cpnExtraEmails
+        .split(',')
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean);
+      const expiresAt = new Date(Date.now() + Math.max(1, cpnExpiresDays) * 86400_000).toISOString();
+      await apiFetch('/api/seller/coupons', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: cpnCode.trim().toUpperCase(),
+          title: cpnTitle.trim() || `${cpnCode.trim().toUpperCase()} Offer`,
+          discountType: cpnType,
+          discountValue: Number(cpnValue),
+          maxDiscountAmount: cpnMaxCap ? Number(cpnMaxCap) : undefined,
+          minOrderAmount: Number(cpnMinOrder) || 0,
+          scope: cpnScope,
+          productIds: cpnScope === 'selected_products' ? cpnProductIds : [],
+          assignedUserIds: cpnAssignedUserIds,
+          assignedEmails: extraEmails,
+          usageLimit: Number(cpnUsageLimit) || 100,
+          expiresAt,
+        }),
+      });
+      setCpnCode('');
+      setCpnTitle('');
+      setCpnProductIds([]);
+      setCpnAssignedUserIds([]);
+      setCpnExtraEmails('');
+      await loadSellerCoupons();
+      onCatalogMutated();
+    } catch (err) {
+      setCpnError((err as Error).message);
+    } finally {
+      setCpnBusy(false);
+    }
+  };
+
+  const handleToggleCouponActive = async (cpn: Coupon) => {
+    await apiFetch(`/api/seller/coupons/${cpn._id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive: !cpn.isActive }),
+    });
+    await loadSellerCoupons();
+    onCatalogMutated();
+  };
+
+  const handleDeleteCoupon = async (id: string) => {
+    await apiFetch(`/api/seller/coupons/${id}`, { method: 'DELETE' });
+    await loadSellerCoupons();
+    onCatalogMutated();
   };
 
   // --- Seller Catalog & Order Handlers ---
@@ -756,6 +1082,7 @@ export function SellerHubView({
           totalStock: Number(newStock),
           images: imgs,
           occasions: newOccasions,
+          seasons: newSeasons,
           variants: (sizeList.length > 0 ? sizeList : ['Free Size']).map((sz, i) => ({
             variantSku: `${newSku}-${i + 1}`,
             size: sz,
@@ -835,6 +1162,9 @@ export function SellerHubView({
     ...(isAdmin ? [{ id: 'invites' as const, label: t('admin.invitesTab') }] : []),
     { id: 'analytics', label: t('seller.tabAnalytics') },
     { id: 'catalog', label: t('seller.tabCatalog') },
+    { id: 'categories', label: t('seller.tabCategories') },
+    { id: 'campaigns', label: t('seller.tabCampaigns') },
+    { id: 'coupons', label: t('seller.tabCoupons') },
     { id: 'orders', label: t('seller.tabOrders') },
   ];
 
@@ -937,12 +1267,11 @@ export function SellerHubView({
             <form onSubmit={handleCreateAdminInvite} className="space-y-3.5 text-xs">
               <div>
                 <label className="block font-medium text-[#44403C] mb-1">
-                  {t('admin.inviteEmail')}
+                  {t('admin.inviteEmailOptional')}
                 </label>
                 <input
                   type="email"
-                  required
-                  placeholder="artisan@atelier.in"
+                  placeholder="artisan@atelier.in (optional)"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
@@ -996,7 +1325,7 @@ export function SellerHubView({
               >
                 <Link2 className="h-3.5 w-3.5" />
                 <span>
-                  {creatingInvite ? t('admin.creatingInvite') : t('admin.createInviteCta')}
+                  {creatingInvite ? t('admin.creatingInvite') : t('admin.generateInviteCta')}
                 </span>
               </button>
             </form>
@@ -1004,7 +1333,9 @@ export function SellerHubView({
             {latestCreatedInvite && (
               <div className="rounded-md border border-emerald-200 bg-emerald-50/70 p-4 space-y-3 text-xs">
                 <div className="font-semibold text-emerald-900">
-                  {t('admin.inviteReadyNotice', { email: latestCreatedInvite.invite.email })}
+                  {t('admin.inviteReadyNotice', {
+                    email: latestCreatedInvite.invite.email || t('admin.openInviteLabel'),
+                  })}
                 </div>
                 <div className="rounded border border-emerald-200 bg-white px-2.5 py-2 font-mono text-[11px] text-[#141413] break-all">
                   {latestCreatedInvite.invite.inviteUrl}
@@ -1031,13 +1362,15 @@ export function SellerHubView({
                         : t('admin.copyLink')}
                     </span>
                   </button>
-                  <a
-                    href={latestCreatedInvite.mailtoUrl}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-[#141413] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#292524]"
-                  >
-                    <Mail className="h-3.5 w-3.5" />
-                    <span>{t('admin.sendEmail')}</span>
-                  </a>
+                  {latestCreatedInvite.mailtoUrl && (
+                    <a
+                      href={latestCreatedInvite.mailtoUrl}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-[#141413] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#292524]"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                      <span>{t('admin.sendEmail')}</span>
+                    </a>
+                  )}
                 </div>
               </div>
             )}
@@ -1065,7 +1398,9 @@ export function SellerHubView({
                 ) : (
                   adminInvites.map((inv) => (
                     <tr key={inv._id} className="hover:bg-[#FAF9F6]">
-                      <td className="px-4 py-3 font-medium text-[#141413]">{inv.email}</td>
+                      <td className="px-4 py-3 font-medium text-[#141413]">
+                        {inv.email || t('admin.openInviteLabel')}
+                      </td>
                       <td className="px-4 py-3 text-[#57534E]">{inv.storeName || '—'}</td>
                       <td className="px-4 py-3">
                         <span
@@ -1109,13 +1444,15 @@ export function SellerHubView({
                                 {copiedId === inv._id ? t('admin.copiedLink') : t('admin.copyLink')}
                               </span>
                             </button>
-                            <a
-                              href={buildMailtoForInvite(inv)}
-                              className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] px-2 py-1 text-[11px] font-medium text-[#141413] hover:border-[#881337]"
-                            >
-                              <Mail className="h-3 w-3" />
-                              <span>{t('admin.sendEmail')}</span>
-                            </a>
+                            {inv.email && (
+                              <a
+                                href={buildMailtoForInvite(inv)}
+                                className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] px-2 py-1 text-[11px] font-medium text-[#141413] hover:border-[#881337]"
+                              >
+                                <Mail className="h-3 w-3" />
+                                <span>{t('admin.sendEmail')}</span>
+                              </a>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleRevokeInvite(inv._id)}
@@ -1472,6 +1809,707 @@ export function SellerHubView({
         </div>
       )}
 
+      {/* TAB 2B: CATEGORY CONTROL PANEL (ADD / ENABLE / DISABLE) */}
+      {sellerTab === 'categories' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-5 rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+            <div className="flex items-start gap-2.5">
+              <FolderCog className="h-5 w-5 text-[#881337] shrink-0 mt-0.5" />
+              <div>
+                <h2 className="font-display text-2xl font-semibold text-[#141413]">
+                  {t('seller.catAddTitle')}
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-[#6B6A65]">
+                  {t('seller.catSub')}
+                </p>
+              </div>
+            </div>
+
+            {catError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                {catError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCategory} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1">
+                  {t('seller.catName')}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={t('seller.catNamePlaceholder')}
+                  value={catName}
+                  onChange={(e) => setCatName(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1">
+                  {t('seller.catDesc')}
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder={t('seller.catDescPlaceholder')}
+                  value={catDesc}
+                  onChange={(e) => setCatDesc(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] p-2.5 text-xs focus:border-[#881337] focus:outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={catBusy}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>{catBusy ? t('seller.catAdding') : t('seller.catAddBtn')}</span>
+              </button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-7 space-y-3">
+            <div className="rounded-lg border border-[#E8E6E1] bg-white p-5 space-y-3">
+              <h3 className="font-display text-xl font-semibold text-[#141413]">
+                {t('seller.catTitle')}
+              </h3>
+              {categories.length === 0 ? (
+                <p className="text-xs text-[#6B6A65]">{t('seller.catEmpty')}</p>
+              ) : (
+                <div className="divide-y divide-[#F0EEE9]">
+                  {categories.map((cat) => (
+                    <div
+                      key={cat._id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3.5"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[#141413]">
+                            {tc(cat.name)}
+                          </span>
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                              cat.isEnabled
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                : 'bg-stone-100 text-[#6B6A65] border border-[#D6D3CD]'
+                            }`}
+                          >
+                            {cat.isEnabled ? t('seller.catEnabled') : t('seller.catDisabled')}
+                          </span>
+                          {cat.isDefault && (
+                            <span className="rounded-md bg-[#FAF9F6] border border-[#E8E6E1] px-2 py-0.5 text-[10px] font-medium text-[#57534E]">
+                              {t('seller.catDefaultBadge')}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-[#6B6A65] tabular-nums">
+                            · {t('seller.catProductsCount', { count: cat.productCount ?? 0 })}
+                          </span>
+                        </div>
+                        {cat.description && (
+                          <p className="text-xs text-[#6B6A65]">{cat.description}</p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          disabled={togglingCatId === cat._id}
+                          onClick={() => handleToggleCategoryStatus(cat)}
+                          className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
+                            cat.isEnabled
+                              ? 'border-[#D6D3CD] bg-white text-[#44403C] hover:border-[#881337] hover:text-[#881337]'
+                              : 'border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800'
+                          }`}
+                        >
+                          {cat.isEnabled ? (
+                            <>
+                              <EyeOff className="h-3.5 w-3.5" />
+                              <span>{t('seller.catDisableBtn')}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-3.5 w-3.5" />
+                              <span>{t('seller.catEnableBtn')}</span>
+                            </>
+                          )}
+                        </button>
+                        {!cat.isDefault && (cat.productCount || 0) === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(cat._id)}
+                            aria-label={t('seller.catDeleteBtn')}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>{t('seller.catDeleteBtn')}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2C: SEASONAL SALES CAMPAIGNS & FLASH COUNTDOWN CARDS */}
+      {sellerTab === 'campaigns' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-5 rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+            <div className="flex items-start gap-2.5">
+              <Flame className="h-5 w-5 text-[#881337] shrink-0 mt-0.5" />
+              <div>
+                <h2 className="font-display text-2xl font-semibold text-[#141413]">
+                  {t('seller.campaignCreateTitle')}
+                </h2>
+                <p className="mt-0.5 text-xs text-[#6B6A65]">{t('flash.sub')}</p>
+              </div>
+            </div>
+
+            {cmpError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                {cmpError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCampaign} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1">
+                  {t('seller.campaignName')}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Diwali Sparkle Flash Sale"
+                  value={cmpName}
+                  onChange={(e) => setCmpName(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('seller.campaignSeason')}
+                  </label>
+                  <select
+                    value={cmpSeason}
+                    onChange={(e) => setCmpSeason(e.target.value as SeasonType)}
+                    className="w-full rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 text-xs"
+                  >
+                    {SEASONS.map((s) => (
+                      <option key={s} value={s}>
+                        {tseason(s)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('seller.campaignDiscount')}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={85}
+                    value={cmpDiscount}
+                    onChange={(e) => setCmpDiscount(Number(e.target.value))}
+                    className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1">
+                  {t('seller.campaignTagline')}
+                </label>
+                <input
+                  type="text"
+                  placeholder="Heirloom kundan drops for festive nights."
+                  value={cmpTagline}
+                  onChange={(e) => setCmpTagline(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-medium text-[#44403C]">
+                    {t('seller.campaignSchedule')}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => applyCampaignPreset('live_now')}
+                      className="rounded border border-[#D6D3CD] px-2 py-0.5 text-[10px] hover:border-[#881337] cursor-pointer"
+                    >
+                      {t('flash.liveNow')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyCampaignPreset('in_2h')}
+                      className="rounded border border-[#D6D3CD] px-2 py-0.5 text-[10px] hover:border-[#881337] cursor-pointer"
+                    >
+                      +2h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyCampaignPreset('tomorrow')}
+                      className="rounded border border-[#D6D3CD] px-2 py-0.5 text-[10px] hover:border-[#881337] cursor-pointer"
+                    >
+                      +24h
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-[#6B6A65] mb-0.5">
+                      {t('seller.campaignStart')}
+                    </label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={cmpStartsAt}
+                      onChange={(e) => setCmpStartsAt(e.target.value)}
+                      className="w-full rounded border border-[#D6D3CD] px-2 py-1.5 text-[11px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#6B6A65] mb-0.5">
+                      {t('seller.campaignEnd')}
+                    </label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={cmpEndsAt}
+                      onChange={(e) => setCmpEndsAt(e.target.value)}
+                      className="w-full rounded border border-[#D6D3CD] px-2 py-1.5 text-[11px]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1.5">
+                  {t('seller.campaignSelectProducts')} ({cmpProductIds.length})
+                </label>
+                <div className="max-h-44 overflow-y-auto rounded-md border border-[#E8E6E1] divide-y divide-[#F0EEE9]">
+                  {sellerProducts.map((p) => {
+                    const checked = cmpProductIds.includes(p._id);
+                    return (
+                      <label
+                        key={p._id}
+                        className="flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-[#FAF9F6] cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setCmpProductIds((prev) =>
+                              checked ? prev.filter((id) => id !== p._id) : [...prev, p._id]
+                            )
+                          }
+                        />
+                        <span className="truncate flex-1 font-medium text-[#141413]">{p.title}</span>
+                        <span className="text-[11px] text-[#6B6A65] tabular-nums shrink-0">
+                          {formatINR(p.salePrice)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={cmpBusy}
+                className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
+              >
+                {cmpBusy ? t('seller.saving') : t('seller.campaignLaunchBtn')}
+              </button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-7 space-y-3">
+            {sellerCampaigns.map((cmp) => (
+              <div
+                key={cmp._id}
+                className="rounded-lg border border-[#E8E6E1] bg-white p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              >
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-[#881337]/10 px-2 py-0.5 text-[10px] font-semibold text-[#881337]">
+                      {tseason(cmp.season)}
+                    </span>
+                    <span
+                      className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                        cmp.phase === 'live'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : cmp.phase === 'upcoming'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-stone-100 text-[#6B6A65]'
+                      }`}
+                    >
+                      {cmp.phase === 'live'
+                        ? t('flash.liveNow')
+                        : cmp.phase === 'upcoming'
+                          ? t('flash.startingSoon')
+                          : 'Ended'}
+                    </span>
+                    <span className="text-xs font-semibold text-[#A16207] tabular-nums">
+                      {t('flash.upToOff', { percent: cmp.discountPercent })}
+                    </span>
+                  </div>
+                  <div className="font-display text-xl font-semibold text-[#141413]">
+                    {cmp.name}
+                  </div>
+                  <p className="text-xs text-[#6B6A65]">{cmp.tagline}</p>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#57534E] pt-1">
+                    <span className="inline-flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(cmp.startsAt).toLocaleString()} →{' '}
+                      {new Date(cmp.endsAt).toLocaleString()}
+                    </span>
+                    <span className="tabular-nums font-medium">
+                      {t('flash.itemsCount', { count: cmp.productIds.length })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleCampaignActive(cmp)}
+                    className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs font-medium hover:border-[#141413] cursor-pointer"
+                  >
+                    {cmp.isActive ? t('seller.catDisableBtn') : t('seller.catEnableBtn')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCampaign(cmp._id)}
+                    aria-label={t('seller.catDeleteBtn')}
+                    className="rounded border border-red-200 p-1.5 text-red-700 hover:bg-red-50 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2D: SELLER COUPONS (CHECKOUT + PRODUCT LEVEL + USER ASSIGNMENT) */}
+      {sellerTab === 'coupons' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-5 rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+            <div className="flex items-start gap-2.5">
+              <Tag className="h-5 w-5 text-[#881337] shrink-0 mt-0.5" />
+              <div>
+                <h2 className="font-display text-2xl font-semibold text-[#141413]">
+                  {t('seller.couponCreateTitle')}
+                </h2>
+              </div>
+            </div>
+
+            {cpnError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                {cpnError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCoupon} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('seller.couponCode')}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="FESTIVE20"
+                    value={cpnCode}
+                    onChange={(e) => setCpnCode(e.target.value.toUpperCase())}
+                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-mono uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('seller.couponType')}
+                  </label>
+                  <select
+                    value={cpnType}
+                    onChange={(e) => setCpnType(e.target.value as CouponDiscountType)}
+                    className="w-full rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 text-xs"
+                  >
+                    <option value="percentage">{t('seller.couponPercent')}</option>
+                    <option value="flat">{t('seller.couponFlat')}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1">
+                  {t('seller.couponTitle')}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="20% Off Selected Kundan & Silks"
+                  value={cpnTitle}
+                  onChange={(e) => setCpnTitle(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('seller.couponValue')}
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={cpnValue}
+                    onChange={(e) => setCpnValue(Number(e.target.value))}
+                    className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('seller.couponMinOrder')}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={cpnMinOrder}
+                    onChange={(e) => setCpnMinOrder(Number(e.target.value))}
+                    className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('seller.couponMaxCap')}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={cpnMaxCap}
+                    onChange={(e) => setCpnMaxCap(e.target.value)}
+                    className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">Usage Limit</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={cpnUsageLimit}
+                    onChange={(e) => setCpnUsageLimit(Number(e.target.value))}
+                    className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('admin.inviteExpiry')}
+                  </label>
+                  <select
+                    value={cpnExpiresDays}
+                    onChange={(e) => setCpnExpiresDays(Number(e.target.value))}
+                    className="w-full rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 text-xs"
+                  >
+                    <option value={7}>{t('admin.inviteDays', { days: 7 })}</option>
+                    <option value={30}>{t('admin.inviteDays', { days: 30 })}</option>
+                    <option value={90}>{t('admin.inviteDays', { days: 90 })}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1.5">
+                  {t('seller.couponScope')}
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCpnScope('all_seller_products')}
+                    className={`flex-1 rounded-md border px-2.5 py-1.5 text-xs font-medium cursor-pointer ${
+                      cpnScope === 'all_seller_products'
+                        ? 'border-[#881337] bg-[#881337] text-white'
+                        : 'border-[#D6D3CD] text-[#44403C]'
+                    }`}
+                  >
+                    {t('seller.couponScopeAll')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCpnScope('selected_products')}
+                    className={`flex-1 rounded-md border px-2.5 py-1.5 text-xs font-medium cursor-pointer ${
+                      cpnScope === 'selected_products'
+                        ? 'border-[#881337] bg-[#881337] text-white'
+                        : 'border-[#D6D3CD] text-[#44403C]'
+                    }`}
+                  >
+                    {t('seller.couponScopeSelected')}
+                  </button>
+                </div>
+              </div>
+
+              {cpnScope === 'selected_products' && (
+                <div className="max-h-36 overflow-y-auto rounded-md border border-[#E8E6E1] divide-y divide-[#F0EEE9]">
+                  {sellerProducts.map((p) => {
+                    const checked = cpnProductIds.includes(p._id);
+                    return (
+                      <label
+                        key={p._id}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#FAF9F6] cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setCpnProductIds((prev) =>
+                              checked ? prev.filter((id) => id !== p._id) : [...prev, p._id]
+                            )
+                          }
+                        />
+                        <span className="truncate flex-1">{p.title}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1.5">
+                  {t('seller.couponAssignUsers')}
+                </label>
+                <div className="max-h-28 overflow-y-auto rounded-md border border-[#E8E6E1] divide-y divide-[#F0EEE9] mb-2">
+                  {knownCustomers.map((cust) => {
+                    const checked = cpnAssignedUserIds.includes(cust._id);
+                    return (
+                      <label
+                        key={cust._id}
+                        className="flex items-center justify-between gap-2 px-3 py-1.5 hover:bg-[#FAF9F6] cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setCpnAssignedUserIds((prev) =>
+                                checked
+                                  ? prev.filter((id) => id !== cust._id)
+                                  : [...prev, cust._id]
+                              )
+                            }
+                          />
+                          <span className="font-medium text-[#141413] truncate">{cust.name}</span>
+                        </span>
+                        <span className="text-[10px] text-[#6B6A65] truncate">{cust.email}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <input
+                  type="text"
+                  placeholder={t('seller.couponExtraEmails')}
+                  value={cpnExtraEmails}
+                  onChange={(e) => setCpnExtraEmails(e.target.value)}
+                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-1.5 text-xs"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={cpnBusy}
+                className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
+              >
+                {cpnBusy ? t('seller.saving') : t('seller.couponCreateBtn')}
+              </button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-7 space-y-3">
+            {sellerCoupons.map((cpn) => {
+              const hasAssigned =
+                cpn.assignedUserIds.length > 0 || cpn.assignedEmails.length > 0;
+              return (
+                <div
+                  key={cpn._id}
+                  className="rounded-lg border border-[#E8E6E1] bg-white p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded border border-[#881337]/30 bg-[#881337]/5 px-2.5 py-0.5 font-mono text-xs font-bold text-[#881337]">
+                        {cpn.code}
+                      </span>
+                      <span className="text-xs font-semibold text-[#141413]">
+                        {cpn.discountType === 'percentage'
+                          ? `${cpn.discountValue}% Off`
+                          : `${formatINR(cpn.discountValue)} Off`}
+                      </span>
+                      <span
+                        className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                          cpn.isActive
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-stone-100 text-[#6B6A65]'
+                        }`}
+                      >
+                        {cpn.isActive ? t('seller.catEnabled') : t('seller.catDisabled')}
+                      </span>
+                    </div>
+                    <div className="text-xs font-medium text-[#141413]">{cpn.title}</div>
+                    <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#6B6A65] tabular-nums">
+                      <span>
+                        {cpn.scope === 'selected_products'
+                          ? `${cpn.productIds.length} Selected Product(s)`
+                          : t('seller.couponScopeAll')}
+                      </span>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="h-3 w-3" />
+                        {hasAssigned
+                          ? `${cpn.assignedUserIds.length + cpn.assignedEmails.length} Assigned User(s)`
+                          : 'All Customers'}
+                      </span>
+                      <span>·</span>
+                      <span>
+                        Used {cpn.usedCount}/{cpn.usageLimit || '∞'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleCouponActive(cpn)}
+                      className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs font-medium hover:border-[#141413] cursor-pointer"
+                    >
+                      {cpn.isActive ? t('seller.catDisableBtn') : t('seller.catEnableBtn')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCoupon(cpn._id)}
+                      aria-label={t('seller.catDeleteBtn')}
+                      className="rounded border border-red-200 p-1.5 text-red-700 hover:bg-red-50 cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* TAB 3: SELLER ORDERS & COURIER TRACKING */}
       {sellerTab === 'orders' && (
         <div className="space-y-4">
@@ -1744,9 +2782,18 @@ export function SellerHubView({
                     onChange={(e) => setNewCat(e.target.value as ProductCategory)}
                     className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs bg-white"
                   >
-                    <option value="Artificial Jewellery">{tc('Artificial Jewellery')}</option>
-                    <option value="Clothing">{tc('Clothing')}</option>
-                    <option value="Accessories">{tc('Accessories')}</option>
+                    {(categories.length > 0
+                      ? categories
+                      : [
+                          { _id: '1', name: 'Artificial Jewellery' },
+                          { _id: '2', name: 'Clothing' },
+                          { _id: '3', name: 'Accessories' },
+                        ]
+                    ).map((cat) => (
+                      <option key={cat._id} value={cat.name}>
+                        {tc(cat.name)}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1829,6 +2876,37 @@ export function SellerHubView({
                         }`}
                       >
                         {to(occ)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-[#44403C] mb-1.5">
+                  {t('seller.seasonsLabel')}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {SEASONS.map((ssn) => {
+                    const active = newSeasons.includes(ssn);
+                    return (
+                      <button
+                        key={ssn}
+                        type="button"
+                        onClick={() =>
+                          setNewSeasons((prev) =>
+                            prev.includes(ssn)
+                              ? prev.filter((x) => x !== ssn)
+                              : [...prev, ssn]
+                          )
+                        }
+                        className={`rounded-md border px-2.5 py-1 text-xs cursor-pointer ${
+                          active
+                            ? 'border-[#A16207] bg-[#A16207] text-white'
+                            : 'border-[#D6D3CD] text-[#57534E]'
+                        }`}
+                      >
+                        {tseason(ssn)}
                       </button>
                     );
                   })}

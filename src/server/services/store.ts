@@ -17,13 +17,29 @@ import type {
   SellerAnalyticsResponse,
   ProductCategory,
   OccasionType,
+  SeasonType,
   ReviewClass,
   OrderStatus,
   ProductBadge,
   ShippingAddress,
   SellerInvite,
+  SalesCampaign,
+  StorefrontCampaign,
+  Coupon,
+  CouponValidationResult,
+  CouponDiscountType,
+  CouponScope,
+  CategoryControl,
 } from '../../shared/types.js';
-import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS, SEED_ORDERS } from './seed.js';
+import {
+  SEED_USERS,
+  SEED_PRODUCTS,
+  SEED_REVIEWS,
+  SEED_ORDERS,
+  buildSeedCampaigns,
+  SEED_COUPONS,
+  inferSeedSeasons,
+} from './seed.js';
 import {
   UserModel,
   ProductModel,
@@ -31,7 +47,12 @@ import {
   ReviewModel,
   OrderModel,
   SellerInviteModel,
+  AuthSessionModel,
+  SalesCampaignModel,
+  CouponModel,
+  CategoryControlModel,
 } from '../models/schemas.js';
+import type { AuthSessionRecord } from './session.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
@@ -44,6 +65,55 @@ interface StoreState {
   orders: Order[];
   carts: Record<string, CartItem[]>;
   sellerInvites: SellerInvite[];
+  sessions: AuthSessionRecord[];
+  salesCampaigns: SalesCampaign[];
+  coupons: Coupon[];
+  categories: CategoryControl[];
+}
+
+function buildDefaultCategories(): CategoryControl[] {
+  const nowIso = new Date().toISOString();
+  return [
+    {
+      _id: 'cat_jewellery',
+      name: 'Artificial Jewellery',
+      slug: 'artificial-jewellery',
+      description: 'Kundan chokers, jhumkas, meenakari bangles, and ceremonial sets.',
+      sellerId: 'usr_admin_1',
+      sellerName: 'Kala & Karat Ops',
+      isEnabled: true,
+      isDefault: true,
+      sortOrder: 1,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+    {
+      _id: 'cat_clothing',
+      name: 'Clothing',
+      slug: 'clothing',
+      description: 'Handloom Chanderi, linen, mulmul, and embroidered ethnic silhouettes.',
+      sellerId: 'usr_admin_1',
+      sellerName: 'Kala & Karat Ops',
+      isEnabled: true,
+      isDefault: true,
+      sortOrder: 2,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+    {
+      _id: 'cat_accessories',
+      name: 'Accessories',
+      slug: 'accessories',
+      description: 'Zari potlis, artisanal stoles, clutches, and hair ornaments.',
+      sellerId: 'usr_admin_1',
+      sellerName: 'Kala & Karat Ops',
+      isEnabled: true,
+      isDefault: true,
+      sortOrder: 3,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+  ];
 }
 
 let mongoConnected = false;
@@ -61,23 +131,48 @@ function loadLocalStore(): StoreState {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw) as StoreState;
       if (parsed && Array.isArray(parsed.products) && parsed.products.length > 0) {
+        let dirty = false;
         if (!Array.isArray(parsed.sellerInvites)) {
           parsed.sellerInvites = [];
+          dirty = true;
         }
         if (!Array.isArray(parsed.users)) {
           parsed.users = [];
+          dirty = true;
         }
-        let usersChanged = false;
+        if (!Array.isArray(parsed.sessions)) {
+          parsed.sessions = [];
+          dirty = true;
+        }
+        if (!Array.isArray(parsed.salesCampaigns) || parsed.salesCampaigns.length === 0) {
+          parsed.salesCampaigns = buildSeedCampaigns();
+          dirty = true;
+        }
+        if (!Array.isArray(parsed.coupons) || parsed.coupons.length === 0) {
+          parsed.coupons = structuredClone(SEED_COUPONS);
+          dirty = true;
+        }
+        if (!Array.isArray(parsed.categories) || parsed.categories.length === 0) {
+          parsed.categories = buildDefaultCategories();
+          dirty = true;
+        }
+        for (const p of parsed.products) {
+          if (!Array.isArray(p.seasons) || p.seasons.length === 0) {
+            const seedMatch = SEED_PRODUCTS.find((sp) => sp._id === p._id);
+            p.seasons = seedMatch?.seasons || inferSeedSeasons(p);
+            dirty = true;
+          }
+        }
         for (const seedUser of SEED_USERS) {
           const exists = parsed.users.some(
             (u) => u._id === seedUser._id || u.email.toLowerCase() === seedUser.email.toLowerCase()
           );
           if (!exists) {
             parsed.users.push(structuredClone(seedUser));
-            usersChanged = true;
+            dirty = true;
           }
         }
-        if (usersChanged) {
+        if (dirty) {
           saveLocalStore(parsed);
         }
         return parsed;
@@ -94,6 +189,10 @@ function loadLocalStore(): StoreState {
     orders: structuredClone(SEED_ORDERS),
     carts: {},
     sellerInvites: [],
+    sessions: [],
+    salesCampaigns: buildSeedCampaigns(),
+    coupons: structuredClone(SEED_COUPONS),
+    categories: buildDefaultCategories(),
   };
   saveLocalStore(initial);
   return initial;
@@ -145,6 +244,21 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
           if (!existing) {
             await UserModel.create({ ...u, _id: new mongoose.Types.ObjectId() });
           }
+        }
+      }
+      const catCount = await CategoryControlModel.countDocuments();
+      if (catCount === 0) {
+        for (const cat of buildDefaultCategories()) {
+          await CategoryControlModel.create({
+            name: cat.name,
+            slug: cat.slug,
+            description: cat.description,
+            sellerId: cat.sellerId,
+            sellerName: cat.sellerName,
+            isEnabled: cat.isEnabled,
+            isDefault: cat.isDefault,
+            sortOrder: cat.sortOrder,
+          });
         }
       }
       return { mode: 'mongodb' };
@@ -209,23 +323,133 @@ function scoreFieldMatch(text: string, tokens: string[], weight: number): number
   return score;
 }
 
+const SEARCH_SYNONYMS: Record<string, string[]> = {
+  earring: ['jhumka', 'jhumkas', 'studs', 'drop', 'chandbali'],
+  earrings: ['jhumka', 'jhumkas', 'studs', 'drop', 'chandbali'],
+  jumka: ['jhumka'],
+  necklace: ['choker', 'haram', 'mala', 'collar'],
+  necklaces: ['choker', 'haram', 'mala', 'collar'],
+  bangle: ['bangles', 'kadas', 'cuff'],
+  bangles: ['kadas', 'cuff'],
+  bracelet: ['cuff', 'bangles', 'kadas'],
+  bracelets: ['cuff', 'bangles', 'kadas'],
+  anklet: ['payal', 'anklets'],
+  bag: ['potli', 'clutch', 'clutches'],
+  bags: ['potli', 'clutch', 'clutches'],
+  purse: ['potli', 'clutch'],
+  handbag: ['potli', 'clutch'],
+  kurti: ['kurta', 'anarkali', 'tunic'],
+  suit: ['kurta', 'anarkali', 'co-ord'],
+  dress: ['dresses', 'anarkali', 'midi'],
+  bridal: ['wedding', 'kundan', 'polki'],
+  xmas: ['christmas'],
+  festival: ['festive', 'diwali'],
+  work: ['office'],
+  shawl: ['stole', 'dupatta'],
+  scarf: ['stole', 'dupatta'],
+};
+
+function parseFlexibleQuery(rawQuery: string): {
+  tokens: string[];
+  expandedGroups: string[][];
+  extractedMaxPrice?: number;
+  extractedMinPrice?: number;
+  wantsDiscount?: boolean;
+} {
+  let working = rawQuery.trim().toLowerCase();
+  let extractedMaxPrice: number | undefined;
+  let extractedMinPrice: number | undefined;
+  let wantsDiscount = false;
+
+  // Natural language price extraction: "under 2000", "below rs 1500", "< 3000"
+  const underMatch = working.match(/\b(?:under|below|less than|max|upto)\s*(?:rs\.?|inr|₹)?\s*(\d{2,6})\b/i);
+  if (underMatch) {
+    extractedMaxPrice = Number(underMatch[1]);
+    working = working.replace(underMatch[0], ' ');
+  }
+  const overMatch = working.match(/\b(?:above|over|min|more than)\s*(?:rs\.?|inr|₹)?\s*(\d{2,6})\b/i);
+  if (overMatch) {
+    extractedMinPrice = Number(overMatch[1]);
+    working = working.replace(overMatch[0], ' ');
+  }
+
+  if (/\b(?:sale|offer|offers|discount|discounted|deal|deals)\b/i.test(working)) {
+    wantsDiscount = true;
+  }
+
+  const rawTokens = working
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2 && !['and', 'for', 'with', 'the', 'in', 'of'].includes(t));
+
+  const expandedGroups = rawTokens.map((tok) => {
+    const syns = SEARCH_SYNONYMS[tok] || [];
+    return Array.from(new Set([tok, ...syns]));
+  });
+
+  return {
+    tokens: rawTokens,
+    expandedGroups,
+    extractedMaxPrice,
+    extractedMinPrice,
+    wantsDiscount,
+  };
+}
+
 export async function getSearchSuggestions(query: string): Promise<string[]> {
   const q = query.trim().toLowerCase();
-  if (q.length < 2) return [];
-  const all = await getAllProductsRaw();
+  const [all, allCats] = await Promise.all([getAllProductsRaw(), getAllCategoriesRaw()]);
+  const disabledSet = new Set(
+    allCats.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase())
+  );
+  if (q.length < 1) {
+    return ['Diwali', 'Kundan Choker', 'Handloom Linen', 'Winter Velvet', 'Under 2000', 'Jhumka'];
+  }
   const suggestions = new Set<string>();
 
-  for (const occ of ['Wedding', 'Festive', 'Party', 'Office Wear', 'Casual', 'Daily Wear']) {
-    if (occ.toLowerCase().startsWith(q) || occ.toLowerCase().includes(q)) {
-      suggestions.add(occ);
+  for (const cat of allCats) {
+    if (cat.isEnabled && cat.name.toLowerCase().includes(q)) {
+      suggestions.add(cat.name);
     }
+  }
+  for (const season of ['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer']) {
+    if (season.toLowerCase().includes(q)) suggestions.add(season);
+  }
+  for (const occ of ['Wedding', 'Festive', 'Party', 'Office Wear', 'Casual', 'Daily Wear']) {
+    if (occ.toLowerCase().includes(q)) suggestions.add(occ);
+  }
+  const materialTags = [
+    'Kundan',
+    'Polki',
+    'Meenakari',
+    'Brass',
+    'Chanderi',
+    'Linen',
+    'Mulmul',
+    'Khadi',
+    'Velvet',
+    'Silk',
+    'Pearl',
+    'Oxidized Silver',
+  ];
+  for (const mat of materialTags) {
+    if (mat.toLowerCase().includes(q)) suggestions.add(mat);
   }
 
   for (const p of all) {
-    if (!p.isActive) continue;
+    if (!p.isActive || disabledSet.has(p.category.toLowerCase())) continue;
     const titleLower = p.title.toLowerCase();
+    const specBlob = [
+      p.subCategory,
+      p.jewellerySpecs?.stoneType,
+      p.jewellerySpecs?.baseMetal,
+      p.clothingSpecs?.fabric,
+      ...p.variants.map((v) => v.colorName),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
     const words = titleLower.split(/\s+/);
-    if (titleLower.includes(q) || words.some((w) => w.startsWith(q))) {
+    if (titleLower.includes(q) || specBlob.includes(q) || words.some((w) => w.startsWith(q))) {
       suggestions.add(p.title);
     } else if (q.length >= 3) {
       for (const w of words) {
@@ -238,7 +462,7 @@ export async function getSearchSuggestions(query: string): Promise<string[]> {
     if (suggestions.size >= 8) break;
   }
 
-  return Array.from(suggestions).slice(0, 7);
+  return Array.from(suggestions).slice(0, 8);
 }
 
 async function getAllProductsRaw(): Promise<Product[]> {
@@ -253,14 +477,19 @@ export interface ProductFilterQuery {
   q?: string;
   category?: ProductCategory | 'All';
   occasion?: OccasionType | 'All';
+  season?: SeasonType | 'All';
+  campaignId?: string;
   color?: string;
   minPrice?: number;
   maxPrice?: number;
+  minDiscount?: number;
+  inStockOnly?: boolean;
   sort?: SortOption;
   page?: number;
   limit?: number;
   sellerId?: string;
   includeInactive?: boolean;
+  includeDisabled?: boolean;
 }
 
 function computeCategoryTop10Thresholds(products: Product[]): Record<string, number> {
@@ -287,109 +516,46 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   page: number;
   limit: number;
   totalPages: number;
+  didYouMean?: string | null;
   categoryTop10Thresholds: Record<string, number>;
 }> {
   const page = Math.max(1, filters.page || 1);
   // Strict limit(20) pagination rule for storefront listings
   const limit = Math.min(20, Math.max(1, filters.limit || 20));
-  const allActiveProducts = await getAllProductsRaw();
+  const [allActiveProducts, allCategories] = await Promise.all([
+    getAllProductsRaw(),
+    getAllCategoriesRaw(),
+  ]);
+  const disabledSet = new Set(
+    allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase())
+  );
   const categoryTop10Thresholds = computeCategoryTop10Thresholds(allActiveProducts);
 
-  // If MongoDB Atlas Search ($search) is enabled & configured, try $search pipeline first
-  if (mongoConnected && filters.q && filters.q.trim().length >= 2) {
-    try {
-      const searchPipeline: any[] = [
-        {
-          $search: {
-            index: 'products_hybrid_search',
-            compound: {
-              should: [
-                {
-                  autocomplete: {
-                    query: filters.q.trim(),
-                    path: 'title',
-                    score: { boost: { value: 3 } },
-                  },
-                },
-                {
-                  autocomplete: {
-                    query: filters.q.trim(),
-                    path: 'occasions',
-                    score: { boost: { value: 2 } },
-                  },
-                },
-                {
-                  text: {
-                    query: filters.q.trim(),
-                    path: 'title',
-                    fuzzy: { maxEdits: 2, prefixLength: 1 },
-                    score: { boost: { value: 3 } },
-                  },
-                },
-                {
-                  text: {
-                    query: filters.q.trim(),
-                    path: ['occasions', 'category'],
-                    fuzzy: { maxEdits: 2, prefixLength: 1 },
-                    score: { boost: { value: 2 } },
-                  },
-                },
-                {
-                  text: {
-                    query: filters.q.trim(),
-                    path: 'description',
-                    fuzzy: { maxEdits: 2, prefixLength: 1 },
-                    score: { boost: { value: 1 } },
-                  },
-                },
-              ],
-              minimumShouldMatch: 1,
-            },
-          },
-        },
-        {
-          $addFields: {
-            hybridScore: {
-              $add: [
-                { $meta: 'searchScore' },
-                { $multiply: [{ $ifNull: ['$trendScore', 0] }, 0.01] },
-              ],
-            },
-          },
-        },
-        { $match: { isActive: true } },
-        { $sort: { hybridScore: -1 } },
-        { $skip: (page - 1) * limit },
-        { $limit: limit },
-      ];
-      const atlasResults = await ProductModel.aggregate(searchPipeline);
-      if (atlasResults.length > 0) {
-        return {
-          products: atlasResults.map((d: any) => ({ ...d, _id: String(d._id), sellerId: String(d.sellerId) })),
-          total: atlasResults.length,
-          page,
-          limit,
-          totalPages: Math.max(1, Math.ceil(atlasResults.length / limit)),
-          categoryTop10Thresholds,
-        };
-      }
-    } catch {
-      // Fallback to Mongoose / hybrid in-app fuzzy scoring if Atlas Search index isn't provisioned yet
-    }
-  }
-
-  let items = allActiveProducts.filter((p) =>
-    filters.includeInactive ? true : p.isActive
-  );
+  let items = allActiveProducts.filter((p) => {
+    if (!filters.includeInactive && !p.isActive) return false;
+    if (!filters.includeDisabled && disabledSet.has(p.category.toLowerCase())) return false;
+    return true;
+  });
 
   if (filters.sellerId) {
     items = items.filter((p) => p.sellerId === filters.sellerId);
   }
   if (filters.category && filters.category !== 'All') {
-    items = items.filter((p) => p.category === filters.category);
+    const targetCat = filters.category.toLowerCase();
+    items = items.filter((p) => p.category.toLowerCase() === targetCat);
   }
   if (filters.occasion && filters.occasion !== 'All') {
     items = items.filter((p) => p.occasions.includes(filters.occasion as OccasionType));
+  }
+  if (filters.season && filters.season !== 'All') {
+    items = items.filter((p) => (p.seasons || []).includes(filters.season as SeasonType));
+  }
+  if (filters.campaignId && filters.campaignId.trim()) {
+    const campaign = localState.salesCampaigns.find((c) => c._id === filters.campaignId);
+    if (campaign) {
+      const idSet = new Set(campaign.productIds);
+      items = items.filter((p) => idSet.has(p._id));
+    }
   }
   if (filters.color && filters.color.trim()) {
     const c = filters.color.toLowerCase();
@@ -397,42 +563,123 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
       p.variants.some((v) => v.colorName.toLowerCase().includes(c))
     );
   }
-  if (typeof filters.minPrice === 'number' && !Number.isNaN(filters.minPrice)) {
-    items = items.filter((p) => p.salePrice >= filters.minPrice!);
-  }
-  if (typeof filters.maxPrice === 'number' && !Number.isNaN(filters.maxPrice)) {
-    items = items.filter((p) => p.salePrice <= filters.maxPrice!);
+  if (filters.inStockOnly) {
+    items = items.filter((p) => p.totalStock > 0);
   }
 
-  const searchTokens = (filters.q || '')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 1);
+  const parsedSearch = filters.q ? parseFlexibleQuery(filters.q) : null;
+  const effectiveMinPrice =
+    typeof filters.minPrice === 'number' && !Number.isNaN(filters.minPrice)
+      ? filters.minPrice
+      : parsedSearch?.extractedMinPrice;
+  const effectiveMaxPrice =
+    typeof filters.maxPrice === 'number' && !Number.isNaN(filters.maxPrice)
+      ? filters.maxPrice
+      : parsedSearch?.extractedMaxPrice;
+
+  if (typeof effectiveMinPrice === 'number') {
+    items = items.filter((p) => p.salePrice >= effectiveMinPrice);
+  }
+  if (typeof effectiveMaxPrice === 'number') {
+    items = items.filter((p) => p.salePrice <= effectiveMaxPrice);
+  }
+  if (typeof filters.minDiscount === 'number' && filters.minDiscount > 0) {
+    items = items.filter((p) => p.discountPercent >= filters.minDiscount!);
+  } else if (parsedSearch?.wantsDiscount && parsedSearch.tokens.length <= 1) {
+    items = items.filter((p) => p.discountPercent > 0);
+  }
+
+  const expandedGroups = parsedSearch?.expandedGroups || [];
 
   const scored = items.map((p) => {
     let relevance = 0;
-    if (searchTokens.length > 0) {
-      relevance += scoreFieldMatch(p.title, searchTokens, 3);
-      relevance += scoreFieldMatch(
-        `${p.occasions.join(' ')} ${p.category} ${p.subCategory}`,
-        searchTokens,
-        2
-      );
-      relevance += scoreFieldMatch(p.description, searchTokens, 1);
+    let groupsMatched = 0;
+    if (expandedGroups.length > 0) {
+      const specText = [
+        p.jewellerySpecs?.baseMetal,
+        p.jewellerySpecs?.plating,
+        p.jewellerySpecs?.stoneType,
+        p.clothingSpecs?.fabric,
+        p.clothingSpecs?.fit,
+        p.clothingSpecs?.pattern,
+        p.sellerName,
+        p.sku,
+        ...p.variants.map((v) => `${v.colorName} ${v.size}`),
+      ]
+        .filter(Boolean)
+        .join(' ');
+      const metaText = `${p.occasions.join(' ')} ${(p.seasons || []).join(' ')} ${p.category} ${p.subCategory} ${p.badges.join(' ')}`;
+
+      for (const group of expandedGroups) {
+        const groupScore = Math.max(
+          scoreFieldMatch(p.title, group, 3.2),
+          scoreFieldMatch(metaText, group, 2.4),
+          scoreFieldMatch(specText, group, 2.0),
+          scoreFieldMatch(p.description, group, 1.0)
+        );
+        if (groupScore > 0) {
+          groupsMatched += 1;
+          relevance += groupScore;
+        }
+      }
+      // Bonus when all search terms match flexibly
+      if (groupsMatched === expandedGroups.length) {
+        relevance += 8;
+      }
     }
     return {
       product: p,
       relevance,
+      groupsMatched,
       hybrid: relevance + p.trendScore * 0.008,
     };
   });
 
   const filteredScored =
-    searchTokens.length > 0 ? scored.filter((s) => s.relevance > 0) : scored;
+    expandedGroups.length > 0 ? scored.filter((s) => s.relevance > 0) : scored;
+
+  let didYouMean: string | null = null;
+  if (filters.q && filters.q.trim().length >= 3 && filteredScored.length <= 1) {
+    const cleanQ = filters.q.trim().toLowerCase();
+    const vocabulary = Array.from(
+      new Set([
+        'kundan',
+        'jhumka',
+        'anarkali',
+        'chanderi',
+        'meenakari',
+        'polki',
+        'potli',
+        'diwali',
+        'christmas',
+        'winter',
+        'summer',
+        'linen',
+        'mulmul',
+        'velvet',
+        'bangles',
+        'stole',
+        'dupatta',
+      ])
+    );
+    let bestWord: string | null = null;
+    let bestDist = 3;
+    for (const word of vocabulary) {
+      if (word === cleanQ) continue;
+      const dist = levenshtein(cleanQ, word);
+      if (dist > 0 && dist < bestDist) {
+        bestDist = dist;
+        bestWord = word;
+      }
+    }
+    if (bestWord) {
+      didYouMean = bestWord.charAt(0).toUpperCase() + bestWord.slice(1);
+    }
+  }
 
   const sort = filters.sort || 'most_demanding';
   filteredScored.sort((a, b) => {
-    if (searchTokens.length > 0 && Math.abs(b.hybrid - a.hybrid) > 0.25) {
+    if (expandedGroups.length > 0 && Math.abs(b.hybrid - a.hybrid) > 0.25) {
       return b.hybrid - a.hybrid;
     }
     switch (sort) {
@@ -468,6 +715,7 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
     page: safePage,
     limit,
     totalPages,
+    didYouMean,
     categoryTop10Thresholds,
   };
 }
@@ -513,6 +761,7 @@ export async function createProduct(sellerId: string, payload: Omit<Product, '_i
 
   const newProduct: Product = {
     ...payload,
+    seasons: payload.seasons && payload.seasons.length > 0 ? payload.seasons : ['Diwali', 'New Year'],
     _id: `prd_${crypto.randomBytes(5).toString('hex')}`,
     sellerId,
     sellerName: seller?.sellerProfile?.storeName || seller?.name || 'Verified Seller',
@@ -556,6 +805,7 @@ export async function updateProductDiscountOrStock(
     totalStock?: number;
     title?: string;
     occasions?: OccasionType[];
+    seasons?: SeasonType[];
     images?: Product['images'];
   }
 ): Promise<Product | null> {
@@ -591,6 +841,7 @@ export async function updateProductDiscountOrStock(
   const patch = {
     ...(updates.title ? { title: updates.title } : {}),
     ...(updates.occasions ? { occasions: updates.occasions } : {}),
+    ...(updates.seasons ? { seasons: updates.seasons } : {}),
     ...(normalizedImages ? { images: normalizedImages } : {}),
     ...(typeof updates.totalStock === 'number' ? { totalStock: updates.totalStock } : {}),
     basePrice,
@@ -1095,12 +1346,31 @@ export async function getOrdersForUser(
 export async function createOrder(input: {
   buyer: User;
   items: CartItem[];
+  couponCode?: string;
 }): Promise<Order[]> {
   if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) {
     throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
   }
   const addr =
     input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
+
+  let appliedCouponRecord: Coupon | null = null;
+  let totalCouponDiscount = 0;
+  let eligibleTotalBasis = 0;
+
+  if (input.couponCode && input.couponCode.trim()) {
+    const validation = await validateCouponForCart({
+      code: input.couponCode.trim(),
+      user: input.buyer,
+      items: input.items,
+    });
+    if (!validation.valid || !validation.coupon) {
+      throw new Error(validation.reason || 'INVALID_COUPON');
+    }
+    appliedCouponRecord = validation.coupon;
+    totalCouponDiscount = validation.discountAmount;
+    eligibleTotalBasis = validation.eligibleSubtotal || 1;
+  }
 
   // Group cart items by sellerId
   const bySeller = new Map<string, CartItem[]>();
@@ -1112,10 +1382,34 @@ export async function createOrder(input: {
 
   const createdOrders: Order[] = [];
   const nowIso = new Date().toISOString();
+  let remainingDiscount = totalCouponDiscount;
+  const sellerEntries = Array.from(bySeller.entries());
 
-  for (const [sellerId, sellerItems] of bySeller.entries()) {
+  for (let idx = 0; idx < sellerEntries.length; idx++) {
+    const [sellerId, sellerItems] = sellerEntries[idx];
     const orderNumber = `ORD-2026-${Math.floor(10000 + Math.random() * 89999)}`;
-    const totalAmount = sellerItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+    const subtotal = sellerItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+
+    let sellerCouponDiscount = 0;
+    if (appliedCouponRecord && remainingDiscount > 0) {
+      const sellerEligibleSubtotal = sellerItems
+        .filter((item) => isCouponEligibleForProduct(appliedCouponRecord!, item.productId, item.sellerId))
+        .reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+
+      if (sellerEligibleSubtotal > 0) {
+        if (idx === sellerEntries.length - 1) {
+          sellerCouponDiscount = Math.min(subtotal, remainingDiscount);
+        } else {
+          sellerCouponDiscount = Math.min(
+            subtotal,
+            Math.round((sellerEligibleSubtotal / Math.max(1, eligibleTotalBasis)) * totalCouponDiscount)
+          );
+        }
+        remainingDiscount = Math.max(0, remainingDiscount - sellerCouponDiscount);
+      }
+    }
+
+    const totalAmount = Math.max(1, subtotal - sellerCouponDiscount);
 
     const order: Order = {
       _id: `ord_${crypto.randomBytes(5).toString('hex')}`,
@@ -1134,6 +1428,15 @@ export async function createOrder(input: {
         unitPrice: i.unitPrice,
       })),
       totalAmount,
+      ...(appliedCouponRecord && sellerCouponDiscount > 0
+        ? {
+            appliedCoupon: {
+              couponId: appliedCouponRecord._id,
+              code: appliedCouponRecord.code,
+              discountAmount: sellerCouponDiscount,
+            },
+          }
+        : {}),
       status: 'Pending',
       shippingAddress: {
         fullName: addr.fullName,
@@ -1146,7 +1449,9 @@ export async function createOrder(input: {
       statusTimeline: [
         {
           status: 'Pending',
-          note: 'Order placed via Kala & Karat',
+          note: appliedCouponRecord && sellerCouponDiscount > 0
+            ? `Order placed via Kala & Karat (Coupon ${appliedCouponRecord.code} saved ₹${sellerCouponDiscount})`
+            : 'Order placed via Kala & Karat',
           timestamp: nowIso,
         },
       ],
@@ -1184,6 +1489,10 @@ export async function createOrder(input: {
     }
 
     createdOrders.push(order);
+  }
+
+  if (appliedCouponRecord && totalCouponDiscount > 0) {
+    await incrementCouponUsage(appliedCouponRecord._id);
   }
 
   return createdOrders;
@@ -1589,23 +1898,24 @@ function computeEffectiveInviteStatus(inv: SellerInvite): SellerInvite {
 export async function createSellerInvite(input: {
   adminId: string;
   adminName: string;
-  email: string;
+  email?: string;
   storeName?: string;
   note?: string;
   expiresInDays?: number;
 }): Promise<SellerInvite> {
-  const emailLower = input.email.trim().toLowerCase();
+  const emailLower = (input.email || '').trim().toLowerCase();
   const token = `inv_${crypto.randomBytes(16).toString('hex')}`;
   const nowDate = new Date();
   const days = Math.min(90, Math.max(1, input.expiresInDays || 14));
   const expiresAtDate = new Date(nowDate.getTime() + days * 86400_000);
 
   if (mongoConnected && mongoose.isValidObjectId(input.adminId)) {
-    // Revoke earlier pending invites for same email to keep one clean active link
-    await SellerInviteModel.updateMany(
-      { email: emailLower, status: 'pending' },
-      { $set: { status: 'revoked', revokedAt: nowDate } }
-    );
+    if (emailLower) {
+      await SellerInviteModel.updateMany(
+        { email: emailLower, status: 'pending' },
+        { $set: { status: 'revoked', revokedAt: nowDate } }
+      );
+    }
     const doc = await SellerInviteModel.create({
       token,
       email: emailLower,
@@ -1626,10 +1936,12 @@ export async function createSellerInvite(input: {
     };
   }
 
-  for (const inv of localState.sellerInvites) {
-    if (inv.email.toLowerCase() === emailLower && inv.status === 'pending') {
-      inv.status = 'revoked';
-      inv.revokedAt = nowDate.toISOString();
+  if (emailLower) {
+    for (const inv of localState.sellerInvites) {
+      if ((inv.email || '').toLowerCase() === emailLower && inv.status === 'pending') {
+        inv.status = 'revoked';
+        inv.revokedAt = nowDate.toISOString();
+      }
     }
   }
 
@@ -1704,7 +2016,9 @@ export async function revokeSellerInvite(inviteId: string): Promise<SellerInvite
 export async function validateSellerInviteToken(token: string): Promise<{
   valid: boolean;
   reason?: 'NOT_FOUND' | 'REVOKED' | 'EXPIRED' | 'ALREADY_ACCEPTED';
-  invite?: Pick<SellerInvite, '_id' | 'email' | 'storeName' | 'note' | 'invitedByName' | 'status' | 'expiresAt'>;
+  invite?: Pick<SellerInvite, '_id' | 'email' | 'storeName' | 'note' | 'invitedByName' | 'status' | 'expiresAt'> & {
+    hasEmail: boolean;
+  };
 }> {
   const cleanToken = token.trim();
   if (!cleanToken) return { valid: false, reason: 'NOT_FOUND' };
@@ -1735,7 +2049,8 @@ export async function validateSellerInviteToken(token: string): Promise<{
     valid: true,
     invite: {
       _id: found._id,
-      email: found.email,
+      email: found.email || '',
+      hasEmail: Boolean(found.email && found.email.trim()),
       storeName: found.storeName,
       note: found.note,
       invitedByName: found.invitedByName,
@@ -1748,6 +2063,7 @@ export async function validateSellerInviteToken(token: string): Promise<{
 export async function acceptSellerInvite(input: {
   token: string;
   name: string;
+  email?: string;
   whatsappNumber: string;
   storeName: string;
   description: string;
@@ -1766,7 +2082,14 @@ export async function acceptSellerInvite(input: {
     );
   }
 
-  const invitedEmail = validation.invite.email.toLowerCase();
+  const boundEmail = (validation.invite.email || '').trim().toLowerCase();
+  const submittedEmail = (input.email || '').trim().toLowerCase();
+  const invitedEmail = boundEmail || submittedEmail || input.actingUser?.email?.toLowerCase() || '';
+
+  if (!invitedEmail || !invitedEmail.includes('@')) {
+    throw new Error('Please enter a valid work email address to complete seller onboarding.');
+  }
+
   const sellerProfile = {
     storeName: input.storeName.trim(),
     description: input.description.trim() || 'Curated fashion & artificial jewellery atelier.',
@@ -1779,7 +2102,6 @@ export async function acceptSellerInvite(input: {
   const nowIso = nowDate.toISOString();
 
   if (mongoConnected) {
-    // Check if an account already exists for the invited email or acting user (must match invited email if signed in with a different email? Allow upgrade if acting user matches email, or find/create by invitedEmail)
     let userDoc = await UserModel.findOne({ email: invitedEmail });
     if (!userDoc && input.actingUser && input.actingUser.email.toLowerCase() === invitedEmail && mongoose.isValidObjectId(input.actingUser._id)) {
       userDoc = await UserModel.findById(input.actingUser._id);
@@ -1808,7 +2130,7 @@ export async function acceptSellerInvite(input: {
 
     const updatedInvite = await SellerInviteModel.findOneAndUpdate(
       { token: input.token.trim(), status: 'pending' },
-      { $set: { status: 'accepted', acceptedAt: nowDate, acceptedUserId: userDoc._id } },
+      { $set: { status: 'accepted', email: invitedEmail, acceptedAt: nowDate, acceptedUserId: userDoc._id } },
       { new: true }
     ).lean();
     if (!updatedInvite) {
@@ -1862,9 +2184,922 @@ export async function acceptSellerInvite(input: {
     throw new Error('This seller invitation is no longer active.');
   }
   invite.status = 'accepted';
+  invite.email = invitedEmail;
   invite.acceptedAt = nowIso;
   invite.acceptedUserId = user._id;
   saveLocalStore(localState);
 
   return { user, invite };
 }
+
+// --- SSL Token Authentication Session Manager ---
+
+export async function saveAuthSession(session: AuthSessionRecord): Promise<AuthSessionRecord> {
+  if (mongoConnected) {
+    await AuthSessionModel.create({
+      sessionId: session.sessionId,
+      userId: session.userId,
+      role: session.role,
+      provider: session.provider,
+      tokenFingerprint: session.tokenFingerprint,
+      csrfToken: session.csrfToken,
+      tlsSecure: session.tlsSecure,
+      protocol: session.protocol,
+      userAgent: session.userAgent,
+      lastActiveAt: new Date(session.lastActiveAt),
+      expiresAt: new Date(session.expiresAt),
+      revokedAt: null,
+    });
+    return session;
+  }
+  localState.sessions = [
+    session,
+    ...localState.sessions.filter((s) => s.sessionId !== session.sessionId).slice(0, 120),
+  ];
+  saveLocalStore(localState);
+  return session;
+}
+
+export async function findActiveAuthSession(sessionId: string): Promise<AuthSessionRecord | null> {
+  const nowMs = Date.now();
+  if (mongoConnected) {
+    const doc = await AuthSessionModel.findOne({ sessionId, revokedAt: null }).lean();
+    if (!doc) return null;
+    if (new Date((doc as any).expiresAt).getTime() <= nowMs) return null;
+    return {
+      sessionId: (doc as any).sessionId,
+      userId: String((doc as any).userId),
+      role: (doc as any).role,
+      provider: (doc as any).provider || 'google',
+      tokenFingerprint: (doc as any).tokenFingerprint,
+      csrfToken: (doc as any).csrfToken,
+      tlsSecure: Boolean((doc as any).tlsSecure),
+      protocol: (doc as any).protocol || 'https',
+      userAgent: (doc as any).userAgent || 'Browser Session',
+      createdAt: new Date((doc as any).createdAt || Date.now()).toISOString(),
+      lastActiveAt: new Date((doc as any).lastActiveAt).toISOString(),
+      expiresAt: new Date((doc as any).expiresAt).toISOString(),
+      revokedAt: null,
+    };
+  }
+  const found = localState.sessions.find((s) => s.sessionId === sessionId && !s.revokedAt);
+  if (!found) return null;
+  if (new Date(found.expiresAt).getTime() <= nowMs) return null;
+  return found;
+}
+
+export async function touchAuthSession(sessionId: string): Promise<void> {
+  const now = new Date();
+  if (mongoConnected) {
+    await AuthSessionModel.updateOne({ sessionId }, { $set: { lastActiveAt: now } });
+    return;
+  }
+  const found = localState.sessions.find((s) => s.sessionId === sessionId);
+  if (found && now.getTime() - new Date(found.lastActiveAt).getTime() > 60_000) {
+    found.lastActiveAt = now.toISOString();
+    saveLocalStore(localState);
+  }
+}
+
+export async function listUserSessions(userId: string): Promise<AuthSessionRecord[]> {
+  const nowMs = Date.now();
+  if (mongoConnected) {
+    const docs = await AuthSessionModel.find({
+      userId,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    })
+      .sort({ lastActiveAt: -1 })
+      .lean();
+    return docs.map((d: any) => ({
+      sessionId: d.sessionId,
+      userId: String(d.userId),
+      role: d.role,
+      provider: d.provider || 'google',
+      tokenFingerprint: d.tokenFingerprint,
+      csrfToken: d.csrfToken,
+      tlsSecure: Boolean(d.tlsSecure),
+      protocol: d.protocol || 'https',
+      userAgent: d.userAgent || 'Browser Session',
+      createdAt: new Date(d.createdAt || Date.now()).toISOString(),
+      lastActiveAt: new Date(d.lastActiveAt).toISOString(),
+      expiresAt: new Date(d.expiresAt).toISOString(),
+      revokedAt: null,
+    }));
+  }
+  return localState.sessions
+    .filter((s) => s.userId === userId && !s.revokedAt && new Date(s.expiresAt).getTime() > nowMs)
+    .sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
+}
+
+export async function revokeAuthSession(sessionId: string, userId?: string): Promise<boolean> {
+  const now = new Date();
+  if (mongoConnected) {
+    const query: any = { sessionId };
+    if (userId) query.userId = userId;
+    const res = await AuthSessionModel.updateOne(query, { $set: { revokedAt: now } });
+    return res.modifiedCount > 0;
+  }
+  const found = localState.sessions.find((s) => s.sessionId === sessionId && (!userId || s.userId === userId));
+  if (!found) return false;
+  found.revokedAt = now.toISOString();
+  saveLocalStore(localState);
+  return true;
+}
+
+export async function revokeOtherUserSessions(userId: string, keepSessionId: string): Promise<number> {
+  const now = new Date();
+  if (mongoConnected) {
+    const res = await AuthSessionModel.updateMany(
+      { userId, sessionId: { $ne: keepSessionId }, revokedAt: null },
+      { $set: { revokedAt: now } }
+    );
+    return res.modifiedCount || 0;
+  }
+  let count = 0;
+  for (const s of localState.sessions) {
+    if (s.userId === userId && s.sessionId !== keepSessionId && !s.revokedAt) {
+      s.revokedAt = now.toISOString();
+      count++;
+    }
+  }
+  if (count > 0) saveLocalStore(localState);
+  return count;
+}
+
+// --- Seasonal Sales Campaigns & Flash Sale Timers ---
+
+function computeCampaignPhase(c: SalesCampaign): 'upcoming' | 'live' | 'ended' {
+  const now = Date.now();
+  const start = new Date(c.startsAt).getTime();
+  const end = new Date(c.endsAt).getTime();
+  if (now < start) return 'upcoming';
+  if (now <= end) return 'live';
+  return 'ended';
+}
+
+export async function listStorefrontCampaigns(): Promise<StorefrontCampaign[]> {
+  let raw: SalesCampaign[] = [];
+  if (mongoConnected) {
+    const docs = await SalesCampaignModel.find({ isActive: true }).sort({ startsAt: 1 }).lean();
+    raw = docs.map((d: any) => ({
+      ...d,
+      _id: String(d._id),
+      sellerId: String(d.sellerId),
+      productIds: (d.productIds || []).map((id: any) => String(id)),
+      startsAt: new Date(d.startsAt).toISOString(),
+      endsAt: new Date(d.endsAt).toISOString(),
+      createdAt: new Date(d.createdAt).toISOString(),
+      updatedAt: new Date(d.updatedAt).toISOString(),
+    }));
+  } else {
+    raw = localState.salesCampaigns.filter((c) => c.isActive);
+  }
+
+  const allProducts = await getAllProductsRaw();
+  const productMap = new Map(allProducts.map((p) => [p._id, p]));
+
+  const enriched: StorefrontCampaign[] = [];
+  for (const c of raw) {
+    const phase = computeCampaignPhase(c);
+    if (phase === 'ended') continue;
+    const products = c.productIds
+      .map((id) => productMap.get(id))
+      .filter((p): p is Product => Boolean(p && p.isActive));
+    enriched.push({
+      ...c,
+      phase,
+      products,
+    });
+  }
+
+  enriched.sort((a, b) => {
+    if (a.phase !== b.phase) return a.phase === 'upcoming' ? -1 : 1;
+    if (a.phase === 'upcoming') {
+      return new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+    }
+    return new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime();
+  });
+
+  return enriched;
+}
+
+export async function listSellerCampaigns(sellerId: string, role: string): Promise<StorefrontCampaign[]> {
+  let raw: SalesCampaign[] = [];
+  if (mongoConnected) {
+    const query = role === 'ADMIN' ? {} : { sellerId };
+    const docs = await SalesCampaignModel.find(query).sort({ createdAt: -1 }).lean();
+    raw = docs.map((d: any) => ({
+      ...d,
+      _id: String(d._id),
+      sellerId: String(d.sellerId),
+      productIds: (d.productIds || []).map((id: any) => String(id)),
+      startsAt: new Date(d.startsAt).toISOString(),
+      endsAt: new Date(d.endsAt).toISOString(),
+      createdAt: new Date(d.createdAt).toISOString(),
+      updatedAt: new Date(d.updatedAt).toISOString(),
+    }));
+  } else {
+    raw = localState.salesCampaigns
+      .filter((c) => (role === 'ADMIN' ? true : c.sellerId === sellerId))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  const allProducts = await getAllProductsRaw();
+  const productMap = new Map(allProducts.map((p) => [p._id, p]));
+
+  return raw.map((c) => ({
+    ...c,
+    phase: computeCampaignPhase(c),
+    products: c.productIds.map((id) => productMap.get(id)).filter((p): p is Product => Boolean(p)),
+  }));
+}
+
+export async function createSalesCampaign(input: {
+  sellerId: string;
+  sellerName: string;
+  name: string;
+  season: SeasonType;
+  tagline: string;
+  discountPercent: number;
+  productIds: string[];
+  startsAt: string;
+  endsAt: string;
+  isActive?: boolean;
+}): Promise<SalesCampaign> {
+  const nowIso = new Date().toISOString();
+  const campaign: SalesCampaign = {
+    _id: `cmp_${crypto.randomBytes(5).toString('hex')}`,
+    sellerId: input.sellerId,
+    sellerName: input.sellerName,
+    name: input.name.trim(),
+    season: input.season,
+    tagline: input.tagline.trim(),
+    discountPercent: Math.max(0, Math.min(90, input.discountPercent || 0)),
+    productIds: Array.from(new Set(input.productIds)),
+    startsAt: new Date(input.startsAt).toISOString(),
+    endsAt: new Date(input.endsAt).toISOString(),
+    isActive: input.isActive !== false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (mongoConnected) {
+    const doc = await SalesCampaignModel.create({
+      sellerId: campaign.sellerId,
+      sellerName: campaign.sellerName,
+      name: campaign.name,
+      season: campaign.season,
+      tagline: campaign.tagline,
+      discountPercent: campaign.discountPercent,
+      productIds: campaign.productIds,
+      startsAt: new Date(campaign.startsAt),
+      endsAt: new Date(campaign.endsAt),
+      isActive: campaign.isActive,
+    });
+    for (const pid of campaign.productIds) {
+      if (mongoose.isValidObjectId(pid)) {
+        await ProductModel.updateOne({ _id: pid }, { $addToSet: { seasons: campaign.season } });
+      }
+    }
+    return { ...campaign, _id: String(doc._id) };
+  }
+
+  for (const pid of campaign.productIds) {
+    const prod = localState.products.find((p) => p._id === pid);
+    if (prod) {
+      const set = new Set<SeasonType>(prod.seasons || []);
+      set.add(campaign.season);
+      prod.seasons = Array.from(set);
+    }
+  }
+  localState.salesCampaigns.unshift(campaign);
+  saveLocalStore(localState);
+  return campaign;
+}
+
+export async function updateSalesCampaign(
+  campaignId: string,
+  actorId: string,
+  role: string,
+  updates: Partial<Pick<SalesCampaign, 'name' | 'season' | 'tagline' | 'discountPercent' | 'productIds' | 'startsAt' | 'endsAt' | 'isActive'>>
+): Promise<SalesCampaign | null> {
+  if (mongoConnected && mongoose.isValidObjectId(campaignId)) {
+    const existing = await SalesCampaignModel.findById(campaignId);
+    if (!existing) return null;
+    if (role !== 'ADMIN' && String(existing.sellerId) !== actorId) return null;
+    if (updates.name !== undefined) existing.name = updates.name.trim();
+    if (updates.season !== undefined) existing.season = updates.season;
+    if (updates.tagline !== undefined) existing.tagline = updates.tagline.trim();
+    if (typeof updates.discountPercent === 'number') existing.discountPercent = updates.discountPercent;
+    if (updates.productIds !== undefined) existing.productIds = Array.from(new Set(updates.productIds));
+    if (updates.startsAt !== undefined) existing.startsAt = new Date(updates.startsAt);
+    if (updates.endsAt !== undefined) existing.endsAt = new Date(updates.endsAt);
+    if (typeof updates.isActive === 'boolean') existing.isActive = updates.isActive;
+    await existing.save();
+    const obj = existing.toObject();
+    return {
+      ...obj,
+      _id: String(obj._id),
+      sellerId: String(obj.sellerId),
+      startsAt: new Date(obj.startsAt).toISOString(),
+      endsAt: new Date(obj.endsAt).toISOString(),
+      createdAt: new Date(obj.createdAt).toISOString(),
+      updatedAt: new Date(obj.updatedAt).toISOString(),
+    };
+  }
+
+  const found = localState.salesCampaigns.find((c) => c._id === campaignId);
+  if (!found) return null;
+  if (role !== 'ADMIN' && found.sellerId !== actorId) return null;
+  if (updates.name !== undefined) found.name = updates.name.trim();
+  if (updates.season !== undefined) found.season = updates.season;
+  if (updates.tagline !== undefined) found.tagline = updates.tagline.trim();
+  if (typeof updates.discountPercent === 'number') found.discountPercent = updates.discountPercent;
+  if (updates.productIds !== undefined) {
+    found.productIds = Array.from(new Set(updates.productIds));
+    for (const pid of found.productIds) {
+      const prod = localState.products.find((p) => p._id === pid);
+      if (prod) {
+        const set = new Set<SeasonType>(prod.seasons || []);
+        set.add(found.season);
+        prod.seasons = Array.from(set);
+      }
+    }
+  }
+  if (updates.startsAt !== undefined) found.startsAt = new Date(updates.startsAt).toISOString();
+  if (updates.endsAt !== undefined) found.endsAt = new Date(updates.endsAt).toISOString();
+  if (typeof updates.isActive === 'boolean') found.isActive = updates.isActive;
+  found.updatedAt = new Date().toISOString();
+  saveLocalStore(localState);
+  return found;
+}
+
+export async function deleteSalesCampaign(campaignId: string, actorId: string, role: string): Promise<boolean> {
+  if (mongoConnected && mongoose.isValidObjectId(campaignId)) {
+    const existing = await SalesCampaignModel.findById(campaignId);
+    if (!existing) return false;
+    if (role !== 'ADMIN' && String(existing.sellerId) !== actorId) return false;
+    await SalesCampaignModel.deleteOne({ _id: campaignId });
+    return true;
+  }
+  const idx = localState.salesCampaigns.findIndex((c) => c._id === campaignId);
+  if (idx === -1) return false;
+  if (role !== 'ADMIN' && localState.salesCampaigns[idx].sellerId !== actorId) return false;
+  localState.salesCampaigns.splice(idx, 1);
+  saveLocalStore(localState);
+  return true;
+}
+
+// --- Seller Coupons (Checkout + Direct Product Level + User Assignment) ---
+
+async function getAllCouponsRaw(): Promise<Coupon[]> {
+  if (mongoConnected) {
+    const docs = await CouponModel.find().sort({ createdAt: -1 }).lean();
+    return docs.map((d: any) => ({
+      ...d,
+      _id: String(d._id),
+      sellerId: String(d.sellerId),
+      productIds: (d.productIds || []).map((id: any) => String(id)),
+      assignedUserIds: (d.assignedUserIds || []).map((id: any) => String(id)),
+      assignedEmails: (d.assignedEmails || []).map((e: any) => String(e).toLowerCase()),
+      expiresAt: new Date(d.expiresAt).toISOString(),
+      createdAt: new Date(d.createdAt).toISOString(),
+      updatedAt: new Date(d.updatedAt).toISOString(),
+    }));
+  }
+  return localState.coupons;
+}
+
+function isCouponAssignedToUser(coupon: Coupon, user?: User | null): boolean {
+  const hasUserFilter =
+    (coupon.assignedUserIds && coupon.assignedUserIds.length > 0) ||
+    (coupon.assignedEmails && coupon.assignedEmails.length > 0);
+  if (!hasUserFilter) return true;
+  if (!user) return false;
+  if (coupon.assignedUserIds.includes(user._id)) return true;
+  if (coupon.assignedEmails.some((e) => e.toLowerCase() === user.email.toLowerCase())) return true;
+  return false;
+}
+
+export function isCouponEligibleForProduct(coupon: Coupon, productId: string, productSellerId: string): boolean {
+  if (coupon.scope === 'selected_products') {
+    return coupon.productIds.includes(productId);
+  }
+  return coupon.sellerId === productSellerId || coupon.sellerId === 'usr_admin_1';
+}
+
+export async function listSellerCoupons(sellerId: string, role: string): Promise<Coupon[]> {
+  const all = await getAllCouponsRaw();
+  return all
+    .filter((c) => (role === 'ADMIN' ? true : c.sellerId === sellerId))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function listKnownCustomers(): Promise<Array<{ _id: string; name: string; email: string }>> {
+  if (mongoConnected) {
+    const docs = await UserModel.find({}, { name: 1, email: 1, role: 1 }).lean();
+    return docs
+      .filter((u: any) => u.role === 'BUYER' || u.role === 'SELLER')
+      .map((u: any) => ({ _id: String(u._id), name: u.name, email: u.email }));
+  }
+  return localState.users
+    .filter((u) => u.role !== 'ADMIN')
+    .map((u) => ({ _id: u._id, name: u.name, email: u.email }));
+}
+
+export async function listApplicableCoupons(input: {
+  user?: User | null;
+  productId?: string;
+}): Promise<Coupon[]> {
+  const now = Date.now();
+  const all = await getAllCouponsRaw();
+  let targetProduct: Product | null = null;
+  if (input.productId) {
+    targetProduct = await getProductByIdOrSlug(input.productId);
+  }
+
+  return all.filter((c) => {
+    if (!c.isActive) return false;
+    if (new Date(c.expiresAt).getTime() <= now) return false;
+    if (c.usageLimit && c.usedCount >= c.usageLimit) return false;
+    if (!isCouponAssignedToUser(c, input.user)) return false;
+    if (targetProduct && !isCouponEligibleForProduct(c, targetProduct._id, targetProduct.sellerId)) {
+      return false;
+    }
+    if (input.productId && !targetProduct) return false;
+    return true;
+  });
+}
+
+export async function createSellerCoupon(input: {
+  sellerId: string;
+  sellerName: string;
+  code: string;
+  title: string;
+  discountType: CouponDiscountType;
+  discountValue: number;
+  minOrderAmount: number;
+  maxDiscountAmount?: number;
+  scope: CouponScope;
+  productIds: string[];
+  assignedEmails: string[];
+  assignedUserIds: string[];
+  usageLimit?: number;
+  expiresAt: string;
+}): Promise<Coupon> {
+  const code = input.code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  if (!code || code.length < 3) {
+    throw new Error('Coupon code must be at least 3 alphanumeric characters.');
+  }
+  const existingAll = await getAllCouponsRaw();
+  if (existingAll.some((c) => c.code.toUpperCase() === code)) {
+    throw new Error(`Coupon code ${code} already exists.`);
+  }
+
+  const nowIso = new Date().toISOString();
+  const coupon: Coupon = {
+    _id: `cpn_${crypto.randomBytes(5).toString('hex')}`,
+    code,
+    sellerId: input.sellerId,
+    sellerName: input.sellerName,
+    title: input.title.trim() || `${code} Privilege`,
+    discountType: input.discountType,
+    discountValue:
+      input.discountType === 'percentage'
+        ? Math.max(1, Math.min(85, input.discountValue))
+        : Math.max(10, input.discountValue),
+    minOrderAmount: Math.max(0, input.minOrderAmount || 0),
+    ...(input.maxDiscountAmount && input.maxDiscountAmount > 0
+      ? { maxDiscountAmount: input.maxDiscountAmount }
+      : {}),
+    scope: input.scope,
+    productIds: input.scope === 'selected_products' ? Array.from(new Set(input.productIds)) : [],
+    assignedUserIds: Array.from(new Set(input.assignedUserIds)),
+    assignedEmails: Array.from(
+      new Set(input.assignedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean))
+    ),
+    usageLimit: Math.max(1, input.usageLimit || 100),
+    usedCount: 0,
+    expiresAt: new Date(input.expiresAt).toISOString(),
+    isActive: true,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (mongoConnected) {
+    const doc = await CouponModel.create({
+      code: coupon.code,
+      sellerId: coupon.sellerId,
+      sellerName: coupon.sellerName,
+      title: coupon.title,
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      maxDiscountAmount: coupon.maxDiscountAmount,
+      minOrderAmount: coupon.minOrderAmount,
+      scope: coupon.scope,
+      productIds: coupon.productIds,
+      assignedUserIds: coupon.assignedUserIds,
+      assignedEmails: coupon.assignedEmails,
+      usageLimit: coupon.usageLimit,
+      usedCount: 0,
+      expiresAt: new Date(coupon.expiresAt),
+      isActive: true,
+    });
+    return { ...coupon, _id: String(doc._id) };
+  }
+
+  localState.coupons.unshift(coupon);
+  saveLocalStore(localState);
+  return coupon;
+}
+
+export async function updateSellerCoupon(
+  couponId: string,
+  actorId: string,
+  role: string,
+  updates: Partial<
+    Pick<
+      Coupon,
+      | 'isActive'
+      | 'title'
+      | 'discountValue'
+      | 'minOrderAmount'
+      | 'scope'
+      | 'productIds'
+      | 'assignedEmails'
+      | 'assignedUserIds'
+      | 'expiresAt'
+    >
+  >
+): Promise<Coupon | null> {
+  if (mongoConnected && mongoose.isValidObjectId(couponId)) {
+    const doc = await CouponModel.findById(couponId);
+    if (!doc) return null;
+    if (role !== 'ADMIN' && String(doc.sellerId) !== actorId) return null;
+    if (typeof updates.isActive === 'boolean') doc.isActive = updates.isActive;
+    if (updates.title !== undefined) doc.title = updates.title.trim();
+    if (typeof updates.discountValue === 'number') doc.discountValue = updates.discountValue;
+    if (typeof updates.minOrderAmount === 'number') doc.minOrderAmount = updates.minOrderAmount;
+    if (updates.scope !== undefined) doc.scope = updates.scope;
+    if (updates.productIds !== undefined) doc.productIds = Array.from(new Set(updates.productIds));
+    if (updates.assignedEmails !== undefined) {
+      doc.assignedEmails = Array.from(
+        new Set(updates.assignedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean))
+      );
+    }
+    if (updates.assignedUserIds !== undefined) {
+      doc.assignedUserIds = Array.from(new Set(updates.assignedUserIds));
+    }
+    if (updates.expiresAt !== undefined) doc.expiresAt = new Date(updates.expiresAt);
+    await doc.save();
+    const obj = doc.toObject();
+    return {
+      ...obj,
+      _id: String(obj._id),
+      sellerId: String(obj.sellerId),
+      expiresAt: new Date(obj.expiresAt).toISOString(),
+      createdAt: new Date(obj.createdAt).toISOString(),
+      updatedAt: new Date(obj.updatedAt).toISOString(),
+    };
+  }
+
+  const found = localState.coupons.find((c) => c._id === couponId);
+  if (!found) return null;
+  if (role !== 'ADMIN' && found.sellerId !== actorId) return null;
+  if (typeof updates.isActive === 'boolean') found.isActive = updates.isActive;
+  if (updates.title !== undefined) found.title = updates.title.trim();
+  if (typeof updates.discountValue === 'number') found.discountValue = updates.discountValue;
+  if (typeof updates.minOrderAmount === 'number') found.minOrderAmount = updates.minOrderAmount;
+  if (updates.scope !== undefined) found.scope = updates.scope;
+  if (updates.productIds !== undefined) found.productIds = Array.from(new Set(updates.productIds));
+  if (updates.assignedEmails !== undefined) {
+    found.assignedEmails = Array.from(
+      new Set(updates.assignedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean))
+    );
+  }
+  if (updates.assignedUserIds !== undefined) {
+    found.assignedUserIds = Array.from(new Set(updates.assignedUserIds));
+  }
+  if (updates.expiresAt !== undefined) found.expiresAt = new Date(updates.expiresAt).toISOString();
+  found.updatedAt = new Date().toISOString();
+  saveLocalStore(localState);
+  return found;
+}
+
+export async function deleteSellerCoupon(couponId: string, actorId: string, role: string): Promise<boolean> {
+  if (mongoConnected && mongoose.isValidObjectId(couponId)) {
+    const doc = await CouponModel.findById(couponId);
+    if (!doc) return false;
+    if (role !== 'ADMIN' && String(doc.sellerId) !== actorId) return false;
+    await CouponModel.deleteOne({ _id: couponId });
+    return true;
+  }
+  const idx = localState.coupons.findIndex((c) => c._id === couponId);
+  if (idx === -1) return false;
+  if (role !== 'ADMIN' && localState.coupons[idx].sellerId !== actorId) return false;
+  localState.coupons.splice(idx, 1);
+  saveLocalStore(localState);
+  return true;
+}
+
+export async function incrementCouponUsage(couponId: string): Promise<void> {
+  if (mongoConnected && mongoose.isValidObjectId(couponId)) {
+    await CouponModel.updateOne({ _id: couponId }, { $inc: { usedCount: 1 } });
+    return;
+  }
+  const found = localState.coupons.find((c) => c._id === couponId);
+  if (found) {
+    found.usedCount += 1;
+    saveLocalStore(localState);
+  }
+}
+
+export async function validateCouponForCart(input: {
+  code: string;
+  user?: User | null;
+  items: CartItem[];
+}): Promise<CouponValidationResult> {
+  const cleanCode = input.code.trim().toUpperCase();
+  if (!cleanCode) {
+    return {
+      valid: false,
+      reason: 'Please enter a coupon code.',
+      discountAmount: 0,
+      eligibleSubtotal: 0,
+      applicableProductIds: [],
+    };
+  }
+
+  const all = await getAllCouponsRaw();
+  const coupon = all.find((c) => c.code.toUpperCase() === cleanCode);
+  if (!coupon) {
+    return {
+      valid: false,
+      reason: `Coupon "${cleanCode}" was not found.`,
+      discountAmount: 0,
+      eligibleSubtotal: 0,
+      applicableProductIds: [],
+    };
+  }
+  if (!coupon.isActive) {
+    return {
+      valid: false,
+      reason: 'This coupon is currently paused by the seller.',
+      discountAmount: 0,
+      eligibleSubtotal: 0,
+      applicableProductIds: [],
+    };
+  }
+  if (new Date(coupon.expiresAt).getTime() <= Date.now()) {
+    return {
+      valid: false,
+      reason: 'This coupon has expired.',
+      discountAmount: 0,
+      eligibleSubtotal: 0,
+      applicableProductIds: [],
+    };
+  }
+  if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+    return {
+      valid: false,
+      reason: 'This coupon has reached its redemption limit.',
+      discountAmount: 0,
+      eligibleSubtotal: 0,
+      applicableProductIds: [],
+    };
+  }
+  if (!isCouponAssignedToUser(coupon, input.user)) {
+    return {
+      valid: false,
+      reason:
+        'This exclusive coupon is assigned to specific registered customer accounts. Sign in with the invited account to use it.',
+      discountAmount: 0,
+      eligibleSubtotal: 0,
+      applicableProductIds: [],
+    };
+  }
+
+  const eligibleItems = input.items.filter((item) =>
+    isCouponEligibleForProduct(coupon, item.productId, item.sellerId)
+  );
+  if (eligibleItems.length === 0) {
+    return {
+      valid: false,
+      reason: 'None of the items currently in your bag are included in this coupon.',
+      discountAmount: 0,
+      eligibleSubtotal: 0,
+      applicableProductIds: [],
+    };
+  }
+
+  const eligibleSubtotal = eligibleItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+  if (eligibleSubtotal < coupon.minOrderAmount) {
+    return {
+      valid: false,
+      reason: `Add ₹${(coupon.minOrderAmount - eligibleSubtotal).toLocaleString('en-IN')} more of eligible pieces to unlock ${coupon.code}.`,
+      discountAmount: 0,
+      eligibleSubtotal,
+      applicableProductIds: eligibleItems.map((i) => i.productId),
+    };
+  }
+
+  let discountAmount =
+    coupon.discountType === 'percentage'
+      ? Math.round((eligibleSubtotal * coupon.discountValue) / 100)
+      : coupon.discountValue;
+
+  if (coupon.maxDiscountAmount && coupon.maxDiscountAmount > 0) {
+    discountAmount = Math.min(discountAmount, coupon.maxDiscountAmount);
+  }
+  discountAmount = Math.min(eligibleSubtotal - 1, Math.max(1, discountAmount));
+
+  return {
+    valid: true,
+    coupon,
+    discountAmount,
+    eligibleSubtotal,
+    applicableProductIds: Array.from(new Set(eligibleItems.map((i) => i.productId))),
+  };
+}
+
+// --- Seller Category Control Panel (Add, Enable / Disable, Delete Custom Categories) ---
+
+async function getAllCategoriesRaw(): Promise<CategoryControl[]> {
+  if (mongoConnected) {
+    const docs = await CategoryControlModel.find().sort({ sortOrder: 1, createdAt: 1 }).lean();
+    return docs.map((d: any) => ({
+      ...d,
+      _id: String(d._id),
+      sellerId: String(d.sellerId),
+      createdAt: new Date(d.createdAt).toISOString(),
+      updatedAt: new Date(d.updatedAt).toISOString(),
+    }));
+  }
+  return localState.categories;
+}
+
+export async function listCategories(includeDisabled = false): Promise<CategoryControl[]> {
+  const [cats, allProducts] = await Promise.all([getAllCategoriesRaw(), getAllProductsRaw()]);
+  const countByCat = new Map<string, number>();
+  for (const p of allProducts) {
+    if (!p.isActive) continue;
+    const key = p.category.toLowerCase();
+    countByCat.set(key, (countByCat.get(key) || 0) + 1);
+  }
+
+  return cats
+    .filter((c) => (includeDisabled ? true : c.isEnabled))
+    .map((c) => ({
+      ...c,
+      productCount: countByCat.get(c.name.toLowerCase()) || 0,
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+export async function createCategoryControl(input: {
+  sellerId: string;
+  sellerName: string;
+  name: string;
+  description?: string;
+}): Promise<CategoryControl> {
+  const cleanName = input.name.trim().replace(/\s+/g, ' ');
+  if (cleanName.length < 2) {
+    throw new Error('Category name must be at least 2 characters.');
+  }
+  const existingAll = await getAllCategoriesRaw();
+  if (existingAll.some((c) => c.name.toLowerCase() === cleanName.toLowerCase())) {
+    throw new Error(`Category "${cleanName}" already exists.`);
+  }
+
+  const slug = cleanName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+  const nowIso = new Date().toISOString();
+  const nextSort =
+    existingAll.reduce((max, c) => Math.max(max, c.sortOrder || 0), 0) + 1;
+
+  const created: CategoryControl = {
+    _id: `cat_${crypto.randomBytes(4).toString('hex')}`,
+    name: cleanName,
+    slug: slug || `cat-${crypto.randomBytes(2).toString('hex')}`,
+    description: (input.description || '').trim(),
+    sellerId: input.sellerId,
+    sellerName: input.sellerName,
+    isEnabled: true,
+    isDefault: false,
+    sortOrder: nextSort,
+    productCount: 0,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (mongoConnected) {
+    const doc = await CategoryControlModel.create({
+      name: created.name,
+      slug: created.slug,
+      description: created.description,
+      sellerId: created.sellerId,
+      sellerName: created.sellerName,
+      isEnabled: true,
+      isDefault: false,
+      sortOrder: created.sortOrder,
+    });
+    return { ...created, _id: String(doc._id) };
+  }
+
+  localState.categories.push(created);
+  saveLocalStore(localState);
+  return created;
+}
+
+export async function updateCategoryControl(
+  categoryId: string,
+  updates: {
+    isEnabled?: boolean;
+    name?: string;
+    description?: string;
+  }
+): Promise<CategoryControl | null> {
+  const cleanNewName = updates.name?.trim().replace(/\s+/g, ' ');
+
+  if (mongoConnected && mongoose.isValidObjectId(categoryId)) {
+    const doc = await CategoryControlModel.findById(categoryId);
+    if (!doc) return null;
+    const previousName = doc.name;
+    if (typeof updates.isEnabled === 'boolean') doc.isEnabled = updates.isEnabled;
+    if (cleanNewName && cleanNewName.length >= 2 && cleanNewName.toLowerCase() !== previousName.toLowerCase()) {
+      const dupe = await CategoryControlModel.findOne({ name: new RegExp(`^${cleanNewName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+      if (dupe) throw new Error(`Category "${cleanNewName}" already exists.`);
+      doc.name = cleanNewName;
+      doc.slug = cleanNewName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      await ProductModel.updateMany({ category: previousName }, { $set: { category: cleanNewName } });
+    }
+    if (updates.description !== undefined) doc.description = updates.description.trim();
+    await doc.save();
+    const obj = doc.toObject();
+    return {
+      ...obj,
+      _id: String(obj._id),
+      sellerId: String(obj.sellerId),
+      createdAt: new Date(obj.createdAt).toISOString(),
+      updatedAt: new Date(obj.updatedAt).toISOString(),
+    };
+  }
+
+  const found = localState.categories.find((c) => c._id === categoryId);
+  if (!found) return null;
+  const previousName = found.name;
+  if (typeof updates.isEnabled === 'boolean') found.isEnabled = updates.isEnabled;
+  if (cleanNewName && cleanNewName.length >= 2 && cleanNewName.toLowerCase() !== previousName.toLowerCase()) {
+    if (localState.categories.some((c) => c._id !== categoryId && c.name.toLowerCase() === cleanNewName.toLowerCase())) {
+      throw new Error(`Category "${cleanNewName}" already exists.`);
+    }
+    found.name = cleanNewName;
+    found.slug = cleanNewName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    for (const p of localState.products) {
+      if (p.category.toLowerCase() === previousName.toLowerCase()) {
+        p.category = cleanNewName;
+      }
+    }
+  }
+  if (updates.description !== undefined) found.description = updates.description.trim();
+  found.updatedAt = new Date().toISOString();
+  saveLocalStore(localState);
+
+  const count = localState.products.filter(
+    (p) => p.isActive && p.category.toLowerCase() === found.name.toLowerCase()
+  ).length;
+  return { ...found, productCount: count };
+}
+
+export async function deleteCategoryControl(categoryId: string): Promise<{ ok: boolean; error?: string }> {
+  const all = await listCategories(true);
+  const target = all.find((c) => c._id === categoryId);
+  if (!target) return { ok: false, error: 'Category not found.' };
+  if (target.isDefault) {
+    return {
+      ok: false,
+      error: 'Core categories cannot be permanently deleted; use Disable to hide them from shoppers.',
+    };
+  }
+  if ((target.productCount || 0) > 0) {
+    return {
+      ok: false,
+      error: `Category "${target.name}" has ${target.productCount} listed product(s). Disable it instead of deleting.`,
+    };
+  }
+
+  if (mongoConnected && mongoose.isValidObjectId(categoryId)) {
+    await CategoryControlModel.deleteOne({ _id: categoryId });
+    return { ok: true };
+  }
+
+  localState.categories = localState.categories.filter((c) => c._id !== categoryId);
+  saveLocalStore(localState);
+  return { ok: true };
+}
+
+
+

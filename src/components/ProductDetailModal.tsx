@@ -12,10 +12,12 @@ import {
   ShieldCheck,
   ShoppingBag,
   Star,
+  Tag,
   X,
   ZoomIn,
 } from 'lucide-react';
 import type {
+  Coupon,
   Product,
   ProductVariant,
   Review,
@@ -55,6 +57,7 @@ interface ProductDetailModalProps {
   onToggleCompare?: (product: Product) => void;
   categoryTop10Thresholds?: Record<string, number>;
   onProductLoaded?: (product: Product) => void;
+  onApplyCoupon?: (code: string) => void;
 }
 
 export function ProductDetailModal({
@@ -73,10 +76,13 @@ export function ProductDetailModal({
   onToggleCompare,
   categoryTop10Thresholds,
   onProductLoaded,
+  onApplyCoupon,
 }: ProductDetailModalProps) {
-  const { t, tc, to, tr, tsent } = useI18n();
+  const { t, tc, to, tseason, tr, tsent } = useI18n();
   const [loading, setLoading] = useState(false);
   const [product, setProduct] = useState<Product | null>(null);
+  const [productCoupons, setProductCoupons] = useState<Coupon[]>([]);
+  const [queuedCouponCode, setQueuedCouponCode] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [recommendations, setRecommendations] = useState<Product[]>([]);
   const [recStrategy, setRecStrategy] = useState('');
@@ -118,8 +124,17 @@ export function ProductDetailModal({
         setSelectedVariant(matchedInitial || data.product.variants[0] || null);
         setQuantity(1);
         setActiveSlide(0);
+        try {
+          const cRes = await apiFetch<{ coupons: Coupon[] }>(
+            `/api/coupons/applicable?productId=${encodeURIComponent(data.product._id)}`
+          );
+          setProductCoupons(cRes.coupons || []);
+        } catch {
+          setProductCoupons([]);
+        }
       } catch {
         setProduct(null);
+        setProductCoupons([]);
       } finally {
         setLoading(false);
       }
@@ -129,11 +144,13 @@ export function ProductDetailModal({
 
   useEffect(() => {
     if (productIdOrSlug) {
+      setQueuedCouponCode(null);
       loadProduct(productIdOrSlug);
     } else {
       setProduct(null);
+      setProductCoupons([]);
     }
-  }, [productIdOrSlug, loadProduct]);
+  }, [productIdOrSlug, user?._id, loadProduct]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -354,12 +371,78 @@ export function ProductDetailModal({
                   )}
                 </div>
 
-                {/* Occasions Line */}
-                <div className="text-xs text-[#57534E]">
-                  <span className="font-medium text-[#141413]">
-                    {t('detail.occasionsLabel')}:{' '}
-                  </span>
-                  {product.occasions.map((o) => to(o)).join(' · ')}
+                {/* Product-Level Seller Coupons (Assigned or Product-Selected) */}
+                {productCoupons.length > 0 && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-900">
+                      <Tag className="h-3.5 w-3.5" />
+                      <span>{t('coupon.productOffers')}</span>
+                    </div>
+                    <div className="space-y-2">
+                      {productCoupons.map((cpn) => {
+                        const isPersonal =
+                          cpn.assignedUserIds.length > 0 || cpn.assignedEmails.length > 0;
+                        const isQueued = queuedCouponCode === cpn.code;
+                        return (
+                          <div
+                            key={cpn._id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-200/80 bg-white px-3 py-2 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 font-semibold text-[#141413]">
+                                <span className="font-mono text-emerald-800">{cpn.code}</span>
+                                <span>·</span>
+                                <span>
+                                  {cpn.discountType === 'percentage'
+                                    ? `${cpn.discountValue}% off`
+                                    : `${formatINR(cpn.discountValue)} off`}
+                                </span>
+                                {isPersonal && (
+                                  <span className="text-[10px] font-semibold text-[#881337]">
+                                    · {t('coupon.assignedYou')}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-[#57534E]">{cpn.title}</div>
+                            </div>
+                            {onApplyCoupon && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setQueuedCouponCode(cpn.code);
+                                  onApplyCoupon(cpn.code);
+                                  if (selectedVariant) {
+                                    onAddToCart(product, selectedVariant, quantity);
+                                  }
+                                }}
+                                className="rounded border border-emerald-700 bg-emerald-700 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-800 cursor-pointer"
+                              >
+                                {isQueued ? t('card.added') : t('coupon.applyAtCheckout')}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Occasions & Seasons Line */}
+                <div className="space-y-1 text-xs text-[#57534E]">
+                  <div>
+                    <span className="font-medium text-[#141413]">
+                      {t('detail.occasionsLabel')}:{' '}
+                    </span>
+                    {product.occasions.map((o) => to(o)).join(' · ')}
+                  </div>
+                  {product.seasons && product.seasons.length > 0 && (
+                    <div>
+                      <span className="font-medium text-[#141413]">
+                        {t('seller.seasonsLabel')}:{' '}
+                      </span>
+                      {product.seasons.map((s) => tseason(s)).join(' · ')}
+                    </div>
+                  )}
                 </div>
 
                 {/* Color Swatch Selector */}

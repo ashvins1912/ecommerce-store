@@ -1,6 +1,25 @@
 export type UserRole = 'GUEST' | 'BUYER' | 'SELLER' | 'ADMIN';
 
-export type ProductCategory = 'Artificial Jewellery' | 'Clothing' | 'Accessories';
+export type BuiltinProductCategory = 'Artificial Jewellery' | 'Clothing' | 'Accessories';
+
+export type ProductCategory = BuiltinProductCategory | (string & {});
+
+export interface CategoryControl {
+  _id: string;
+  name: string;
+  slug: string;
+  description: string;
+  sellerId: string;
+  sellerName: string;
+  isEnabled: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  productCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SeasonType = 'Diwali' | 'Christmas' | 'New Year' | 'Winter' | 'Summer';
 
 export type OccasionType =
   | 'Wedding'
@@ -148,6 +167,7 @@ export interface Product {
   clothingSpecs?: ClothingSpecs;
   variants: ProductVariant[];
   occasions: OccasionType[];
+  seasons?: SeasonType[];
   likesCount: number;
   viewsCount: number;
   cartAddsCount: number;
@@ -217,6 +237,11 @@ export interface Order {
   sellerId: string;
   items: OrderItem[];
   totalAmount: number;
+  appliedCoupon?: {
+    couponId: string;
+    code: string;
+    discountAmount: number;
+  };
   status: OrderStatus;
   shippingAddress: Omit<ShippingAddress, 'label' | 'isDefault' | '_id'>;
   courierTracking?: CourierTracking;
@@ -248,11 +273,28 @@ export interface CartItem {
   sellerId: string;
 }
 
+export interface AuthSessionSummary {
+  sessionId: string;
+  tokenFingerprint: string;
+  tlsSecure: boolean;
+  protocol: string;
+  provider: 'google' | 'meta' | 'invite' | 'demo';
+  userAgent: string;
+  createdAt: string;
+  lastActiveAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  isCurrent?: boolean;
+}
+
 export interface AuthSessionResponse {
   authenticated: boolean;
   role: UserRole;
   user: User | null;
   guestToken: string;
+  accessToken?: string;
+  csrfToken?: string;
+  sessionInfo?: AuthSessionSummary | null;
   likedProductIds: string[];
   cart: CartItem[];
   oauthConfigured: {
@@ -266,7 +308,7 @@ export type SellerInviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
 export interface SellerInvite {
   _id: string;
   token: string;
-  email: string;
+  email?: string;
   storeName?: string;
   note?: string;
   invitedByUserId: string;
@@ -277,6 +319,61 @@ export interface SellerInvite {
   revokedAt?: string | null;
   expiresAt: string;
   createdAt: string;
+}
+
+export interface SalesCampaign {
+  _id: string;
+  sellerId: string;
+  sellerName: string;
+  name: string;
+  season: SeasonType;
+  tagline: string;
+  discountPercent: number;
+  startsAt: string;
+  endsAt: string;
+  productIds: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StorefrontCampaign extends SalesCampaign {
+  phase: 'upcoming' | 'live' | 'ended';
+  products: Product[];
+}
+
+export type CouponDiscountType = 'percentage' | 'flat';
+export type CouponScope = 'all_seller_products' | 'selected_products';
+
+export interface Coupon {
+  _id: string;
+  code: string;
+  sellerId: string;
+  sellerName: string;
+  title: string;
+  discountType: CouponDiscountType;
+  discountValue: number;
+  maxDiscountAmount?: number;
+  minOrderAmount: number;
+  scope: CouponScope;
+  productIds: string[];
+  assignedUserIds: string[];
+  assignedEmails: string[];
+  usageLimit?: number;
+  usedCount: number;
+  expiresAt: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CouponValidationResult {
+  valid: boolean;
+  reason?: string;
+  coupon?: Coupon;
+  discountAmount: number;
+  eligibleSubtotal: number;
+  applicableProductIds: string[];
 }
 
 export interface ProductListResponse {

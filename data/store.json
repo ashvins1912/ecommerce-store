@@ -212,7 +212,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-01T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali"
+      ]
     },
     {
       "_id": "prd_02",
@@ -299,7 +302,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-06T11:05:21.590Z",
-      "updatedAt": "2026-11-15T11:47:52.473Z"
+      "updatedAt": "2026-11-15T11:47:52.473Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Winter"
+      ]
     },
     {
       "_id": "prd_03",
@@ -410,7 +419,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-25T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali"
+      ]
     },
     {
       "_id": "prd_04",
@@ -554,7 +566,12 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-08T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year"
+      ]
     },
     {
       "_id": "prd_05",
@@ -680,7 +697,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-11T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Summer"
+      ]
     },
     {
       "_id": "prd_06",
@@ -751,7 +771,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-04T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Winter"
+      ]
     },
     {
       "_id": "prd_07",
@@ -819,7 +845,12 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-28T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Winter",
+        "Summer"
+      ]
     },
     {
       "_id": "prd_08",
@@ -888,7 +919,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-21T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali"
+      ]
     },
     {
       "_id": "prd_09",
@@ -967,7 +1001,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-12T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Summer"
+      ]
     },
     {
       "_id": "prd_10",
@@ -1036,7 +1073,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-30T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali"
+      ]
     },
     {
       "_id": "prd_11",
@@ -1107,7 +1147,12 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-09T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Christmas",
+        "New Year",
+        "Summer"
+      ]
     },
     {
       "_id": "prd_12",
@@ -1177,7 +1222,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-27T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Summer"
+      ]
     },
     {
       "_id": "prd_13",
@@ -1246,7 +1297,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-03T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali"
+      ]
     },
     {
       "_id": "prd_14",
@@ -1324,7 +1378,11 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-18T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Summer"
+      ]
     },
     {
       "_id": "prd_15",
@@ -1468,7 +1526,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-10T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Winter"
+      ]
     },
     {
       "_id": "prd_16",
@@ -1571,7 +1635,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-13T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Summer"
+      ]
     },
     {
       "_id": "prd_17",
@@ -1657,7 +1724,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-05T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Winter"
+      ]
     },
     {
       "_id": "prd_18",
@@ -1781,7 +1854,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-31T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Winter"
+      ]
     },
     {
       "_id": "prd_19",
@@ -1873,7 +1952,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-24T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Summer"
+      ]
     },
     {
       "_id": "prd_20",
@@ -1943,7 +2025,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-07T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Winter"
+      ]
     },
     {
       "_id": "prd_21",
@@ -2003,7 +2091,12 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-02T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year"
+      ]
     },
     {
       "_id": "prd_22",
@@ -2063,7 +2156,10 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-29T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali"
+      ]
     },
     {
       "_id": "prd_23",
@@ -2124,7 +2220,12 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-14T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year"
+      ]
     },
     {
       "_id": "prd_24",
@@ -2193,7 +2294,13 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-26T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year",
+        "Winter"
+      ]
     },
     {
       "_id": "prd_25",
@@ -2262,7 +2369,12 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-11-04T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Christmas",
+        "New Year"
+      ]
     },
     {
       "_id": "prd_26",
@@ -2387,7 +2499,12 @@
       "isProductTrusted": true,
       "isActive": true,
       "createdAt": "2026-10-23T11:05:21.590Z",
-      "updatedAt": "2026-11-14T11:05:21.590Z"
+      "updatedAt": "2026-11-14T11:05:21.590Z",
+      "seasons": [
+        "Diwali",
+        "Winter",
+        "Summer"
+      ]
     }
   ],
   "likes": [],
@@ -3310,5 +3427,315 @@
       "expiresAt": "2026-11-22T11:31:08.253Z",
       "createdAt": "2026-11-15T11:31:08.253Z"
     }
-  ]
+  ],
+  "sessions": [
+    {
+      "sessionId": "sess_e66f6baaf880cc3412b8a123",
+      "userId": "usr_seller_1",
+      "role": "SELLER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_689126e76471",
+      "csrfToken": "csrf_b50bb73f44313ab54f2ef144",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T12:19:05.417Z",
+      "lastActiveAt": "2026-11-15T12:19:05.417Z",
+      "expiresAt": "2026-12-15T12:19:05.417Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_af7b8b5002d2d650ab6940cd",
+      "userId": "usr_74aeb1f5e1",
+      "role": "SELLER",
+      "provider": "invite",
+      "tokenFingerprint": "tls_1e77556418a2",
+      "csrfToken": "csrf_2e3fdc000bd1d81ee7bc2338",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T12:19:05.381Z",
+      "lastActiveAt": "2026-11-15T12:19:05.381Z",
+      "expiresAt": "2026-12-15T12:19:05.381Z",
+      "revokedAt": "2026-11-15T12:19:05.393Z"
+    },
+    {
+      "sessionId": "sess_c5233fc7d641a9a66e8d8dd8",
+      "userId": "usr_74aeb1f5e1",
+      "role": "SELLER",
+      "provider": "invite",
+      "tokenFingerprint": "tls_244327aa5a99",
+      "csrfToken": "csrf_9f5f87ef70eeb04a41be6143",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T12:19:05.348Z",
+      "lastActiveAt": "2026-11-15T12:19:05.348Z",
+      "expiresAt": "2026-12-15T12:19:05.348Z",
+      "revokedAt": "2026-11-15T12:19:05.379Z"
+    },
+    {
+      "sessionId": "sess_6ad4fcf5adc574a59ddb6fc0",
+      "userId": "usr_admin_1",
+      "role": "ADMIN",
+      "provider": "demo",
+      "tokenFingerprint": "tls_c0b76a4631cf",
+      "csrfToken": "csrf_db1ab9eed6bc0b0626c18b3a",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T12:19:05.302Z",
+      "lastActiveAt": "2026-11-15T12:19:05.302Z",
+      "expiresAt": "2026-12-15T12:19:05.302Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_107c57a724e77c6964ff8ec2",
+      "userId": "usr_buyer_1",
+      "role": "BUYER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_1c07837a8acf",
+      "csrfToken": "csrf_c5e6c451993b8438b44bf30c",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T12:19:05.276Z",
+      "lastActiveAt": "2026-11-15T12:19:05.276Z",
+      "expiresAt": "2026-12-15T12:19:05.276Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_2809d97a86f4dd0453bebd85",
+      "userId": "usr_admin_1",
+      "role": "ADMIN",
+      "provider": "demo",
+      "tokenFingerprint": "tls_638027433fe1",
+      "csrfToken": "csrf_1bfc192156bae7c0933b3162",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T12:18:09.715Z",
+      "lastActiveAt": "2026-11-15T12:18:09.715Z",
+      "expiresAt": "2026-12-15T12:18:09.715Z",
+      "revokedAt": null
+    },
+    {
+      "sessionId": "sess_137c374e16046a4916ea146c",
+      "userId": "usr_buyer_1",
+      "role": "BUYER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_54863b2835a6",
+      "csrfToken": "csrf_8c8ae9a5fb17f9a2df4d05fc",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T12:18:09.681Z",
+      "lastActiveAt": "2026-11-15T12:18:09.681Z",
+      "expiresAt": "2026-12-15T12:18:09.681Z",
+      "revokedAt": null
+    }
+  ],
+  "salesCampaigns": [
+    {
+      "_id": "cmp_diwali_flash",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "name": "Diwali Royal Kundan Flash Sale",
+      "season": "Diwali",
+      "tagline": "22k gold-plated kundan chokers, polki bangles & festive heirloom drops.",
+      "discountPercent": 30,
+      "startsAt": "2026-11-15T14:47:37.218Z",
+      "endsAt": "2026-11-18T14:17:37.218Z",
+      "productIds": [
+        "prd_01",
+        "prd_02",
+        "prd_03",
+        "prd_08"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-14T12:17:37.218Z",
+      "updatedAt": "2026-11-15T11:17:37.218Z"
+    },
+    {
+      "_id": "cmp_winter_gala",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "name": "Winter Velvet & Handloom Silks",
+      "season": "Winter",
+      "tagline": "Chanderi silk-velvet capes, raw silk jackets & Banarasi winter stoles.",
+      "discountPercent": 22,
+      "startsAt": "2026-11-15T04:17:37.218Z",
+      "endsAt": "2026-11-19T12:17:37.218Z",
+      "productIds": [
+        "prd_04",
+        "prd_06",
+        "prd_17",
+        "prd_18"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-13T12:17:37.218Z",
+      "updatedAt": "2026-11-15T10:17:37.218Z"
+    },
+    {
+      "_id": "cmp_newyear_soiree",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "name": "Christmas & New Year Cocktail Edit",
+      "season": "New Year",
+      "tagline": "Sculpted brass cuffs, cocktail rings & satin evening clutches.",
+      "discountPercent": 25,
+      "startsAt": "2026-11-16T04:47:37.218Z",
+      "endsAt": "2026-11-20T12:17:37.218Z",
+      "productIds": [
+        "prd_11",
+        "prd_12",
+        "prd_21",
+        "prd_25"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-15T00:17:37.218Z",
+      "updatedAt": "2026-11-15T11:17:37.218Z"
+    },
+    {
+      "_id": "cmp_summer_loom",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "name": "Summer Breathable Linen & Mulmul",
+      "season": "Summer",
+      "tagline": "Featherlight Bagru block-print tunics, khadi dresses & airy linen co-ords.",
+      "discountPercent": 18,
+      "startsAt": "2026-11-15T08:17:37.218Z",
+      "endsAt": "2026-11-21T08:17:37.218Z",
+      "productIds": [
+        "prd_05",
+        "prd_16",
+        "prd_19",
+        "prd_09"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-14T16:17:37.218Z",
+      "updatedAt": "2026-11-15T11:17:37.218Z"
+    }
+  ],
+  "coupons": [
+    {
+      "_id": "cpn_meera_15",
+      "code": "MEERA15",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "title": "Selected Kundan & Polki Privilege",
+      "discountType": "percentage",
+      "discountValue": 15,
+      "maxDiscountAmount": 750,
+      "minOrderAmount": 999,
+      "scope": "selected_products",
+      "productIds": [
+        "prd_01",
+        "prd_02",
+        "prd_03",
+        "prd_08"
+      ],
+      "assignedUserIds": [],
+      "assignedEmails": [],
+      "usageLimit": 200,
+      "usedCount": 14,
+      "expiresAt": "2026-12-30T12:17:37.178Z",
+      "isActive": true,
+      "createdAt": "2026-11-10T12:17:37.178Z",
+      "updatedAt": "2026-11-14T12:17:37.178Z"
+    },
+    {
+      "_id": "cpn_ananya_20",
+      "code": "ANANYA20",
+      "sellerId": "usr_seller_1",
+      "sellerName": "Zaveri Atelier",
+      "title": "VIP Customer Reward — Extra 20% Off",
+      "discountType": "percentage",
+      "discountValue": 20,
+      "maxDiscountAmount": 1000,
+      "minOrderAmount": 500,
+      "scope": "all_seller_products",
+      "productIds": [],
+      "assignedUserIds": [
+        "usr_buyer_1"
+      ],
+      "assignedEmails": [
+        "ananya.mehta@example.com"
+      ],
+      "usageLimit": 5,
+      "usedCount": 0,
+      "expiresAt": "2027-01-14T12:17:37.178Z",
+      "isActive": true,
+      "createdAt": "2026-11-13T12:17:37.178Z",
+      "updatedAt": "2026-11-14T12:17:37.178Z"
+    },
+    {
+      "_id": "cpn_loom_300",
+      "code": "LOOM300",
+      "sellerId": "usr_seller_2",
+      "sellerName": "Jaipur Loom Studio",
+      "title": "Flat ₹300 Off Ethnic Sets & Potlis",
+      "discountType": "flat",
+      "discountValue": 300,
+      "minOrderAmount": 1800,
+      "scope": "selected_products",
+      "productIds": [
+        "prd_04",
+        "prd_05",
+        "prd_06",
+        "prd_15",
+        "prd_17"
+      ],
+      "assignedUserIds": [],
+      "assignedEmails": [],
+      "usageLimit": 100,
+      "usedCount": 6,
+      "expiresAt": "2026-12-15T12:17:37.178Z",
+      "isActive": true,
+      "createdAt": "2026-11-12T12:17:37.178Z",
+      "updatedAt": "2026-11-14T12:17:37.178Z"
+    }
+  ],
+  "categories": [
+    {
+      "_id": "cat_jewellery",
+      "name": "Artificial Jewellery",
+      "slug": "artificial-jewellery",
+      "description": "Kundan chokers, jhumkas, meenakari bangles, and ceremonial sets.",
+      "sellerId": "usr_admin_1",
+      "sellerName": "Kala & Karat Ops",
+      "isEnabled": true,
+      "isDefault": true,
+      "sortOrder": 1,
+      "createdAt": "2026-11-15T12:17:37.219Z",
+      "updatedAt": "2026-11-15T12:17:37.219Z"
+    },
+    {
+      "_id": "cat_clothing",
+      "name": "Clothing",
+      "slug": "clothing",
+      "description": "Handloom Chanderi, linen, mulmul, and embroidered ethnic silhouettes.",
+      "sellerId": "usr_admin_1",
+      "sellerName": "Kala & Karat Ops",
+      "isEnabled": true,
+      "isDefault": true,
+      "sortOrder": 2,
+      "createdAt": "2026-11-15T12:17:37.219Z",
+      "updatedAt": "2026-11-15T12:17:37.219Z"
+    },
+    {
+      "_id": "cat_accessories",
+      "name": "Accessories",
+      "slug": "accessories",
+      "description": "Zari potlis, artisanal stoles, clutches, and hair ornaments.",
+      "sellerId": "usr_admin_1",
+      "sellerName": "Kala & Karat Ops",
+      "isEnabled": true,
+      "isDefault": true,
+      "sortOrder": 3,
+      "createdAt": "2026-11-15T12:17:37.219Z",
+      "updatedAt": "2026-11-15T12:19:05.627Z"
+    }
+  ],
+  "authSessions": []
 }

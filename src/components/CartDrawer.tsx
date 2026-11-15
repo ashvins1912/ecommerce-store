@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { CheckCircle2, ExternalLink, Minus, Plus, Trash2, X } from 'lucide-react';
-import type { CartItem, Order, User } from '../shared/types';
+import { useCallback, useEffect, useState } from 'react';
+import { CheckCircle2, ExternalLink, Minus, Plus, Tag, Trash2, X } from 'lucide-react';
+import type { CartItem, Coupon, CouponValidationResult, Order, User } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
@@ -14,6 +14,8 @@ interface CartDrawerProps {
   onUserUpdated: (user: User) => void;
   onOrderCompleted: (orders: Order[]) => void;
   onRequireAuth: () => void;
+  pendingCouponCode?: string | null;
+  onClearPendingCoupon?: () => void;
 }
 
 export function CartDrawer({
@@ -26,6 +28,8 @@ export function CartDrawer({
   onUserUpdated,
   onOrderCompleted,
   onRequireAuth,
+  pendingCouponCode,
+  onClearPendingCoupon,
 }: CartDrawerProps) {
   const { t } = useI18n();
   const [showGateModal, setShowGateModal] = useState(false);
@@ -39,11 +43,75 @@ export function CartDrawer({
   const [error, setError] = useState<string | null>(null);
   const [confirmedOrders, setConfirmedOrders] = useState<Order[] | null>(null);
 
-  if (!isOpen) return null;
+  // Coupon state
+  const [couponInput, setCouponInput] = useState('');
+  const [availableCoupons, setAvailableCoupons] = useState<Coupon[]>([]);
+  const [appliedValidation, setAppliedValidation] = useState<CouponValidationResult | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
 
   const subtotal = cart.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
   const baseTotal = cart.reduce((sum, i) => sum + i.basePrice * i.quantity, 0);
-  const totalSavings = Math.max(0, baseTotal - subtotal);
+  const catalogSavings = Math.max(0, baseTotal - subtotal);
+  const couponDiscount = appliedValidation?.valid ? appliedValidation.discountAmount : 0;
+  const finalTotal = Math.max(1, subtotal - couponDiscount);
+
+  const validateAndApplyCoupon = useCallback(
+    async (rawCode: string) => {
+      const code = rawCode.trim().toUpperCase();
+      if (!code || cart.length === 0) return;
+      setCouponError(null);
+      setValidatingCoupon(true);
+      try {
+        const res = await apiFetch<CouponValidationResult>('/api/coupons/validate', {
+          method: 'POST',
+          body: JSON.stringify({ code, items: cart }),
+        });
+        if (res.valid) {
+          setAppliedValidation(res);
+          setCouponInput(res.coupon?.code || code);
+          setCouponError(null);
+        } else {
+          setAppliedValidation(null);
+          setCouponError(res.reason || 'Coupon is not eligible for your current bag.');
+        }
+      } catch (err) {
+        setAppliedValidation(null);
+        setCouponError((err as Error).message);
+      } finally {
+        setValidatingCoupon(false);
+      }
+    },
+    [cart]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    apiFetch<{ coupons: Coupon[] }>('/api/coupons/applicable')
+      .then((res) => setAvailableCoupons(res.coupons || []))
+      .catch(() => setAvailableCoupons([]));
+  }, [isOpen, user?._id]);
+
+  useEffect(() => {
+    if (isOpen && pendingCouponCode && cart.length > 0) {
+      setCouponInput(pendingCouponCode);
+      void validateAndApplyCoupon(pendingCouponCode);
+      onClearPendingCoupon?.();
+    }
+  }, [isOpen, pendingCouponCode, cart.length, validateAndApplyCoupon, onClearPendingCoupon]);
+
+  useEffect(() => {
+    if (cart.length === 0) {
+      setAppliedValidation(null);
+      setCouponError(null);
+      return;
+    }
+    if (appliedValidation?.valid && appliedValidation.coupon?.code) {
+      void validateAndApplyCoupon(appliedValidation.coupon.code);
+    }
+  }, [subtotal, cart.length]);
+
+  if (!isOpen) return null;
 
   const placeOrderNow = async () => {
     setError(null);
@@ -51,9 +119,16 @@ export function CartDrawer({
     try {
       const data = await apiFetch<{ orders: Order[] }>('/api/orders', {
         method: 'POST',
-        body: JSON.stringify({ items: cart }),
+        body: JSON.stringify({
+          items: cart,
+          ...(appliedValidation?.valid && appliedValidation.coupon?.code
+            ? { couponCode: appliedValidation.coupon.code }
+            : {}),
+        }),
       });
       setConfirmedOrders(data.orders);
+      setAppliedValidation(null);
+      setCouponInput('');
       onOrderCompleted(data.orders);
     } catch (err: any) {
       if (err.code === 'AUTH_REQUIRED' || err.status === 401) {
@@ -160,6 +235,14 @@ export function CartDrawer({
                     <span className="font-mono">{ord.orderNumber}</span>
                     <span>{formatINR(ord.totalAmount)}</span>
                   </div>
+                  {ord.appliedCoupon && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-800">
+                      <Tag className="h-3 w-3" />
+                      <span>
+                        {ord.appliedCoupon.code} · -{formatINR(ord.appliedCoupon.discountAmount)}
+                      </span>
+                    </div>
+                  )}
                   <div className="text-[#57534E]">
                     {t('cart.deliverTo')}: {ord.shippingAddress.fullName}, {ord.shippingAddress.city}{' '}
                     {ord.shippingAddress.pincode}
@@ -245,23 +328,110 @@ export function CartDrawer({
           )}
         </div>
 
-        {/* Footer Totals & Proceed Button */}
+        {/* Footer Coupons, Totals & Proceed Button */}
         {cart.length > 0 && !confirmedOrders && (
-          <div className="border-t border-[#E8E6E1] bg-[#FAF9F6] p-6 space-y-4">
+          <div className="border-t border-[#E8E6E1] bg-[#FAF9F6] p-5 space-y-4">
+            {/* Checkout Coupon Selector & Code Input */}
+            <div className="rounded-md border border-[#E8E6E1] bg-white p-3 space-y-2.5">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  placeholder={t('coupon.codePlaceholder')}
+                  className="flex-1 rounded border border-[#D6D3CD] px-2.5 py-1.5 text-xs font-mono uppercase focus:border-[#881337] focus:outline-none"
+                />
+                {appliedValidation?.valid ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedValidation(null);
+                      setCouponInput('');
+                      setCouponError(null);
+                    }}
+                    className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs font-medium text-[#57534E] hover:bg-[#F5F3EE] cursor-pointer"
+                  >
+                    {t('coupon.removeBtn')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={validatingCoupon || !couponInput.trim()}
+                    onClick={() => validateAndApplyCoupon(couponInput)}
+                    className="rounded bg-[#141413] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2A2927] disabled:opacity-40 cursor-pointer"
+                  >
+                    {validatingCoupon ? t('coupon.validating') : t('coupon.applyBtn')}
+                  </button>
+                )}
+              </div>
+
+              {couponError && <p className="text-[11px] text-red-700">{couponError}</p>}
+
+              {availableCoupons.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#6B6A65]">
+                    {t('coupon.availableTitle')}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {availableCoupons.map((cpn) => {
+                      const isActive = appliedValidation?.coupon?.code === cpn.code;
+                      const isPersonal =
+                        cpn.assignedUserIds.length > 0 || cpn.assignedEmails.length > 0;
+                      return (
+                        <button
+                          key={cpn._id}
+                          type="button"
+                          onClick={() => validateAndApplyCoupon(cpn.code)}
+                          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] transition-colors cursor-pointer ${
+                            isActive
+                              ? 'border-emerald-700 bg-emerald-50 font-semibold text-emerald-900'
+                              : 'border-[#E8E6E1] bg-[#FAF9F6] text-[#44403C] hover:border-[#881337]'
+                          }`}
+                        >
+                          <Tag className="h-3 w-3 text-[#881337]" />
+                          <span className="font-mono font-semibold">{cpn.code}</span>
+                          <span className="text-[#6B6A65]">
+                            (
+                            {cpn.discountType === 'percentage'
+                              ? `${cpn.discountValue}%`
+                              : formatINR(cpn.discountValue)}
+                            )
+                          </span>
+                          {isPersonal && (
+                            <span className="text-[10px] font-medium text-[#881337]">
+                              · {t('coupon.assignedYou')}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-1.5 text-xs tabular-nums">
               <div className="flex justify-between text-[#57534E]">
                 <span>{t('cart.subtotal')}</span>
                 <span>{formatINR(subtotal)}</span>
               </div>
-              {totalSavings > 0 && (
+              {catalogSavings > 0 && (
                 <div className="flex justify-between text-emerald-700 font-medium">
                   <span>{t('cart.savings')}</span>
-                  <span>-{formatINR(totalSavings)}</span>
+                  <span>-{formatINR(catalogSavings)}</span>
+                </div>
+              )}
+              {appliedValidation?.valid && couponDiscount > 0 && (
+                <div className="flex justify-between text-emerald-800 font-semibold">
+                  <span>
+                    {t('coupon.discountLine', { code: appliedValidation.coupon?.code || '' })}
+                  </span>
+                  <span>-{formatINR(couponDiscount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-sm font-semibold text-[#141413] pt-2 border-t border-[#E8E6E1]">
                 <span>{t('cart.total')}</span>
-                <span>{formatINR(subtotal)}</span>
+                <span>{formatINR(finalTotal)}</span>
               </div>
             </div>
 

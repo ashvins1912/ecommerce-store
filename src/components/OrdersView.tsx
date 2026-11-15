@@ -165,6 +165,14 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                     >
                       {ts(order.status)}
                     </span>
+                    {order.appliedCoupon && (
+                      <>
+                        <span className="text-[#A8A29E]">·</span>
+                        <span className="font-mono text-[11px] font-medium text-emerald-800">
+                          {order.appliedCoupon.code} (-{formatINR(order.appliedCoupon.discountAmount)})
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-4">

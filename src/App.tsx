@@ -13,12 +13,16 @@ import {
 import type {
   AuthSessionResponse,
   CartItem,
+  CategoryControl,
+  Coupon,
   OccasionType,
   Product,
   ProductCategory,
   ProductListResponse,
   ProductVariant,
+  SeasonType,
   SortOption,
+  StorefrontCampaign,
   User,
 } from './shared/types';
 import { apiFetch } from './lib/api';
@@ -34,6 +38,7 @@ import { SellerHubView } from './components/SellerHubView';
 import { WishlistView } from './components/WishlistView';
 import { JewelleryCompareModal } from './components/JewelleryCompareModal';
 import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
+import { FlashSaleSection } from './components/FlashSaleSection';
 
 const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
 const RECENT_STORAGE_KEY = 'kk_recently_viewed';
@@ -48,6 +53,24 @@ const OCCASIONS: Array<OccasionType | 'All'> = [
   'Daily Wear',
 ];
 
+const SEASONS: Array<SeasonType | 'All'> = [
+  'All',
+  'Diwali',
+  'Christmas',
+  'New Year',
+  'Winter',
+  'Summer',
+];
+
+const QUICK_SEARCH_CHIPS = [
+  'Kundan',
+  'Diwali',
+  'Under 2000',
+  'Earring',
+  'Linen',
+  'Winter Velvet',
+];
+
 const SORT_OPTION_VALUES: SortOption[] = [
   'most_demanding',
   'newly_added',
@@ -58,6 +81,17 @@ const SORT_OPTION_VALUES: SortOption[] = [
   'price_desc',
   'highest_rated',
 ];
+
+function findMatchingCouponForProduct(product: Product, coupons: Coupon[]): Coupon | null {
+  for (const c of coupons) {
+    if (c.scope === 'selected_products') {
+      if (c.productIds.includes(product._id)) return c;
+    } else if (c.sellerId === product.sellerId || c.sellerId === 'usr_admin_1') {
+      return c;
+    }
+  }
+  return null;
+}
 
 function readSessionRecentlyViewed(): Product[] {
   if (typeof window === 'undefined') return [];
@@ -72,7 +106,7 @@ function readSessionRecentlyViewed(): Product[] {
 }
 
 export default function App() {
-  const { t, tc, to, tsort } = useI18n();
+  const { t, tc, to, tseason, tsort } = useI18n();
   const [activePage, setActivePage] = useState<ActivePage>('store');
   const [user, setUser] = useState<User | null>(null);
   const [oauthConfigured, setOauthConfigured] = useState({ google: false, meta: false });
@@ -80,15 +114,25 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [sellerInviteToken, setSellerInviteToken] = useState<string | null>(null);
 
-  // Storefront search, filters & strict limit(20) pagination
+  // Storefront search, dynamic categories, seasonal campaigns & strict limit(20) pagination
+  const [storeCategories, setStoreCategories] = useState<CategoryControl[]>([]);
+  const [campaigns, setCampaigns] = useState<StorefrontCampaign[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [applicableCoupons, setApplicableCoupons] = useState<Coupon[]>([]);
+  const [pendingCouponCode, setPendingCouponCode] = useState<string | null>(null);
+
   const [searchInput, setSearchInput] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [category, setCategory] = useState<ProductCategory | 'All'>('All');
   const [occasion, setOccasion] = useState<OccasionType | 'All'>('All');
+  const [season, setSeason] = useState<SeasonType | 'All'>('All');
   const [sort, setSort] = useState<SortOption>('most_demanding');
+  const [minPrice, setMinPrice] = useState<string>('');
   const [maxPrice, setMaxPrice] = useState<string>('');
+  const [minDiscount, setMinDiscount] = useState<string>('');
+  const [inStockOnly, setInStockOnly] = useState(false);
   const [colorFilter, setColorFilter] = useState<string>('');
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [page, setPage] = useState(1);
@@ -99,6 +143,7 @@ export default function App() {
     page: 1,
     limit: 20,
     totalPages: 1,
+    didYouMean: null,
     categoryTop10Thresholds: {},
   });
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -151,14 +196,14 @@ export default function App() {
     }
   }, []);
 
-  // Support shared WhatsApp product deep-links (?product=...), Admin invite links (?sellerInvite=...), and hero scroll tracking
+  // Support shared WhatsApp product deep-links (?product=...), Admin invite links (?sellerInvite=... or ?invite=...), and hero scroll tracking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sharedProd = params.get('product');
     if (sharedProd) {
       setSelectedProductKey(sharedProd);
     }
-    const inviteParam = params.get('sellerInvite');
+    const inviteParam = params.get('sellerInvite') || params.get('invite');
     if (inviteParam) {
       setSellerInviteToken(inviteParam);
       setActivePage('seller');
@@ -227,17 +272,51 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  const fetchStoreMeta = useCallback(async () => {
+    try {
+      const [catRes, cmpRes, cpnRes] = await Promise.all([
+        apiFetch<{ categories: CategoryControl[] }>('/api/categories'),
+        apiFetch<{ campaigns: StorefrontCampaign[] }>('/api/campaigns'),
+        apiFetch<{ coupons: Coupon[] }>('/api/coupons/applicable'),
+      ]);
+      const enabledCats = catRes.categories || [];
+      setStoreCategories(enabledCats);
+      setCampaigns(cmpRes.campaigns || []);
+      setApplicableCoupons(cpnRes.coupons || []);
+
+      if (
+        enabledCats.length > 0 &&
+        category !== 'All' &&
+        !enabledCats.some((c) => c.name.toLowerCase() === category.toLowerCase())
+      ) {
+        setCategory('All');
+        setPage(1);
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }, [category]);
+
+  useEffect(() => {
+    fetchStoreMeta();
+  }, [fetchStoreMeta, user?._id]);
+
   const fetchCatalog = useCallback(async () => {
     setCatalogLoading(true);
     try {
       const params = new URLSearchParams({
         category,
         occasion,
+        season,
         sort,
         page: String(page),
       });
       if (debouncedQuery) params.set('q', debouncedQuery);
+      if (selectedCampaignId) params.set('campaignId', selectedCampaignId);
+      if (minPrice) params.set('minPrice', minPrice);
       if (maxPrice) params.set('maxPrice', maxPrice);
+      if (minDiscount) params.set('minDiscount', minDiscount);
+      if (inStockOnly) params.set('inStockOnly', 'true');
       if (colorFilter.trim()) params.set('color', colorFilter.trim());
 
       const data = await apiFetch<ProductListResponse>(`/api/products?${params}`);
@@ -245,7 +324,20 @@ export default function App() {
     } finally {
       setCatalogLoading(false);
     }
-  }, [category, occasion, sort, page, debouncedQuery, maxPrice, colorFilter]);
+  }, [
+    category,
+    occasion,
+    season,
+    selectedCampaignId,
+    sort,
+    page,
+    debouncedQuery,
+    minPrice,
+    maxPrice,
+    minDiscount,
+    inStockOnly,
+    colorFilter,
+  ]);
 
   useEffect(() => {
     fetchCatalog();
@@ -395,6 +487,7 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       url.searchParams.delete('sellerInvite');
+      url.searchParams.delete('invite');
       window.history.replaceState({}, '', url.toString());
     }
   }, []);
@@ -458,7 +551,10 @@ export default function App() {
               }
             }}
             onOpenAuth={() => setAuthOpen(true)}
-            onCatalogMutated={fetchCatalog}
+            onCatalogMutated={() => {
+              fetchCatalog();
+              fetchStoreMeta();
+            }}
             inviteToken={sellerInviteToken}
             onInviteConsumed={handleInviteConsumed}
             onReturnToStore={() => setActivePage('store')}
@@ -518,97 +614,184 @@ export default function App() {
             </div>
           </section>
 
-          {/* Hybrid Search, Occasion Segmented Filters & Strict 20-Item Catalog */}
+          {/* Seasonal Flash Sales Countdown Section */}
+          <FlashSaleSection
+            campaigns={campaigns}
+            activeCampaignId={selectedCampaignId}
+            onSelectCampaign={(campaign) => {
+              setSelectedCampaignId((prev) => (prev === campaign._id ? null : campaign._id));
+              setPage(1);
+              catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            onSelectSeason={(ssn) => {
+              setSeason(ssn);
+              setSelectedCampaignId(null);
+              setPage(1);
+              catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            onOpenProduct={handleSelectProduct}
+          />
+
+          {/* Hybrid Search, Occasion & Season Segmented Filters & Strict 20-Item Catalog */}
           <section
             ref={catalogRef}
             className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-10 space-y-6"
           >
             {/* Search + Sort Bar */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-xl">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#78716C]" />
-                <input
-                  type="search"
-                  value={searchInput}
-                  onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSuggestions(false), 180)}
-                  onChange={(e) => {
-                    setSearchInput(e.target.value);
-                    setShowSuggestions(true);
-                  }}
-                  placeholder={t('search.placeholder')}
-                  className="w-full rounded-md border border-[#D6D3CD] bg-white py-2.5 pl-10 pr-9 text-sm text-[#141413] placeholder:text-[#A8A29E] focus:border-[#881337] focus:outline-none"
-                />
-                {searchInput && (
+            <div className="space-y-2.5">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="relative flex-1 max-w-xl">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#78716C]" />
+                  <input
+                    type="search"
+                    value={searchInput}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 180)}
+                    onChange={(e) => {
+                      setSearchInput(e.target.value);
+                      setShowSuggestions(true);
+                    }}
+                    placeholder={t('search.placeholder')}
+                    className="w-full rounded-md border border-[#D6D3CD] bg-white py-2.5 pl-10 pr-9 text-sm text-[#141413] placeholder:text-[#A8A29E] focus:border-[#881337] focus:outline-none"
+                  />
+                  {searchInput && (
+                    <button
+                      type="button"
+                      aria-label={t('search.clear')}
+                      onClick={() => {
+                        setSearchInput('');
+                        setDebouncedQuery('');
+                        setSuggestions([]);
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#78716C] hover:text-[#141413] cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+
+                  {showSuggestions && suggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-md border border-[#E8E6E1] bg-white py-1 shadow-lg">
+                      {suggestions.map((sug) => (
+                        <button
+                          key={sug}
+                          type="button"
+                          onMouseDown={() => {
+                            setSearchInput(sug);
+                            setDebouncedQuery(sug);
+                            setShowSuggestions(false);
+                          }}
+                          className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
+                        >
+                          <Search className="h-3 w-3 text-[#881337]" />
+                          <span>{sug}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sort & Attribute Filter Toggle */}
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    aria-label={t('search.clear')}
-                    onClick={() => {
-                      setSearchInput('');
-                      setDebouncedQuery('');
-                      setSuggestions([]);
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#78716C] hover:text-[#141413] cursor-pointer"
+                    onClick={() => setShowMoreFilters((v) => !v)}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                      showMoreFilters ||
+                      minPrice ||
+                      maxPrice ||
+                      minDiscount ||
+                      inStockOnly ||
+                      colorFilter
+                        ? 'border-[#881337] bg-[#881337]/5 text-[#881337]'
+                        : 'border-[#D6D3CD] bg-white text-[#141413]'
+                    }`}
                   >
-                    <X className="h-4 w-4" />
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    <span>{t('filter.priceColor')}</span>
                   </button>
-                )}
 
-                {showSuggestions && suggestions.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-md border border-[#E8E6E1] bg-white py-1 shadow-lg">
-                    {suggestions.map((sug) => (
-                      <button
-                        key={sug}
-                        type="button"
-                        onMouseDown={() => {
-                          setSearchInput(sug);
-                          setDebouncedQuery(sug);
-                          setShowSuggestions(false);
-                        }}
-                        className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
-                      >
-                        <Search className="h-3 w-3 text-[#881337]" />
-                        <span>{sug}</span>
-                      </button>
+                  <select
+                    aria-label={t('filter.sortPrefix')}
+                    value={sort}
+                    onChange={(e) => {
+                      setSort(e.target.value as SortOption);
+                      setPage(1);
+                    }}
+                    className="rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs font-medium text-[#141413] focus:border-[#881337] focus:outline-none cursor-pointer"
+                  >
+                    {SORT_OPTION_VALUES.map((val) => (
+                      <option key={val} value={val}>
+                        {t('filter.sortPrefix')}: {tsort(val)}
+                      </option>
                     ))}
-                  </div>
-                )}
+                  </select>
+                </div>
               </div>
 
-              {/* Sort & Attribute Filter Toggle */}
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowMoreFilters((v) => !v)}
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
-                    showMoreFilters || maxPrice || colorFilter
-                      ? 'border-[#881337] bg-[#881337]/5 text-[#881337]'
-                      : 'border-[#D6D3CD] bg-white text-[#141413]'
-                  }`}
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5" />
-                  <span>{t('filter.priceColor')}</span>
-                </button>
-
-                <select
-                  aria-label={t('filter.sortPrefix')}
-                  value={sort}
-                  onChange={(e) => {
-                    setSort(e.target.value as SortOption);
-                    setPage(1);
-                  }}
-                  className="rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs font-medium text-[#141413] focus:border-[#881337] focus:outline-none cursor-pointer"
-                >
-                  {SORT_OPTION_VALUES.map((val) => (
-                    <option key={val} value={val}>
-                      {t('filter.sortPrefix')}: {tsort(val)}
-                    </option>
-                  ))}
-                </select>
+              {/* Flexible Search Hints & Quick Chips */}
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#6B6A65]">
+                <span>{t('search.quickLabel')}</span>
+                {QUICK_SEARCH_CHIPS.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => {
+                      setSearchInput(chip);
+                      setDebouncedQuery(chip);
+                      setPage(1);
+                    }}
+                    className={`rounded border px-2 py-0.5 transition-colors cursor-pointer ${
+                      searchInput.toLowerCase() === chip.toLowerCase()
+                        ? 'border-[#881337] bg-[#881337]/5 text-[#881337] font-medium'
+                        : 'border-[#E8E6E1] bg-white text-[#57534E] hover:border-[#141413]'
+                    }`}
+                  >
+                    {chip}
+                  </button>
+                ))}
+                <span className="hidden sm:inline text-[#A8A29E]">· {t('search.flexibleHint')}</span>
               </div>
+
+              {catalog.didYouMean && (
+                <div className="text-xs text-[#57534E]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchInput(catalog.didYouMean!);
+                      setDebouncedQuery(catalog.didYouMean!);
+                      setPage(1);
+                    }}
+                    className="font-semibold text-[#881337] hover:underline cursor-pointer"
+                  >
+                    {t('search.didYouMean', { term: catalog.didYouMean })}
+                  </button>
+                </div>
+              )}
+
+              {selectedCampaignId && (
+                <div className="flex items-center justify-between rounded-md border border-[#881337]/25 bg-[#881337]/5 px-3.5 py-2 text-xs">
+                  <span className="font-semibold text-[#881337]">
+                    {t('flash.filteringCampaign', {
+                      name:
+                        campaigns.find((c) => c._id === selectedCampaignId)?.name ||
+                        selectedCampaignId,
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCampaignId(null);
+                      setPage(1);
+                    }}
+                    className="font-medium text-[#141413] hover:underline cursor-pointer"
+                  >
+                    {t('flash.clearCampaign')}
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Expandable Price / Color Filter Bar */}
+            {/* Expandable Price / Discount / Color / Stock Filter Bar */}
             {showMoreFilters && (
               <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-end gap-3 sm:gap-4 rounded-lg border border-[#E8E6E1] bg-white p-4 text-xs">
                 <div className="w-full sm:w-auto">
@@ -624,10 +807,30 @@ export default function App() {
                     className="w-full sm:w-auto rounded border border-[#D6D3CD] bg-white px-3 py-2 sm:py-1.5 text-xs"
                   >
                     <option value="All">{t('filter.allCategories')}</option>
-                    <option value="Artificial Jewellery">{tc('Artificial Jewellery')}</option>
-                    <option value="Clothing">{tc('Clothing')}</option>
-                    <option value="Accessories">{tc('Accessories')}</option>
+                    {(storeCategories.length > 0
+                      ? storeCategories.map((c) => c.name)
+                      : ['Artificial Jewellery', 'Clothing', 'Accessories']
+                    ).map((catName) => (
+                      <option key={catName} value={catName}>
+                        {tc(catName)}
+                      </option>
+                    ))}
                   </select>
+                </div>
+                <div className="w-full sm:w-auto">
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('search.minPrice')}
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="500"
+                    value={minPrice}
+                    onChange={(e) => {
+                      setMinPrice(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full sm:w-28 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs tabular-nums"
+                  />
                 </div>
                 <div className="w-full sm:w-auto">
                   <label className="block font-medium text-[#44403C] mb-1">
@@ -641,8 +844,26 @@ export default function App() {
                       setMaxPrice(e.target.value);
                       setPage(1);
                     }}
-                    className="w-full sm:w-32 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs tabular-nums"
+                    className="w-full sm:w-28 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs tabular-nums"
                   />
+                </div>
+                <div className="w-full sm:w-auto">
+                  <label className="block font-medium text-[#44403C] mb-1">
+                    {t('search.minDiscount')}
+                  </label>
+                  <select
+                    value={minDiscount}
+                    onChange={(e) => {
+                      setMinDiscount(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full sm:w-auto rounded border border-[#D6D3CD] bg-white px-3 py-2 sm:py-1.5 text-xs"
+                  >
+                    <option value="">{t('search.anyDiscount')}</option>
+                    <option value="10">10%+</option>
+                    <option value="15">15%+</option>
+                    <option value="25">25%+</option>
+                  </select>
                 </div>
                 <div className="w-full sm:w-auto">
                   <label className="block font-medium text-[#44403C] mb-1">
@@ -656,16 +877,40 @@ export default function App() {
                       setColorFilter(e.target.value);
                       setPage(1);
                     }}
-                    className="w-full sm:w-40 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs"
+                    className="w-full sm:w-36 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs"
                   />
                 </div>
-                {(maxPrice || colorFilter || category !== 'All' || occasion !== 'All') && (
+                <label className="inline-flex items-center gap-2 py-1.5 text-xs font-medium text-[#44403C] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={inStockOnly}
+                    onChange={(e) => {
+                      setInStockOnly(e.target.checked);
+                      setPage(1);
+                    }}
+                  />
+                  <span>{t('search.inStockOnly')}</span>
+                </label>
+                {(minPrice ||
+                  maxPrice ||
+                  minDiscount ||
+                  inStockOnly ||
+                  colorFilter ||
+                  category !== 'All' ||
+                  occasion !== 'All' ||
+                  season !== 'All' ||
+                  selectedCampaignId) && (
                   <button
                     type="button"
                     onClick={() => {
                       setCategory('All');
                       setOccasion('All');
+                      setSeason('All');
+                      setSelectedCampaignId(null);
+                      setMinPrice('');
                       setMaxPrice('');
+                      setMinDiscount('');
+                      setInStockOnly(false);
                       setColorFilter('');
                       setPage(1);
                     }}
@@ -677,29 +922,44 @@ export default function App() {
               </div>
             )}
 
-            {/* Category & Interactive Occasion Segmented Filter Tabs */}
+            {/* Dynamic Category + Occasion + Season Segmented Filter Tabs */}
             <div className="space-y-3 border-b border-[#E8E6E1] pb-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1">
-                  {(['All', 'Artificial Jewellery', 'Clothing', 'Accessories'] as const).map(
-                    (cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => {
-                          setCategory(cat);
-                          setPage(1);
-                        }}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                          category === cat
-                            ? 'bg-white text-[#141413] shadow-xs'
-                            : 'text-[#57534E] hover:text-[#141413]'
-                        }`}
-                      >
-                        {cat === 'All' ? t('filter.allCategories') : tc(cat)}
-                      </button>
-                    )
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategory('All');
+                      setPage(1);
+                    }}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      category === 'All'
+                        ? 'bg-white text-[#141413] shadow-xs'
+                        : 'text-[#57534E] hover:text-[#141413]'
+                    }`}
+                  >
+                    {t('filter.allCategories')}
+                  </button>
+                  {(storeCategories.length > 0
+                    ? storeCategories.map((c) => c.name)
+                    : ['Artificial Jewellery', 'Clothing', 'Accessories']
+                  ).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => {
+                        setCategory(cat);
+                        setPage(1);
+                      }}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        category === cat
+                          ? 'bg-white text-[#141413] shadow-xs'
+                          : 'text-[#57534E] hover:text-[#141413]'
+                      }`}
+                    >
+                      {tc(cat)}
+                    </button>
+                  ))}
                 </div>
 
                 <div className="text-xs text-[#6B6A65] tabular-nums">
@@ -712,24 +972,46 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
-                {OCCASIONS.map((occ) => (
-                  <button
-                    key={occ}
-                    type="button"
-                    onClick={() => {
-                      setOccasion(occ);
-                      setPage(1);
-                    }}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      occasion === occ
-                        ? 'bg-white text-[#141413] shadow-xs'
-                        : 'text-[#57534E] hover:text-[#141413]'
-                    }`}
-                  >
-                    {occ === 'All' ? t('filter.allOccasions') : to(occ)}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
+                  {OCCASIONS.map((occ) => (
+                    <button
+                      key={occ}
+                      type="button"
+                      onClick={() => {
+                        setOccasion(occ);
+                        setPage(1);
+                      }}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        occasion === occ
+                          ? 'bg-white text-[#141413] shadow-xs'
+                          : 'text-[#57534E] hover:text-[#141413]'
+                      }`}
+                    >
+                      {occ === 'All' ? t('filter.allOccasions') : to(occ)}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
+                  {SEASONS.map((ssn) => (
+                    <button
+                      key={ssn}
+                      type="button"
+                      onClick={() => {
+                        setSeason(ssn);
+                        setPage(1);
+                      }}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        season === ssn
+                          ? 'bg-white text-[#881337] font-semibold shadow-xs'
+                          : 'text-[#57534E] hover:text-[#141413]'
+                      }`}
+                    >
+                      {ssn === 'All' ? t('season.all') : tseason(ssn)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -753,7 +1035,12 @@ export default function App() {
                     setDebouncedQuery('');
                     setCategory('All');
                     setOccasion('All');
+                    setSeason('All');
+                    setSelectedCampaignId(null);
+                    setMinPrice('');
                     setMaxPrice('');
+                    setMinDiscount('');
+                    setInStockOnly(false);
                     setColorFilter('');
                     setPage(1);
                   }}
@@ -784,6 +1071,7 @@ export default function App() {
                       isCompared={compareIds.has(product._id)}
                       onToggleCompare={handleToggleCompare}
                       isTopTrending={isTopTrending}
+                      activeCoupon={findMatchingCouponForProduct(product, applicableCoupons)}
                     />
                   );
                 })}
@@ -849,36 +1137,23 @@ export default function App() {
         <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
           <div className="font-display text-lg font-semibold text-[#141413]">{t('brand')}</div>
           <div className="flex flex-wrap items-center gap-6">
-            <button
-              type="button"
-              onClick={() => {
-                setActivePage('store');
-                setCategory('Artificial Jewellery');
-              }}
-              className="hover:text-[#141413] cursor-pointer"
-            >
-              {tc('Artificial Jewellery')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActivePage('store');
-                setCategory('Clothing');
-              }}
-              className="hover:text-[#141413] cursor-pointer"
-            >
-              {tc('Clothing')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActivePage('store');
-                setCategory('Accessories');
-              }}
-              className="hover:text-[#141413] cursor-pointer"
-            >
-              {tc('Accessories')}
-            </button>
+            {(storeCategories.length > 0
+              ? storeCategories.map((c) => c.name)
+              : ['Artificial Jewellery', 'Clothing', 'Accessories']
+            ).map((catName) => (
+              <button
+                key={catName}
+                type="button"
+                onClick={() => {
+                  setActivePage('store');
+                  setCategory(catName);
+                  setPage(1);
+                }}
+                className="hover:text-[#141413] cursor-pointer"
+              >
+                {tc(catName)}
+              </button>
+            ))}
             <button
               type="button"
               onClick={() => setActivePage('orders')}
@@ -918,6 +1193,11 @@ export default function App() {
         onToggleCompare={handleToggleCompare}
         categoryTop10Thresholds={catalog.categoryTop10Thresholds}
         onProductLoaded={recordRecentlyViewed}
+        onApplyCoupon={(code) => {
+          setPendingCouponCode(code);
+          setSelectedProductKey(null);
+          setCartOpen(true);
+        }}
       />
 
       <JewelleryCompareModal
@@ -946,11 +1226,14 @@ export default function App() {
         onOrderCompleted={() => {
           syncCart([]);
           fetchCatalog();
+          fetchStoreMeta();
         }}
         onRequireAuth={() => {
           setCartOpen(false);
           setAuthOpen(true);
         }}
+        pendingCouponCode={pendingCouponCode}
+        onClearPendingCoupon={() => setPendingCouponCode(null)}
       />
 
       <AuthModal

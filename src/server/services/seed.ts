@@ -6,6 +6,9 @@ import type {
   OccasionType,
   ProductCategory,
   OrderStatus,
+  SeasonType,
+  SalesCampaign,
+  Coupon,
 } from '../../shared/types.js';
 
 export const IMG = {
@@ -945,6 +948,45 @@ const RAW_PRODUCTS: SeedProductInput[] = [
   },
 ];
 
+export function inferSeedSeasons(p: {
+  occasions: OccasionType[];
+  title: string;
+  category: ProductCategory;
+}): SeasonType[] {
+  const seasons = new Set<SeasonType>();
+  const lower = p.title.toLowerCase();
+  if (p.occasions.includes('Festive') || p.occasions.includes('Wedding')) {
+    seasons.add('Diwali');
+  }
+  if (p.occasions.includes('Party')) {
+    seasons.add('Christmas');
+    seasons.add('New Year');
+  }
+  if (
+    lower.includes('velvet') ||
+    lower.includes('silk') ||
+    lower.includes('stole') ||
+    lower.includes('jacket') ||
+    lower.includes('chanderi')
+  ) {
+    seasons.add('Winter');
+  }
+  if (
+    lower.includes('linen') ||
+    lower.includes('mulmul') ||
+    lower.includes('khadi') ||
+    p.occasions.includes('Daily Wear') ||
+    p.occasions.includes('Casual')
+  ) {
+    seasons.add('Summer');
+  }
+  if (seasons.size === 0) {
+    seasons.add('Diwali');
+    seasons.add('New Year');
+  }
+  return Array.from(seasons);
+}
+
 export const SEED_PRODUCTS: Product[] = RAW_PRODUCTS.map((p) => {
   const salePrice = Math.round(p.basePrice * (1 - p.discountPercent / 100));
   const trendScore = p.likes + p.cartAdds * 3 + p.sales * 5;
@@ -956,6 +998,7 @@ export const SEED_PRODUCTS: Product[] = RAW_PRODUCTS.map((p) => {
   badges.push('Seller Trusted');
 
   const seller = SEED_USERS.find((u) => u._id === p.sellerId);
+  const seasons = inferSeedSeasons(p);
 
   return {
     _id: p.id,
@@ -1002,6 +1045,7 @@ export const SEED_PRODUCTS: Product[] = RAW_PRODUCTS.map((p) => {
       }))
     ),
     occasions: p.occasions,
+    seasons,
     likesCount: p.likes,
     viewsCount: p.views,
     cartAddsCount: p.cartAdds,
@@ -1016,6 +1060,138 @@ export const SEED_PRODUCTS: Product[] = RAW_PRODUCTS.map((p) => {
     updatedAt: daysAgo(1),
   };
 });
+
+export function buildSeedCampaigns(): SalesCampaign[] {
+  const tNow = Date.now();
+  const hrs = (h: number) => new Date(tNow + h * 3600_000).toISOString();
+  return [
+    {
+      _id: 'cmp_diwali_flash',
+      sellerId: 'usr_seller_1',
+      sellerName: 'Zaveri Atelier',
+      name: 'Diwali Royal Kundan Flash Sale',
+      season: 'Diwali',
+      tagline: '22k gold-plated kundan chokers, polki bangles & festive heirloom drops.',
+      discountPercent: 30,
+      startsAt: hrs(2.5), // Upcoming / Starting Soon -> triggers attractive flash card + countdown timer!
+      endsAt: hrs(74),
+      productIds: ['prd_01', 'prd_02', 'prd_03', 'prd_08'],
+      isActive: true,
+      createdAt: hrs(-24),
+      updatedAt: hrs(-1),
+    },
+    {
+      _id: 'cmp_winter_gala',
+      sellerId: 'usr_seller_2',
+      sellerName: 'Jaipur Loom Studio',
+      name: 'Winter Velvet & Handloom Silks',
+      season: 'Winter',
+      tagline: 'Chanderi silk-velvet capes, raw silk jackets & Banarasi winter stoles.',
+      discountPercent: 22,
+      startsAt: hrs(-8), // Live Now
+      endsAt: hrs(96),
+      productIds: ['prd_04', 'prd_06', 'prd_17', 'prd_18'],
+      isActive: true,
+      createdAt: hrs(-48),
+      updatedAt: hrs(-2),
+    },
+    {
+      _id: 'cmp_newyear_soiree',
+      sellerId: 'usr_seller_1',
+      sellerName: 'Zaveri Atelier',
+      name: 'Christmas & New Year Cocktail Edit',
+      season: 'New Year',
+      tagline: 'Sculpted brass cuffs, cocktail rings & satin evening clutches.',
+      discountPercent: 25,
+      startsAt: hrs(16.5), // Upcoming flash drop
+      endsAt: hrs(120),
+      productIds: ['prd_11', 'prd_12', 'prd_21', 'prd_25'],
+      isActive: true,
+      createdAt: hrs(-12),
+      updatedAt: hrs(-1),
+    },
+    {
+      _id: 'cmp_summer_loom',
+      sellerId: 'usr_seller_2',
+      sellerName: 'Jaipur Loom Studio',
+      name: 'Summer Breathable Linen & Mulmul',
+      season: 'Summer',
+      tagline: 'Featherlight Bagru block-print tunics, khadi dresses & airy linen co-ords.',
+      discountPercent: 18,
+      startsAt: hrs(-4),
+      endsAt: hrs(140),
+      productIds: ['prd_05', 'prd_16', 'prd_19', 'prd_09'],
+      isActive: true,
+      createdAt: hrs(-20),
+      updatedAt: hrs(-1),
+    },
+  ];
+}
+
+export const SEED_COUPONS: Coupon[] = [
+  {
+    _id: 'cpn_meera_15',
+    code: 'MEERA15',
+    sellerId: 'usr_seller_1',
+    sellerName: 'Zaveri Atelier',
+    title: 'Selected Kundan & Polki Privilege',
+    discountType: 'percentage',
+    discountValue: 15,
+    maxDiscountAmount: 750,
+    minOrderAmount: 999,
+    scope: 'selected_products',
+    productIds: ['prd_01', 'prd_02', 'prd_03', 'prd_08'],
+    assignedUserIds: [],
+    assignedEmails: [],
+    usageLimit: 200,
+    usedCount: 14,
+    expiresAt: new Date(now + 45 * 86400_000).toISOString(),
+    isActive: true,
+    createdAt: daysAgo(5),
+    updatedAt: daysAgo(1),
+  },
+  {
+    _id: 'cpn_ananya_20',
+    code: 'ANANYA20',
+    sellerId: 'usr_seller_1',
+    sellerName: 'Zaveri Atelier',
+    title: 'VIP Customer Reward — Extra 20% Off',
+    discountType: 'percentage',
+    discountValue: 20,
+    maxDiscountAmount: 1000,
+    minOrderAmount: 500,
+    scope: 'all_seller_products',
+    productIds: [],
+    assignedUserIds: ['usr_buyer_1'],
+    assignedEmails: ['ananya.mehta@example.com'],
+    usageLimit: 5,
+    usedCount: 0,
+    expiresAt: new Date(now + 60 * 86400_000).toISOString(),
+    isActive: true,
+    createdAt: daysAgo(2),
+    updatedAt: daysAgo(1),
+  },
+  {
+    _id: 'cpn_loom_300',
+    code: 'LOOM300',
+    sellerId: 'usr_seller_2',
+    sellerName: 'Jaipur Loom Studio',
+    title: 'Flat ₹300 Off Ethnic Sets & Potlis',
+    discountType: 'flat',
+    discountValue: 300,
+    minOrderAmount: 1800,
+    scope: 'selected_products',
+    productIds: ['prd_04', 'prd_05', 'prd_06', 'prd_15', 'prd_17'],
+    assignedUserIds: [],
+    assignedEmails: [],
+    usageLimit: 100,
+    usedCount: 6,
+    expiresAt: new Date(now + 30 * 86400_000).toISOString(),
+    isActive: true,
+    createdAt: daysAgo(3),
+    updatedAt: daysAgo(1),
+  },
+];
 
 export const SEED_REVIEWS: Review[] = [
   {

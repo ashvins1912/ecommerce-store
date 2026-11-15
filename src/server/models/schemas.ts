@@ -50,8 +50,8 @@ const ProductSchema = new Schema(
     sku: { type: String, required: true, trim: true },
     category: {
       type: String,
-      enum: ['Artificial Jewellery', 'Clothing', 'Accessories'],
       required: true,
+      trim: true,
       index: true,
     },
     subCategory: { type: String, required: true },
@@ -100,6 +100,12 @@ const ProductSchema = new Schema(
     occasions: {
       type: [String],
       enum: ['Wedding', 'Festive', 'Party', 'Office Wear', 'Casual', 'Daily Wear'],
+      index: true,
+    },
+    seasons: {
+      type: [String],
+      enum: ['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer'],
+      default: [],
       index: true,
     },
     likesCount: { type: Number, default: 0 },
@@ -177,6 +183,11 @@ const OrderSchema = new Schema(
       },
     ],
     totalAmount: { type: Number, required: true, min: 0 },
+    appliedCoupon: {
+      couponId: String,
+      code: String,
+      discountAmount: Number,
+    },
     status: {
       type: String,
       enum: ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled'],
@@ -233,7 +244,7 @@ export const ATLAS_SEARCH_INDEX_DEFINITION = {
 const SellerInviteSchema = new Schema(
   {
     token: { type: String, required: true, unique: true, index: true },
-    email: { type: String, required: true, lowercase: true, trim: true, index: true },
+    email: { type: String, required: false, default: '', lowercase: true, trim: true, index: true },
     storeName: { type: String, default: '' },
     note: { type: String, default: '' },
     invitedByUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -252,6 +263,85 @@ const SellerInviteSchema = new Schema(
   { timestamps: true }
 );
 
+const AuthSessionSchema = new Schema(
+  {
+    sessionId: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    role: { type: String, enum: ['BUYER', 'SELLER', 'ADMIN'], required: true },
+    provider: { type: String, enum: ['google', 'meta', 'invite', 'demo'], default: 'google' },
+    tokenFingerprint: { type: String, required: true },
+    csrfToken: { type: String, required: true },
+    tlsSecure: { type: Boolean, default: true },
+    protocol: { type: String, default: 'https' },
+    userAgent: { type: String, default: '' },
+    lastActiveAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date, required: true, index: true },
+    revokedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
+const SalesCampaignSchema = new Schema(
+  {
+    sellerId: { type: String, required: true, index: true },
+    sellerName: { type: String, required: true },
+    name: { type: String, required: true, trim: true },
+    season: {
+      type: String,
+      enum: ['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer'],
+      required: true,
+      index: true,
+    },
+    tagline: { type: String, default: '' },
+    discountPercent: { type: Number, required: true, min: 0, max: 90 },
+    startsAt: { type: Date, required: true, index: true },
+    endsAt: { type: Date, required: true, index: true },
+    productIds: { type: [String], default: [] },
+    isActive: { type: Boolean, default: true, index: true },
+  },
+  { timestamps: true }
+);
+
+const CouponSchema = new Schema(
+  {
+    code: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
+    sellerId: { type: String, required: true, index: true },
+    sellerName: { type: String, required: true },
+    title: { type: String, required: true },
+    discountType: { type: String, enum: ['percentage', 'flat'], required: true },
+    discountValue: { type: Number, required: true, min: 1 },
+    maxDiscountAmount: { type: Number },
+    minOrderAmount: { type: Number, default: 0 },
+    scope: {
+      type: String,
+      enum: ['all_seller_products', 'selected_products'],
+      default: 'all_seller_products',
+    },
+    productIds: { type: [String], default: [] },
+    assignedUserIds: { type: [String], default: [] },
+    assignedEmails: { type: [String], default: [] },
+    usageLimit: { type: Number },
+    usedCount: { type: Number, default: 0 },
+    expiresAt: { type: Date, required: true },
+    isActive: { type: Boolean, default: true, index: true },
+  },
+  { timestamps: true }
+);
+
+const CategoryControlSchema = new Schema(
+  {
+    name: { type: String, required: true, unique: true, trim: true },
+    slug: { type: String, required: true, unique: true, index: true },
+    description: { type: String, default: '' },
+    sellerId: { type: String, required: true, index: true },
+    sellerName: { type: String, required: true },
+    isEnabled: { type: Boolean, default: true, index: true },
+    isDefault: { type: Boolean, default: false },
+    sortOrder: { type: Number, default: 10 },
+  },
+  { timestamps: true }
+);
+
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);
 export const ProductModel: Model<any> =
@@ -264,3 +354,11 @@ export const OrderModel: Model<any> =
   mongoose.models.Order || mongoose.model('Order', OrderSchema);
 export const SellerInviteModel: Model<any> =
   mongoose.models.SellerInvite || mongoose.model('SellerInvite', SellerInviteSchema);
+export const AuthSessionModel: Model<any> =
+  mongoose.models.AuthSession || mongoose.model('AuthSession', AuthSessionSchema);
+export const SalesCampaignModel: Model<any> =
+  mongoose.models.SalesCampaign || mongoose.model('SalesCampaign', SalesCampaignSchema);
+export const CouponModel: Model<any> =
+  mongoose.models.Coupon || mongoose.model('Coupon', CouponSchema);
+export const CategoryControlModel: Model<any> =
+  mongoose.models.CategoryControl || mongoose.model('CategoryControl', CategoryControlSchema);

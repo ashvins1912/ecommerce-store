@@ -8,12 +8,36 @@ export function formatINR(amount: number): string {
   }).format(amount);
 }
 
+const SSL_TOKEN_KEY = 'kk_ssl_token';
+const CSRF_TOKEN_KEY = 'kk_csrf_token';
+
+export function getClientAccessToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return sessionStorage.getItem(SSL_TOKEN_KEY);
+}
+
+export function setClientSessionTokens(accessToken?: string, csrfToken?: string) {
+  if (typeof window === 'undefined') return;
+  if (accessToken) sessionStorage.setItem(SSL_TOKEN_KEY, accessToken);
+  if (csrfToken) sessionStorage.setItem(CSRF_TOKEN_KEY, csrfToken);
+}
+
+export function clearClientSessionTokens() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(SSL_TOKEN_KEY);
+  sessionStorage.removeItem(CSRF_TOKEN_KEY);
+}
+
 export async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const token = getClientAccessToken();
+  const csrf = typeof window !== 'undefined' ? sessionStorage.getItem(CSRF_TOKEN_KEY) : null;
   const res = await fetch(url, {
     credentials: 'include',
     ...options,
     headers: {
       ...(options?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
       ...options?.headers,
     },
   });

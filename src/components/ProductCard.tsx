@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Eye, GitCompare, Heart, Share2, ShoppingBag, Star, TrendingUp, Zap } from 'lucide-react';
-import type { Product } from '../shared/types';
+import { Eye, GitCompare, Heart, Share2, ShoppingBag, Star, Tag, TrendingUp, Zap } from 'lucide-react';
+import type { Coupon, Product } from '../shared/types';
 import { formatINR, sendWhatsAppMessage } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
@@ -19,6 +19,7 @@ interface ProductCardProps {
   isCompared?: boolean;
   onToggleCompare?: (product: Product) => void;
   isTopTrending?: boolean;
+  activeCoupon?: Coupon | null;
 }
 
 export function ProductCard({
@@ -32,8 +33,9 @@ export function ProductCard({
   isCompared = false,
   onToggleCompare,
   isTopTrending = false,
+  activeCoupon = null,
 }: ProductCardProps) {
-  const { t, tc, to, tb } = useI18n();
+  const { t, tc, to, tseason, tb } = useI18n();
   const [imgError, setImgError] = useState(false);
   const [activeImgIdx, setActiveImgIdx] = useState(0);
   const [sharing, setSharing] = useState(false);
@@ -41,6 +43,7 @@ export function ProductCard({
   const primaryImg = product.images[activeImgIdx]?.url || product.images[0]?.url;
   const leadBadge = product.badges[0];
   const primaryOccasion = product.occasions[0];
+  const primarySeason = product.seasons?.[0];
 
   const uniqueColors = Array.from(
     new Map(product.variants.map((v) => [v.colorHex, v])).values()
@@ -221,6 +224,12 @@ export function ProductCard({
                 <span>{to(primaryOccasion)}</span>
               </>
             )}
+            {primarySeason && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{tseason(primarySeason)}</span>
+              </>
+            )}
             {isTopTrending ? (
               <>
                 <span aria-hidden="true">·</span>
@@ -270,6 +279,21 @@ export function ProductCard({
               </span>
             </div>
           </div>
+
+          {activeCoupon && (
+            <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-emerald-800 truncate">
+              <Tag className="h-3 w-3 shrink-0" />
+              <span className="truncate">
+                {t('coupon.cardCodeHint', {
+                  code: activeCoupon.code,
+                  value:
+                    activeCoupon.discountType === 'percentage'
+                      ? `${activeCoupon.discountValue}%`
+                      : formatINR(activeCoupon.discountValue),
+                })}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Pricing + Quick Buy / Add / Compare */}
