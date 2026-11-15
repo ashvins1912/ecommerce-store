@@ -1,8 +1,10 @@
+import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import {
   PaymentGatewayConfigModel,
   WalletModel,
   WalletTransactionModel,
+  PaymentEventModel,
 } from '../models/schemas.js';
 import { decryptField, encryptField, maskSecret } from './fieldEncryption.js';
 
@@ -126,4 +128,70 @@ export async function getWalletSummary(userId: string) {
       orderId: t.orderId, reference: t.reference, createdAt: t.createdAt,
     })),
   };
+}
+
+export async function createGatewayCheckout(input: {
+  sellerId: string; provider: GatewayProvider; orderId: string;
+  orderNumber: string; amountPaise: number; currency?: string;
+}) {
+  const gateway = await getGatewaySecrets(input.sellerId, input.provider);
+  if (!gateway) throw new Error('ACTIVE_PAYMENT_GATEWAY_NOT_CONFIGURED');
+  if (!Number.isSafeInteger(input.amountPaise) || input.amountPaise < 100) throw new Error('INVALID_PAYMENT_AMOUNT');
+  if (input.provider === 'razorpay') {
+    const auth = Buffer.from(gateway.keyId + ':' + gateway.secret).toString('base64');
+    const response = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST', headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: input.amountPaise, currency: input.currency || 'INR', receipt: input.orderNumber.slice(0, 40), notes: { orderId: input.orderId } }),
+    });
+    const body = await response.json() as any;
+    if (!response.ok) throw new Error(body.error?.description || 'RAZORPAY_ORDER_CREATE_FAILED');
+    return { provider: 'razorpay' as const, reference: String(body.id), keyId: gateway.keyId, amountPaise: body.amount, currency: body.currency };
+  }
+  const params = new URLSearchParams({
+    amount: String(input.amountPaise),
+    currency: (input.currency || 'INR').toLowerCase(),
+    'metadata[orderId]': input.orderId,
+    'metadata[orderNumber]': input.orderNumber,
+    'automatic_payment_methods[enabled]': 'true',
+  });
+  const response = await fetch('https://api.stripe.com/v1/payment_intents', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + gateway.secret, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params,
+  });
+  const body = await response.json() as any;
+  if (!response.ok) throw new Error(body.error?.message || 'STRIPE_INTENT_CREATE_FAILED');
+  return { provider: 'stripe' as const, reference: String(body.id), clientSecret: String(body.client_secret), publishableKey: gateway.keyId, amountPaise: input.amountPaise, currency: input.currency || 'INR' };
+}
+
+export async function verifyPaymentWebhook(input: {
+  sellerId: string; provider: GatewayProvider; signature: string; rawBody: Buffer;
+}) {
+  const gateway = await getGatewaySecrets(input.sellerId, input.provider);
+  if (!gateway) return false;
+  let expected = '';
+  if (input.provider === 'razorpay') {
+    expected = crypto.createHmac('sha256', gateway.webhookSecret).update(input.rawBody).digest('hex');
+  } else {
+    const parts = input.signature.split(',').map((part) => part.split('='));
+    const timestamp = parts.find((part) => part[0] === 't')?.[1];
+    const signatures = parts.filter((part) => part[0] === 'v1').map((part) => part[1]);
+    if (!timestamp || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+    expected = crypto.createHmac('sha256', gateway.webhookSecret).update(timestamp + '.' + input.rawBody.toString('utf8')).digest('hex');
+    return signatures.some((sig) => {
+      const a = Buffer.from(sig || ''); const b = Buffer.from(expected);
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
+    });
+  }
+  const a = Buffer.from(input.signature || ''); const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+export async function claimPaymentEvent(provider: GatewayProvider, eventId: string, orderId: string, payloadHash: string) {
+  try {
+    await PaymentEventModel.create({ provider, eventId, orderId, payloadHash, processedAt: new Date() });
+    return true;
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) return false;
+    throw err;
+  }
 }
