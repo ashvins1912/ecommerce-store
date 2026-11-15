@@ -203,6 +203,8 @@ export interface Product {
   reviewCount: number;
   badges: ProductBadge[];
   isProductTrusted: boolean;
+  isQualityChecked?: boolean;
+  manufacturerWarrantyVerified?: boolean;
   isActive: boolean;
   listingStatus?: ProductListingStatus;
   isPublished?: boolean;
