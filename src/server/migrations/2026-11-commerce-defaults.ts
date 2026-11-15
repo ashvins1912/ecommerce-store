@@ -1,4 +1,4 @@
-import { ProductModel, OrderModel } from '../models/schemas.js';
+import { ProductModel, OrderModel, PaymentGatewayConfigModel, WalletModel, WalletTransactionModel, ReturnRequestModel, PaymentEventModel } from '../models/schemas.js';
 
 /**
  * Idempotent, additive migration for existing documents.
@@ -6,6 +6,7 @@ import { ProductModel, OrderModel } from '../models/schemas.js';
  * legacy orders are not reclassified as prepaid.
  */
 export async function migrateCommerceDefaults(): Promise<void> {
+  await Promise.all([PaymentGatewayConfigModel.syncIndexes(), WalletModel.syncIndexes(), WalletTransactionModel.syncIndexes(), ReturnRequestModel.syncIndexes(), PaymentEventModel.syncIndexes()]);
   await ProductModel.updateMany(
     { visibility: { $exists: false } },
     { $set: { visibility: 'PUBLIC', assignedCustomerIds: [], onlinePaymentRequired: false, codAllowed: true, isReturnable: true, returnWindowDays: 7 } }
