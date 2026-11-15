@@ -139,3 +139,26 @@ export async function supabaseGetUserByIdAdmin(supabaseUid: string) {
   if (error || !data.user) return null;
   return data.user;
 }
+
+
+export async function supabaseGetUserFromAccessToken(accessToken: string): Promise<SupabaseAuthResult> {
+  const client = getSupabaseAnonClient();
+  const { data, error } = await client.auth.getUser(accessToken);
+  if (error || !data.user || !data.user.email) {
+    const err = new Error(error?.message || 'The social account did not return a verified email.') as Error & { status?: number };
+    err.status = 401;
+    throw err;
+  }
+  const metadata = data.user.user_metadata || {};
+  const email = data.user.email.trim().toLowerCase();
+  return {
+    supabaseUid: data.user.id,
+    email,
+    name:
+      (metadata.full_name as string | undefined)?.trim() ||
+      (metadata.name as string | undefined)?.trim() ||
+      email.split('@')[0],
+    mobileNumber: (metadata.mobile_number as string | undefined) || undefined,
+    hasSession: true,
+  };
+}
