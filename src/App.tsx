@@ -1597,7 +1597,7 @@ export default function App() {
         onAuthChanged={(payload) => {
           setUser(payload.user);
           const returnTo = new URLSearchParams(window.location.search).get('returnTo');
-          if (returnTo && returnTo.startsWith('/')) window.location.assign(returnTo);
+          if (returnTo && returnTo.startsWith('/')) { const target = new URL(returnTo, window.location.origin); if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search + target.hash); }
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
           if (payload.cart) {
             setCart(payload.cart);
