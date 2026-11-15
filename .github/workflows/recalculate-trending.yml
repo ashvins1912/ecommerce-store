@@ -15,7 +15,7 @@ jobs:
       - name: Trigger Trending Recalculation
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          ENDPOINT_URL: https://your-domain.com
+          ENDPOINT_URL: https://ecommerce-store-bg2l.onrender.com/
         run: |
           curl --fail-with-body --max-time 300 -X POST "$ENDPOINT_URL" \
             -H "Authorization: Bearer $CRON_SECRET" \
