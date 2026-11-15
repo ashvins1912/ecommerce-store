@@ -1020,6 +1020,8 @@ async function startServer() {
     }
     const schema = z.object({
       discountPercent: z.number().min(0).max(95).optional(),
+      visibility: z.enum(['PUBLIC', 'ASSIGNED']).optional(),
+      assignedCustomerIds: z.array(z.string().min(1)).max(500).optional(),
       onlinePaymentRequired: z.boolean().optional(),
       codAllowed: z.boolean().optional(),
       isReturnable: z.boolean().optional(),
@@ -1047,7 +1049,18 @@ async function startServer() {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid update values' });
     }
+    if (parsed.data.visibility === 'ASSIGNED' && !(parsed.data.assignedCustomerIds?.length)) return res.status(400).json({ error: 'ASSIGNED_PRODUCTS_REQUIRE_CUSTOMERS' });
+    if (parsed.data.assignedCustomerIds?.length) {
+      const validCustomers = await UserModel.countDocuments({ _id: { $in: parsed.data.assignedCustomerIds }, role: 'BUYER' });
+      if (validCustomers !== parsed.data.assignedCustomerIds.length) return res.status(400).json({ error: 'INVALID_ASSIGNED_CUSTOMER' });
+    }
     const updated = await updateProductDiscountOrStock(req.params.id, user._id, parsed.data);
+    if (updated && ('visibility' in parsed.data || 'assignedCustomerIds' in parsed.data)) {
+      await ProductModel.updateOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }, { $set: {
+        ...(parsed.data.visibility !== undefined ? { visibility: parsed.data.visibility } : {}),
+        ...(parsed.data.assignedCustomerIds !== undefined ? { assignedCustomerIds: parsed.data.assignedCustomerIds } : {}),
+      }});
+    }
     if (updated && ['onlinePaymentRequired', 'codAllowed', 'isReturnable', 'returnWindowDays'].some((key) => key in parsed.data)) {
       await ProductModel.updateOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }, { $set: {
         ...(parsed.data.onlinePaymentRequired !== undefined ? { onlinePaymentRequired: parsed.data.onlinePaymentRequired } : {}),
