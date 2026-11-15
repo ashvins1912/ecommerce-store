@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react';
+import { getSupabaseBrowserClient } from '../lib/supabase';
 import {
   apiFetch,
   clearClientSessionTokens,
@@ -42,6 +43,27 @@ export function AuthModal({
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AuthSessionSummary[]>([]);
   const [rotatingToken, setRotatingToken] = useState(false);
+
+  const handleSocialSignIn = async (provider: 'google' | 'facebook') => {
+    setError(null);
+    setLoading(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        throw new Error('Social sign-in is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+      }
+      const redirectTo = new URL(window.location.href);
+      redirectTo.searchParams.set('oauth', '1');
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: redirectTo.toString() },
+      });
+      if (oauthError) throw oauthError;
+    } catch (err) {
+      setError((err as Error).message || 'Unable to start social sign-in.');
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -404,7 +426,7 @@ export function AuthModal({
           </div>
         ) : (
           <div className="mt-5 space-y-5">
-            {/* Supabase Sign In / Customer Sign Up Tab Switcher (No Google/Facebook OAuth) */}
+            {/* Account access */}
             <div className="grid grid-cols-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] p-1">
               <button
                 type="button"
@@ -436,6 +458,23 @@ export function AuthModal({
               </button>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" disabled={loading} onClick={() => void handleSocialSignIn('google')}
+                className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold text-[#292524] hover:border-[#881337] disabled:opacity-60">
+                <span aria-hidden="true" className="text-base font-bold">G</span>
+                <span>Google</span>
+              </button>
+              <button type="button" disabled={loading} onClick={() => void handleSocialSignIn('facebook')}
+                className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold text-[#292524] hover:border-[#881337] disabled:opacity-60">
+                <span aria-hidden="true" className="text-base font-bold text-[#1877F2]">f</span>
+                <span>Facebook</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-3 text-[10px] font-medium uppercase tracking-[0.18em] text-[#A8A29E]">
+              <span className="h-px flex-1 bg-[#E8E6E1]" />
+              <span>Or use email</span>
+              <span className="h-px flex-1 bg-[#E8E6E1]" />
+            </div>
             {mode === 'signin' ? (
               <form
                 onSubmit={(e) => {
@@ -568,7 +607,7 @@ export function AuthModal({
           </div>
         )}
 
-        {/* Dummy Test Accounts (Customer, Seller, Admin) - always accessible for fast role testing */}
+        {/* Demo profiles for local role testing */}
         <div className="mt-5 border-t border-[#F0EEE9] pt-4">
           <div className="mb-2 text-xs font-medium text-[#6B6A65]">
             {t('auth.quickProfiles')}
