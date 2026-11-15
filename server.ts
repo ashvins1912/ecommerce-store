@@ -4,7 +4,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel, PaymentEventModel } from './src/server/models/schemas.js';
-import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, refundGatewayPayment, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -1602,6 +1602,7 @@ async function startServer() {
       courierTracking: parsed.data.courierTracking,
     });
     if (!updated) return res.status(404).json({ error: 'Order not found' });
+    if (parsed.data.status === 'Cancelled') await restoreCancelledOrderInventory(String(updated._id));
 
     if (parsed.data.status === 'Delivered') await OrderModel.updateOne({ _id: updated._id }, { $set: { deliveredAt: new Date() } });
     if (parsed.data.status === 'Shipped' && updated.courierTracking) {
