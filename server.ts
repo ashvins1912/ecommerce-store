@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
+import mongoose from 'mongoose';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
@@ -1618,8 +1619,30 @@ async function startServer() {
     });
     if (!updated) return res.status(404).json({ error: 'Order not found' });
     if (parsed.data.status === 'Cancelled') await restoreCancelledOrderInventory(String(updated._id));
+    if (parsed.data.status === 'Cancelled') await ProviderSettlementModel.updateMany({ orderId: String(updated._id), status: { $in: ['PENDING_CLEARANCE', 'READY_FOR_SETTLEMENT', 'ADJUSTED'] } }, { $set: { status: 'VOID' } });
 
-    if (parsed.data.status === 'Delivered') await OrderModel.updateOne({ _id: updated._id }, { $set: { deliveredAt: new Date() } });
+    if (parsed.data.status === 'Delivered') {
+      const deliveredAt = new Date();
+      await OrderModel.updateOne({ _id: updated._id }, { $set: { deliveredAt } });
+      const orderItems = Array.isArray(updated.items) ? updated.items : [];
+      for (const item of orderItems) {
+        const retail = await ProductModel.findById(item.productId).select('+providerId +providerProductId +providerBasePricePaise').lean();
+        if (!retail?.providerId || !retail?.providerProductId || !Number.isSafeInteger(Number(retail.providerBasePricePaise)) || Number(retail.providerBasePricePaise) <= 0) continue;
+        const quantity = Math.max(1, Number(item.quantity || 1));
+        const unitBasePricePaise = Number(retail.providerBasePricePaise);
+        await ProviderSettlementModel.updateOne(
+          { orderId: String(updated._id), orderItemKey: String(item.productId) },
+          { $setOnInsert: {
+            orderId: String(updated._id), orderItemKey: String(item.productId),
+            sellerId: String(updated.sellerId), providerId: String(retail.providerId),
+            providerProductId: String(retail.providerProductId), quantity,
+            unitBasePricePaise, amountPaise: unitBasePricePaise * quantity,
+            status: 'PENDING_CLEARANCE', availableAt: new Date(deliveredAt.getTime() + 24 * 60 * 60 * 1000),
+          } },
+          { upsert: true }
+        );
+      }
+    }
     if (parsed.data.status === 'Shipped' && updated.courierTracking) {
       const dispatch = await sendWhatsAppMessage(
         updated.shippingAddress.phone,
