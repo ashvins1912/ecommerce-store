@@ -1613,11 +1613,8 @@ async function startServer() {
       updated.whatsappDispatch = dispatch;
     } else if (parsed.data.status === 'Cancelled') {
       const seller = await findUserById(updated.sellerId);
-      const sellerPhone = seller?.whatsappNumber || '+919820112233';
-      updated.whatsappDispatch = await sendWhatsAppMessage(
-        sellerPhone,
-        `Order ${updated.orderNumber} was cancelled. Total INR ${updated.totalAmount}.`
-      );
+      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
+      if (sellerPhone) updated.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, `Order ${updated.orderNumber} was cancelled. Total INR ${updated.totalAmount}.`);
     }
 
     res.json({ order: updated });
@@ -1823,6 +1820,7 @@ async function startServer() {
     order.cancellationRequestedAt = new Date();
     order.statusTimeline.push({ status: order.status, note: 'Cancellation requested by buyer; seller refund review required where applicable.', timestamp: new Date() });
     await order.save();
+    if (order.status === 'Cancelled') await restoreCancelledOrderInventory(String(order._id));
     res.json({ order });
   });
 
@@ -1887,6 +1885,7 @@ async function startServer() {
     order.status = 'Cancelled';
     order.statusTimeline.push({ status: 'Cancelled', note: 'Seller approved cancellation.', timestamp: new Date() });
     await order.save();
+    if (order.status === 'Cancelled') await restoreCancelledOrderInventory(String(order._id));
     res.json({ order });
   });
 
