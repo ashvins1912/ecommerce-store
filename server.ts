@@ -838,7 +838,7 @@ async function startServer() {
     res.json({
       product: { ...product, viewsCount: product.viewsCount + 1 },
       reviews,
-      recommendations: recData.recommendations,
+      recommendations: recData.recommendations.filter((item: any) => item.visibility !== 'ASSIGNED' || (user && (item.assignedCustomerIds || []).map(String).includes(user._id))),
       recommendationStrategy: recData.strategySummary,
     });
   });
@@ -1150,9 +1150,11 @@ async function startServer() {
   });
 
   // --- Seasonal Sales Campaigns & Flash Sale Countdowns ---
-  app.get('/api/campaigns', async (_req, res) => {
+  app.get('/api/campaigns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
     const campaigns = await listStorefrontCampaigns();
-    res.json({ campaigns });
+    const visibleCampaigns = campaigns.map((campaign: any) => ({ ...campaign, products: campaign.products.filter((product: any) => product.visibility !== 'ASSIGNED' || (user && (product.assignedCustomerIds || []).map(String).includes(user._id))) })).filter((campaign: any) => campaign.products.length > 0);
+    res.json({ campaigns: visibleCampaigns });
   });
 
   app.get('/api/seller/campaigns', async (req, res) => {
