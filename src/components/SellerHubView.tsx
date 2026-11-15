@@ -88,6 +88,7 @@ type SellerTab =
   | 'categories'
   | 'campaigns'
   | 'coupons'
+  | 'payments'
   | 'orders';
 
 interface AdminInviteRow extends SellerInvite {
@@ -238,6 +239,14 @@ export function SellerHubView({
   const [cmpError, setCmpError] = useState<string | null>(null);
 
   // Seller Coupons state
+  const [gatewaySettings, setGatewaySettings] = useState<Array<{ provider: 'razorpay' | 'stripe'; keyId: string; enabled: boolean; secretMasked: string }>>([]);
+  const [gatewayDrafts, setGatewayDrafts] = useState({
+    razorpay: { keyId: '', secret: '', webhookSecret: '', enabled: false },
+    stripe: { keyId: '', secret: '', webhookSecret: '', enabled: false },
+  });
+  const [gatewayNotice, setGatewayNotice] = useState('');
+  const [gatewayBusy, setGatewayBusy] = useState(false);
+
   const [sellerCoupons, setSellerCoupons] = useState<Coupon[]>([]);
   const [knownCustomers, setKnownCustomers] = useState<
     Array<{ _id: string; name: string; email: string }>
@@ -435,6 +444,42 @@ export function SellerHubView({
     }
   }, [isVerifiedSellerOrAdmin, loadAnalytics, loadSellerCatalog, loadSellerCategories]);
 
+  const loadPaymentSettings = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const data = await apiFetch<{ gateways: Array<{ provider: 'razorpay' | 'stripe'; keyId: string; enabled: boolean; secretMasked: string }> }>('/api/seller/payment-settings');
+      setGatewaySettings(data.gateways || []);
+      setGatewayDrafts((prev) => {
+        const next = { ...prev };
+        for (const gateway of data.gateways || []) {
+          next[gateway.provider] = { ...next[gateway.provider], keyId: gateway.keyId, enabled: gateway.enabled };
+        }
+        return next;
+      });
+    } catch {
+      setGatewayNotice('Unable to load payment settings.');
+    }
+  }, [isVerifiedSellerOrAdmin]);
+
+  const savePaymentSettings = async (provider: 'razorpay' | 'stripe') => {
+    setGatewayBusy(true);
+    setGatewayNotice('');
+    try {
+      const data = gatewayDrafts[provider];
+      await apiFetch('/api/seller/payment-settings/' + provider, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+      setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], secret: '', webhookSecret: '' } }));
+      setGatewayNotice(provider.toUpperCase() + ' settings saved. Secret values are stored encrypted.');
+      await loadPaymentSettings();
+    } catch (err) {
+      setGatewayNotice((err as Error).message);
+    } finally {
+      setGatewayBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (isAdmin && sellerTab === 'invites') {
       loadAdminInvites();
@@ -448,6 +493,9 @@ export function SellerHubView({
     if (isVerifiedSellerOrAdmin && sellerTab === 'coupons') {
       loadSellerCoupons();
     }
+    if (isVerifiedSellerOrAdmin && sellerTab === 'payments') {
+      loadPaymentSettings();
+    }
     if (isVerifiedSellerOrAdmin && sellerTab === 'orders') {
       loadSellerOrders(orderTab, 0, false);
     }
@@ -460,6 +508,7 @@ export function SellerHubView({
     loadSellerCategories,
     loadSellerCampaigns,
     loadSellerCoupons,
+    loadPaymentSettings,
     loadSellerOrders,
   ]);
 
@@ -2839,6 +2888,40 @@ export function SellerHubView({
       )}
 
       {/* TAB 3: SELLER ORDERS & COURIER TRACKING */}
+      {isVerifiedSellerOrAdmin && sellerTab === 'payments' && (
+        <section className="space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold text-[#141413]">Payment settings</h2>
+            <p className="mt-1 text-xs text-[#78716C]">Connect Razorpay and Stripe. Secret fields are write-only and encrypted before storage.</p>
+          </div>
+          {(['razorpay', 'stripe'] as const).map((provider) => (
+            <div key={provider} className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold capitalize">{provider}</h3>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={gatewayDrafts[provider].enabled} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], enabled: e.target.checked } }))} />
+                  Active
+                </label>
+              </div>
+              <label className="block text-xs font-medium">Key ID / Publishable Key
+                <input value={gatewayDrafts[provider].keyId} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], keyId: e.target.value } }))} className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="off" />
+              </label>
+              <label className="block text-xs font-medium">API Secret
+                <input type="password" value={gatewayDrafts[provider].secret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], secret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
+              </label>
+              <label className="block text-xs font-medium">Webhook Signing Secret
+                <input type="password" value={gatewayDrafts[provider].webhookSecret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], webhookSecret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
+              </label>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] text-[#78716C]">{gatewaySettings.find((item) => item.provider === provider)?.secretMasked || 'No secret configured'}</span>
+                <button type="button" disabled={gatewayBusy || !gatewayDrafts[provider].keyId.trim()} onClick={() => void savePaymentSettings(provider)} className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{gatewayBusy ? 'Saving…' : 'Save settings'}</button>
+              </div>
+            </div>
+          ))}
+          {gatewayNotice && <p role="status" className="text-xs text-[#57534E]">{gatewayNotice}</p>}
+        </section>
+      )}
+
       {sellerTab === 'orders' && (
         <div className="space-y-4">
           <div className="inline-flex items-center gap-1 rounded-lg bg-[#F0EEE9] p-1">
