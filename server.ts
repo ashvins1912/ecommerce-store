@@ -244,7 +244,7 @@ async function startServer() {
     attachSslSecurityHeaders(res);
     next();
   });
-  app.use(express.json({ limit: '4mb' }));
+  app.use(express.json({ limit: '4mb', verify: (req: any, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
   app.use(cookieParser());
 
   // Same-origin and synchronized-token CSRF protection for state-changing APIs.
@@ -818,6 +818,7 @@ async function startServer() {
       limit: 20, // Strictly 20 products per page
       sellerId: typeof req.query.sellerId === 'string' ? req.query.sellerId : undefined,
       includeDisabled: allowDisabled,
+      viewerId: user?._id,
     });
     res.json(result);
   });
@@ -932,6 +933,12 @@ async function startServer() {
       description: z.string().min(10),
       careInstructions: z.string().default('Store dry in protective pouch.'),
       basePrice: z.number().positive(),
+      visibility: z.enum(['PUBLIC', 'ASSIGNED']).default('PUBLIC'),
+      assignedCustomerIds: z.array(z.string().min(1)).max(500).default([]),
+      onlinePaymentRequired: z.boolean().default(false),
+      codAllowed: z.boolean().default(true),
+      isReturnable: z.boolean().default(true),
+      returnWindowDays: z.number().int().min(0).max(90).default(7),
       discountPercent: z.number().min(0).max(90).default(0),
       totalStock: z.number().int().min(0),
       images: z
@@ -991,6 +998,9 @@ async function startServer() {
       return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid product payload' });
     }
 
+    if (parsed.data.visibility === 'ASSIGNED' && parsed.data.assignedCustomerIds.length === 0) return res.status(400).json({ error: 'ASSIGNED_PRODUCTS_REQUIRE_CUSTOMERS' });
+    const validCustomers = parsed.data.assignedCustomerIds.length ? await UserModel.countDocuments({ _id: { $in: parsed.data.assignedCustomerIds }, role: 'BUYER' }) : 0;
+    if (validCustomers !== parsed.data.assignedCustomerIds.length) return res.status(400).json({ error: 'INVALID_ASSIGNED_CUSTOMER' });
     const created = await createProduct(user._id, {
       ...parsed.data,
       seasons: parsed.data.seasons && parsed.data.seasons.length > 0 ? parsed.data.seasons : ['Diwali', 'New Year'],
@@ -1010,6 +1020,10 @@ async function startServer() {
     }
     const schema = z.object({
       discountPercent: z.number().min(0).max(95).optional(),
+      onlinePaymentRequired: z.boolean().optional(),
+      codAllowed: z.boolean().optional(),
+      isReturnable: z.boolean().optional(),
+      returnWindowDays: z.number().int().min(0).max(90).optional(),
       salePrice: z.number().positive().optional(),
       basePrice: z.number().positive().optional(),
       totalStock: z.number().int().min(0).optional(),
@@ -1034,6 +1048,14 @@ async function startServer() {
       return res.status(400).json({ error: 'Invalid update values' });
     }
     const updated = await updateProductDiscountOrStock(req.params.id, user._id, parsed.data);
+    if (updated && ['onlinePaymentRequired', 'codAllowed', 'isReturnable', 'returnWindowDays'].some((key) => key in parsed.data)) {
+      await ProductModel.updateOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }, { $set: {
+        ...(parsed.data.onlinePaymentRequired !== undefined ? { onlinePaymentRequired: parsed.data.onlinePaymentRequired } : {}),
+        ...(parsed.data.codAllowed !== undefined ? { codAllowed: parsed.data.codAllowed } : {}),
+        ...(parsed.data.isReturnable !== undefined ? { isReturnable: parsed.data.isReturnable } : {}),
+        ...(parsed.data.returnWindowDays !== undefined ? { returnWindowDays: parsed.data.returnWindowDays } : {}),
+      }});
+    }
     if (!updated) return res.status(404).json({ error: 'Product not found or unauthorized' });
     res.json({ product: updated });
   });
@@ -1536,7 +1558,7 @@ async function startServer() {
     if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const q = String(req.query.q || '').trim().slice(0, 80);
     if (q.length < 2) return res.json({ customers: [] });
-    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\  // --- Seller Analytics & Trending Cron ---');
+    const escaped = q.replace(/[.*+?^$()|[\\]\\\\]/g, '\\\\    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\  // --- Seller Analytics & Trending Cron ---');');
     const docs = await UserModel.find({
       role: 'BUYER',
       $or: [
