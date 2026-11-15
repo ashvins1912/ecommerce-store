@@ -1592,7 +1592,7 @@ async function startServer() {
 
     const existingOrder = await OrderModel.findById(req.params.id).lean();
     if (!existingOrder) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
-    if (user.role !== 'ADMIN' && (user.role !== 'SELLER' || String(existingOrder.sellerId) !== user._id)) {
+    if (user.role !== 'ADMIN' && (user.role !== 'SELLER' || !user.isWhatsappVerified || String(existingOrder.sellerId) !== user._id)) {
       return res.status(403).json({ error: 'ORDER_OWNER_REQUIRED' });
     }
     const allowedTransitions: Record<string, string[]> = {
@@ -1636,7 +1636,7 @@ async function startServer() {
   // Seller-scoped customer lookup. PUID, name and phone are searchable; response is deliberately minimized.
   app.get('/api/seller/customers/search', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const searchRate = await checkRateLimit('seller-customer-search:' + user._id, 60, 60);
     if (!searchRate.allowed) return res.status(429).json({ error: 'SEARCH_RATE_LIMITED' });
     const q = String(req.query.q || '').trim().slice(0, 80);
@@ -1658,14 +1658,14 @@ async function startServer() {
   // Gateway secrets are encrypted at rest and never returned by this API.
   app.get('/api/seller/payment-settings', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const settings = await listGatewayConfigurations(user._id);
     res.setHeader('Cache-Control', 'no-store');
     res.json({ gateways: settings });
   });
   app.put('/api/seller/payment-settings/:provider', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const provider = z.enum(['razorpay', 'stripe']).safeParse(req.params.provider);
     if (!provider.success) return res.status(400).json({ error: 'UNSUPPORTED_PAYMENT_PROVIDER' });
     const parsed = z.object({
@@ -1852,7 +1852,7 @@ async function startServer() {
   // Seller confirms stock/availability before prepaid checkout is enabled.
   app.post('/api/seller/orders/:id/confirm', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
     if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
     if (!['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(order.status)) return res.status(409).json({ error: 'INVALID_ORDER_TRANSITION' });
@@ -1885,7 +1885,7 @@ async function startServer() {
 
   app.patch('/api/seller/orders/:id/cancellation-review', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const parsed = z.object({ action: z.enum(['approve', 'reject']), refundDestination: z.enum(['ORIGINAL_SOURCE', 'WALLET']).default('WALLET') }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_CANCELLATION_REVIEW' });
     const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
@@ -1972,14 +1972,14 @@ async function startServer() {
 
   app.get('/api/seller/returns', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const requests = await ReturnRequestModel.find(user.role === 'ADMIN' ? {} : { sellerId: user._id }).sort({ createdAt: -1 }).limit(100).lean();
     res.json({ returns: requests.map((item: any) => ({ ...item, _id: String(item._id) })) });
   });
 
   app.patch('/api/seller/returns/:id', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const parsed = z.object({ action: z.enum(['approve', 'reject', 'mark_received']), refundDestination: z.enum(['ORIGINAL_SOURCE', 'WALLET']).default('WALLET') }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_RETURN_ACTION' });
     const filter = { _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) };
