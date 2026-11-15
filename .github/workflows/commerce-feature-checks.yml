@@ -1,0 +1,19 @@
+name: Commerce feature checks
+
+on:
+  pull_request:
+    branches: [main, feat/seller-route-auth-redesign]
+  push:
+    branches: [feat/commerce-complete-workflows]
+
+jobs:
+  typecheck-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --no-save
+      - run: bun run lint
+      - run: bun run build

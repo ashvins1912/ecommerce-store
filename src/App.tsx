@@ -284,6 +284,8 @@ export default function App() {
       setActivePage('seller');
     } else if (params.get('page') === 'signup' || params.get('signup') === '1') {
       setActivePage('signup');
+    } else if (params.get('page') === 'orders') {
+      setActivePage('orders');
     }
 
     const onScroll = () => {
@@ -496,6 +498,7 @@ export default function App() {
     (async () => {
       try {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
+        setClientSessionTokens(session.accessToken, session.csrfToken);
         setUser(session.user);
         setLikedIds(new Set(session.likedProductIds));
 

@@ -61,6 +61,7 @@ import type {
 } from '../shared/types';
 import { apiFetch, compressAndUploadImage, formatINR, setClientSessionTokens } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { CustomerSearchModal, type AssignableCustomer } from './CustomerSearchModal';
 
 const OCCASIONS: OccasionType[] = [
   'Wedding',
@@ -88,6 +89,8 @@ type SellerTab =
   | 'categories'
   | 'campaigns'
   | 'coupons'
+  | 'payments'
+  | 'returns'
   | 'orders';
 
 interface AdminInviteRow extends SellerInvite {
@@ -212,6 +215,13 @@ export function SellerHubView({
   const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
   const [removingProduct, setRemovingProduct] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [newVisibility, setNewVisibility] = useState<'PUBLIC' | 'ASSIGNED'>('PUBLIC');
+  const [newAssignedCustomers, setNewAssignedCustomers] = useState<AssignableCustomer[]>([]);
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false);
+  const [newOnlineRequired, setNewOnlineRequired] = useState(false);
+  const [newCodAllowed, setNewCodAllowed] = useState(true);
+  const [newReturnable, setNewReturnable] = useState(true);
+  const [newReturnWindow, setNewReturnWindow] = useState(7);
 
   // Seller Category Control Panel state
   const [categories, setCategories] = useState<CategoryControl[]>([]);
@@ -238,6 +248,16 @@ export function SellerHubView({
   const [cmpError, setCmpError] = useState<string | null>(null);
 
   // Seller Coupons state
+  const [returnRequests, setReturnRequests] = useState<Array<any>>([]);
+  const [returnNotice, setReturnNotice] = useState('');
+  const [gatewaySettings, setGatewaySettings] = useState<Array<{ provider: 'razorpay' | 'stripe'; keyId: string; enabled: boolean; secretMasked: string }>>([]);
+  const [gatewayDrafts, setGatewayDrafts] = useState({
+    razorpay: { keyId: '', secret: '', webhookSecret: '', enabled: false },
+    stripe: { keyId: '', secret: '', webhookSecret: '', enabled: false },
+  });
+  const [gatewayNotice, setGatewayNotice] = useState('');
+  const [gatewayBusy, setGatewayBusy] = useState(false);
+
   const [sellerCoupons, setSellerCoupons] = useState<Coupon[]>([]);
   const [knownCustomers, setKnownCustomers] = useState<
     Array<{ _id: string; name: string; email: string }>
@@ -435,6 +455,66 @@ export function SellerHubView({
     }
   }, [isVerifiedSellerOrAdmin, loadAnalytics, loadSellerCatalog, loadSellerCategories]);
 
+  const loadReturnRequests = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const data = await apiFetch<{ returns: Array<any> }>('/api/seller/returns');
+      setReturnRequests(data.returns || []);
+    } catch {
+      setReturnNotice('Unable to load return requests.');
+    }
+  }, [isVerifiedSellerOrAdmin]);
+
+  const handleReturnAction = async (id: string, action: 'approve' | 'reject' | 'mark_received') => {
+    setReturnNotice('');
+    try {
+      await apiFetch('/api/seller/returns/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        body: JSON.stringify({ action, refundDestination: 'WALLET' }),
+      });
+      setReturnNotice(action === 'mark_received' ? 'Return received and wallet refund credited.' : 'Return request updated.');
+      await loadReturnRequests();
+    } catch (err) {
+      setReturnNotice((err as Error).message);
+    }
+  };
+
+  const loadPaymentSettings = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const data = await apiFetch<{ gateways: Array<{ provider: 'razorpay' | 'stripe'; keyId: string; enabled: boolean; secretMasked: string }> }>('/api/seller/payment-settings');
+      setGatewaySettings(data.gateways || []);
+      setGatewayDrafts((prev) => {
+        const next = { ...prev };
+        for (const gateway of data.gateways || []) {
+          next[gateway.provider] = { ...next[gateway.provider], keyId: gateway.keyId, enabled: gateway.enabled };
+        }
+        return next;
+      });
+    } catch {
+      setGatewayNotice('Unable to load payment settings.');
+    }
+  }, [isVerifiedSellerOrAdmin]);
+
+  const savePaymentSettings = async (provider: 'razorpay' | 'stripe') => {
+    setGatewayBusy(true);
+    setGatewayNotice('');
+    try {
+      const data = gatewayDrafts[provider];
+      await apiFetch('/api/seller/payment-settings/' + provider, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+      setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], secret: '', webhookSecret: '' } }));
+      setGatewayNotice(provider.toUpperCase() + ' settings saved. Secret values are stored encrypted.');
+      await loadPaymentSettings();
+    } catch (err) {
+      setGatewayNotice((err as Error).message);
+    } finally {
+      setGatewayBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (isAdmin && sellerTab === 'invites') {
       loadAdminInvites();
@@ -448,6 +528,12 @@ export function SellerHubView({
     if (isVerifiedSellerOrAdmin && sellerTab === 'coupons') {
       loadSellerCoupons();
     }
+    if (isVerifiedSellerOrAdmin && sellerTab === 'payments') {
+      loadPaymentSettings();
+    }
+    if (isVerifiedSellerOrAdmin && sellerTab === 'returns') {
+      loadReturnRequests();
+    }
     if (isVerifiedSellerOrAdmin && sellerTab === 'orders') {
       loadSellerOrders(orderTab, 0, false);
     }
@@ -460,6 +546,8 @@ export function SellerHubView({
     loadSellerCategories,
     loadSellerCampaigns,
     loadSellerCoupons,
+    loadPaymentSettings,
+    loadReturnRequests,
     loadSellerOrders,
   ]);
 
@@ -1171,6 +1259,12 @@ export function SellerHubView({
           basePrice: Number(newBasePrice),
           discountPercent: Number(newDiscount),
           totalStock: Number(newStock),
+          visibility: newVisibility,
+          assignedCustomerIds: newVisibility === 'ASSIGNED' ? newAssignedCustomers.map((customer) => customer._id) : [],
+          onlinePaymentRequired: newOnlineRequired,
+          codAllowed: newCodAllowed,
+          isReturnable: newReturnable,
+          returnWindowDays: newReturnable ? Number(newReturnWindow) : 0,
           images: imgs,
           occasions: newOccasions,
           seasons: newSeasons,
@@ -1222,15 +1316,42 @@ export function SellerHubView({
     }
   };
 
+  const handleCancellationReview = async (orderId: string, action: 'approve' | 'reject') => {
+    try {
+      await apiFetch('/api/seller/orders/' + encodeURIComponent(orderId) + '/cancellation-review', {
+        method: 'PATCH',
+        body: JSON.stringify({ action, refundDestination: 'WALLET' }),
+      });
+      await loadSellerOrders(orderTab, 0, false);
+      setReturnNotice(action === 'approve' ? 'Cancellation approved and refund initiated.' : 'Cancellation request rejected.');
+    } catch (err) {
+      setReturnNotice((err as Error).message);
+    }
+  };
+
+  const handleProductRuleChange = async (product: Product, patch: Partial<Pick<Product, 'onlinePaymentRequired' | 'codAllowed' | 'isReturnable' | 'returnWindowDays'>>) => {
+    try {
+      await apiFetch('/api/products/' + encodeURIComponent(product._id), {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      await loadSellerCatalog();
+    } catch (err) {
+      setCreateError((err as Error).message);
+    }
+  };
+
   const handleOrderStatusChange = async (
     order: Order,
     status: OrderStatus,
     tracking?: { companyName: string; trackingId: string; trackingUrl: string }
   ) => {
-    const res = await apiFetch<{ order: Order }>(`/api/orders/${order._id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status, courierTracking: tracking }),
-    });
+    const res = status === 'Confirmed' && ['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(order.status)
+      ? await apiFetch<{ order: Order }>(`/api/seller/orders/${order._id}/confirm`, { method: 'POST', body: JSON.stringify({}) })
+      : await apiFetch<{ order: Order }>(`/api/orders/${order._id}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status, courierTracking: tracking }),
+        });
     setSellerOrders((prev) => prev.map((o) => (o._id === order._id ? res.order : o)));
     setShipOrderTarget(null);
   };
@@ -1256,6 +1377,8 @@ export function SellerHubView({
     { id: 'categories', label: t('seller.tabCategories') },
     { id: 'campaigns', label: t('seller.tabCampaigns') },
     { id: 'coupons', label: t('seller.tabCoupons') },
+    { id: 'payments', label: 'Payments' },
+    { id: 'returns', label: 'Returns' },
     { id: 'orders', label: t('seller.tabOrders') },
   ];
 
@@ -1945,6 +2068,12 @@ export function SellerHubView({
                               </div>
                               <div className="text-[11px] text-[#6B6A65] truncate max-w-[240px]">
                                 {tc(p.category)} · {p.occasions.map((o) => to(o)).join(', ')}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#57534E]">
+                                <label className="inline-flex items-center gap-1"><input type="checkbox" checked={Boolean(p.onlinePaymentRequired)} onChange={(e) => void handleProductRuleChange(p, { onlinePaymentRequired: e.target.checked })}/> Prepaid only</label>
+                                <label className="inline-flex items-center gap-1"><input type="checkbox" checked={p.codAllowed !== false} onChange={(e) => void handleProductRuleChange(p, { codAllowed: e.target.checked })}/> COD</label>
+                                <label className="inline-flex items-center gap-1"><input type="checkbox" checked={p.isReturnable !== false} onChange={(e) => void handleProductRuleChange(p, { isReturnable: e.target.checked, ...(!e.target.checked ? { returnWindowDays: 0 } : {}) })}/> Returnable</label>
+                                {p.isReturnable !== false && <select aria-label="Return window" value={p.returnWindowDays ?? 7} onChange={(e) => void handleProductRuleChange(p, { returnWindowDays: Number(e.target.value) })} className="rounded border border-[#D6D3CD] bg-white px-1 py-0.5"><option value={3}>3d</option><option value={7}>7d</option><option value={10}>10d</option><option value={15}>15d</option><option value={30}>30d</option></select>}
                               </div>
                             </div>
                           </div>
@@ -2839,6 +2968,59 @@ export function SellerHubView({
       )}
 
       {/* TAB 3: SELLER ORDERS & COURIER TRACKING */}
+      {isVerifiedSellerOrAdmin && sellerTab === 'returns' && (
+        <section className="space-y-4">
+          <div><h2 className="text-lg font-semibold">Returns and cancellation review</h2><p className="text-xs text-[#78716C]">Review buyer evidence and confirm physical receipt before releasing wallet refunds.</p></div>
+          {returnNotice && <p role="status" className="text-xs text-[#57534E]">{returnNotice}</p>}
+          {returnRequests.length === 0 ? <div className="rounded-lg border border-[#E8E6E1] bg-white p-8 text-center text-xs text-[#78716C]">No return requests.</div> : returnRequests.map((item) => (
+            <article key={item._id} className="rounded-lg border border-[#E8E6E1] bg-white p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-semibold">{item.productId} · Order {item.orderId}</div><span className="rounded-full bg-[#F5F5F4] px-2 py-1 text-[10px] font-semibold">{item.status}</span></div>
+              <p className="text-xs text-[#57534E]">{item.reason}</p>
+              <div className="flex flex-wrap gap-2">{(item.media || []).map((media: any, index: number) => <a key={index} href={media.url} target="_blank" rel="noreferrer" className="text-xs text-[#881337] underline">Evidence {index + 1}</a>)}</div>
+              {item.selfCourier && <p className="text-xs">Courier: {item.courierName} · {item.trackingId} {item.trackingUrl && <a href={item.trackingUrl} target="_blank" rel="noreferrer" className="text-[#881337] underline">Track</a>}</p>}
+              <div className="flex flex-wrap gap-2">
+                {item.status === 'REQUESTED' && <><button type="button" onClick={() => void handleReturnAction(item._id, 'approve')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white">Approve return</button><button type="button" onClick={() => void handleReturnAction(item._id, 'reject')} className="rounded-md border px-3 py-2 text-xs">Reject</button></>}
+                {['APPROVED', 'IN_TRANSIT'].includes(item.status) && <button type="button" onClick={() => void handleReturnAction(item._id, 'mark_received')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white">Verify &amp; mark received · Wallet refund</button>}
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+
+      {isVerifiedSellerOrAdmin && sellerTab === 'payments' && (
+        <section className="space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold text-[#141413]">Payment settings</h2>
+            <p className="mt-1 text-xs text-[#78716C]">Connect Razorpay and Stripe. Secret fields are write-only and encrypted before storage.</p>
+          </div>
+          {(['razorpay', 'stripe'] as const).map((provider) => (
+            <div key={provider} className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold capitalize">{provider}</h3>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={gatewayDrafts[provider].enabled} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], enabled: e.target.checked } }))} />
+                  Active
+                </label>
+              </div>
+              <label className="block text-xs font-medium">Key ID / Publishable Key
+                <input value={gatewayDrafts[provider].keyId} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], keyId: e.target.value } }))} className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="off" />
+              </label>
+              <label className="block text-xs font-medium">API Secret
+                <input type="password" value={gatewayDrafts[provider].secret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], secret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
+              </label>
+              <label className="block text-xs font-medium">Webhook Signing Secret
+                <input type="password" value={gatewayDrafts[provider].webhookSecret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], webhookSecret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
+              </label>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] text-[#78716C]">{gatewaySettings.find((item) => item.provider === provider)?.secretMasked || 'No secret configured'}</span>
+                <button type="button" disabled={gatewayBusy || !gatewayDrafts[provider].keyId.trim()} onClick={() => void savePaymentSettings(provider)} className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{gatewayBusy ? 'Saving…' : 'Save settings'}</button>
+              </div>
+            </div>
+          ))}
+          {gatewayNotice && <p role="status" className="text-xs text-[#57534E]">{gatewayNotice}</p>}
+        </section>
+      )}
+
       {sellerTab === 'orders' && (
         <div className="space-y-4">
           <div className="inline-flex items-center gap-1 rounded-lg bg-[#F0EEE9] p-1">
@@ -2914,8 +3096,15 @@ export function SellerHubView({
                   </div>
                 )}
 
+                {ord.status === 'CANCELLATION_REQUESTED' && (
+                  <div className="flex flex-wrap gap-2 rounded-md bg-[#FFF8F6] p-3">
+                    <span className="w-full text-xs font-medium text-[#57534E]">Buyer requested cancellation. Confirm parcel recovery before approving a refund.</span>
+                    <button type="button" onClick={() => void handleCancellationReview(ord._id, 'approve')} className="rounded bg-[#881337] px-3 py-1.5 text-xs font-semibold text-white">Approve &amp; refund to wallet</button>
+                    <button type="button" onClick={() => void handleCancellationReview(ord._id, 'reject')} className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs">Reject request</button>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#F0EEE9]">
-                  {ord.status === 'Pending' && (
+                  {['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(ord.status) && (
                     <button
                       type="button"
                       onClick={() => handleOrderStatusChange(ord, 'Confirmed')}
@@ -2924,7 +3113,7 @@ export function SellerHubView({
                       {t('seller.confirmOrder')}
                     </button>
                   )}
-                  {(ord.status === 'Pending' || ord.status === 'Confirmed') && (
+                  {(['Confirmed', 'PAID_AND_PROCESSING'].includes(ord.status)) && (
                     <button
                       type="button"
                       onClick={() => handleOrderStatusChange(ord, 'Packed')}
@@ -2933,7 +3122,7 @@ export function SellerHubView({
                       {t('seller.markPacked')}
                     </button>
                   )}
-                  {['Pending', 'Confirmed', 'Packed'].includes(ord.status) && (
+                  {['Confirmed', 'PAID_AND_PROCESSING', 'Packed'].includes(ord.status) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -3448,6 +3637,26 @@ export function SellerHubView({
                 </div>
               )}
 
+              <div className="rounded-lg border border-[#E8E6E1] bg-[#FAF9F6] p-4 space-y-3">
+                <div className="font-semibold text-[#292524]">Customer visibility</div>
+                <div className="flex flex-wrap gap-4 text-xs">
+                  <label className="inline-flex items-center gap-2"><input type="radio" checked={newVisibility === 'PUBLIC'} onChange={() => setNewVisibility('PUBLIC')} /> Public / All customers</label>
+                  <label className="inline-flex items-center gap-2"><input type="radio" checked={newVisibility === 'ASSIGNED'} onChange={() => setNewVisibility('ASSIGNED')} /> Assign to specific customers</label>
+                </div>
+                {newVisibility === 'ASSIGNED' && <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-[#57534E]">{newAssignedCustomers.length} selected</span>
+                  <button type="button" onClick={() => setShowCustomerSearch(true)} className="rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold">Choose customers</button>
+                </div>}
+                <div className="border-t border-[#E8E6E1] pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={newOnlineRequired} onChange={(e) => setNewOnlineRequired(e.target.checked)} /> Online payment required</label>
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={newCodAllowed} onChange={(e) => setNewCodAllowed(e.target.checked)} /> Cash on delivery allowed</label>
+                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={newReturnable} onChange={(e) => setNewReturnable(e.target.checked)} /> Returnable product</label>
+                  {newReturnable && <label className="flex items-center gap-2 text-xs">Return window
+                    <input type="number" min={1} max={90} value={newReturnWindow} onChange={(e) => setNewReturnWindow(Number(e.target.value))} className="w-16 rounded border border-[#D6D3CD] px-2 py-1" /> days
+                  </label>}
+                </div>
+              </div>
+
               <div className="border-t border-[#F0EEE9] pt-3 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="inline-flex items-center gap-2 rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] cursor-pointer">
@@ -3558,6 +3767,13 @@ export function SellerHubView({
           </div>
         </div>
       )}
+
+      <CustomerSearchModal
+        open={showCustomerSearch}
+        selected={newAssignedCustomers}
+        onClose={() => setShowCustomerSearch(false)}
+        onChange={setNewAssignedCustomers}
+      />
 
       {/* Existing Product Multi-Image Manager Modal */}
       {editImagesTarget && (

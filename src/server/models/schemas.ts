@@ -48,6 +48,12 @@ const UserSchema = new Schema(
 const ProductSchema = new Schema(
   {
     sellerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    visibility: { type: String, enum: ['PUBLIC', 'ASSIGNED'], default: 'PUBLIC', index: true },
+    assignedCustomerIds: { type: [Schema.Types.ObjectId], ref: 'User', default: [], index: true },
+    onlinePaymentRequired: { type: Boolean, default: false },
+    codAllowed: { type: Boolean, default: true },
+    isReturnable: { type: Boolean, default: true },
+    returnWindowDays: { type: Number, default: 7, min: 0, max: 90 },
     title: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, index: true },
     sku: { type: String, required: true, trim: true },
@@ -203,9 +209,23 @@ const OrderSchema = new Schema(
         imageUrl: { type: String, required: true },
         quantity: { type: Number, required: true, min: 1 },
         unitPrice: { type: Number, required: true, min: 0 },
+        isReturnable: { type: Boolean, default: true },
+        returnWindowDays: { type: Number, default: 7, min: 0, max: 90 },
       },
     ],
     totalAmount: { type: Number, required: true, min: 0 },
+    paymentMode: { type: String, enum: ['COD', 'RAZORPAY', 'STRIPE', 'WALLET', 'MIXED'], default: 'COD', index: true },
+    paymentStatus: { type: String, enum: ['NOT_REQUIRED', 'PENDING', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'], default: 'NOT_REQUIRED', index: true },
+    paymentProvider: { type: String, enum: ['razorpay', 'stripe'], default: null },
+    paymentReference: { type: String, default: null, index: true },
+    paymentCheckoutUrl: { type: String, default: null },
+    paymentTransactionId: { type: String, default: null, index: true },
+    walletAppliedPaise: { type: Number, default: 0, min: 0 },
+    cancellationRequestedAt: { type: Date, default: null },
+    cancellationPreviousStatus: { type: String, default: null },
+    inventoryRestored: { type: Boolean, default: false },
+    deliveredAt: { type: Date, default: null },
+    refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'PARTIAL', 'REFUNDED', 'REJECTED'], default: 'NONE' },
     appliedCoupon: {
       couponId: String,
       code: String,
@@ -213,7 +233,7 @@ const OrderSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled'],
+      enum: ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING', 'CANCELLATION_REQUESTED', 'RETURN_REQUESTED', 'RETURN_RECEIVED'],
       default: 'Pending',
       index: true,
     },
@@ -375,6 +395,64 @@ const ShareEventSchema = new Schema(
   { timestamps: { createdAt: true, updatedAt: false } }
 );
 
+
+const PaymentGatewayConfigSchema = new Schema({
+  sellerId: { type: String, required: true, index: true },
+  provider: { type: String, enum: ['razorpay', 'stripe'], required: true },
+  keyId: { type: String, required: true },
+  encryptedSecret: { type: String, required: true, select: false },
+  encryptedWebhookSecret: { type: String, required: true, select: false },
+  enabled: { type: Boolean, default: false, index: true },
+  currency: { type: String, enum: ['INR', 'USD'], default: 'INR' },
+}, { timestamps: true });
+PaymentGatewayConfigSchema.index({ sellerId: 1, provider: 1 }, { unique: true });
+
+const WalletSchema = new Schema({
+  userId: { type: String, required: true, unique: true, index: true },
+  balancePaise: { type: Number, required: true, default: 0, min: 0 },
+  currency: { type: String, default: 'INR' },
+  version: { type: Number, default: 0 },
+}, { timestamps: true });
+
+const WalletTransactionSchema = new Schema({
+  userId: { type: String, required: true, index: true, immutable: true },
+  idempotencyKey: { type: String, required: true, unique: true, immutable: true },
+  type: { type: String, enum: ['CREDIT_REFUND', 'DEBIT_ORDER_REDEMPTION', 'BONUS', 'ADJUSTMENT'], required: true, immutable: true },
+  amountPaise: { type: Number, required: true, min: 1, immutable: true },
+  orderId: { type: String, default: null, index: true, immutable: true },
+  reference: { type: String, default: null, immutable: true },
+  balanceAfterPaise: { type: Number, required: true, min: 0, immutable: true },
+  metadata: { type: Schema.Types.Mixed, default: {} },
+}, { timestamps: true });
+WalletTransactionSchema.index({ userId: 1, createdAt: -1 });
+
+const ReturnRequestSchema = new Schema({
+  orderId: { type: String, required: true, index: true },
+  buyerId: { type: String, required: true, index: true },
+  sellerId: { type: String, required: true, index: true },
+  productId: { type: String, required: true },
+  quantity: { type: Number, required: true, min: 1 },
+  reason: { type: String, required: true, maxlength: 1000 },
+  media: [{ url: { type: String, required: true }, mimeType: { type: String, required: true }, durationSeconds: { type: Number, default: 0 } }],
+  selfCourier: { type: Boolean, default: false },
+  courierName: String,
+  trackingId: String,
+  trackingUrl: String,
+  status: { type: String, enum: ['REQUESTED', 'APPROVED', 'REJECTED', 'IN_TRANSIT', 'RECEIVED', 'REFUND_PENDING', 'REFUNDED'], default: 'REQUESTED', index: true },
+  receivedAt: Date,
+  refundDestination: { type: String, enum: ['ORIGINAL_SOURCE', 'WALLET'], default: 'WALLET' },
+}, { timestamps: true });
+ReturnRequestSchema.index({ orderId: 1, productId: 1, buyerId: 1 }, { unique: true });
+
+const PaymentEventSchema = new Schema({
+  provider: { type: String, enum: ['razorpay', 'stripe'], required: true },
+  eventId: { type: String, required: true },
+  orderId: { type: String, required: true, index: true },
+  processedAt: Date,
+  payloadHash: { type: String, required: true },
+}, { timestamps: true });
+PaymentEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
+
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);
 export const ProductModel: Model<any> =
@@ -397,3 +475,14 @@ export const CategoryControlModel: Model<any> =
   mongoose.models.CategoryControl || mongoose.model('CategoryControl', CategoryControlSchema);
 export const ShareEventModel: Model<any> =
   mongoose.models.ShareEvent || mongoose.model('ShareEvent', ShareEventSchema);
+
+export const PaymentGatewayConfigModel: Model<any> =
+  mongoose.models.PaymentGatewayConfig || mongoose.model('PaymentGatewayConfig', PaymentGatewayConfigSchema);
+export const WalletModel: Model<any> =
+  mongoose.models.Wallet || mongoose.model('Wallet', WalletSchema);
+export const WalletTransactionModel: Model<any> =
+  mongoose.models.WalletTransaction || mongoose.model('WalletTransaction', WalletTransactionSchema);
+export const ReturnRequestModel: Model<any> =
+  mongoose.models.ReturnRequest || mongoose.model('ReturnRequest', ReturnRequestSchema);
+export const PaymentEventModel: Model<any> =
+  mongoose.models.PaymentEvent || mongoose.model('PaymentEvent', PaymentEventSchema);

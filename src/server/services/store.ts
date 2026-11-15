@@ -523,7 +523,7 @@ export async function getSearchSuggestions(query: string): Promise<string[]> {
   }
 
   for (const p of all) {
-    if (!isProductPubliclyVisible(p) || disabledSet.has(p.category.toLowerCase())) continue;
+    if (!isProductPubliclyVisible(p) || p.visibility === 'ASSIGNED' || disabledSet.has(p.category.toLowerCase())) continue;
     const titleLower = p.title.toLowerCase();
     const specBlob = [
       p.subCategory,
@@ -582,6 +582,7 @@ export interface ProductFilterQuery {
   sellerId?: string;
   includeInactive?: boolean;
   includeDisabled?: boolean;
+  viewerId?: string;
 }
 
 function computeCategoryTop10Thresholds(products: Product[]): Record<string, number> {
@@ -626,6 +627,7 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   let items = allProducts.filter((p) => {
     if (!filters.includeInactive && !isProductPubliclyVisible(p)) return false;
     if (!filters.includeDisabled && disabledSet.has(p.category.toLowerCase())) return false;
+    if (p.visibility === 'ASSIGNED' && (!filters.viewerId || !(p.assignedCustomerIds || []).map(String).includes(filters.viewerId))) return false;
     return true;
   });
 
@@ -1928,7 +1930,7 @@ export async function createVerifiedReview(input: {
 
 function matchesOrderTab(status: OrderStatus, tab: OrderTab): boolean {
   if (tab === 'Current') {
-    return ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery'].includes(status);
+    return ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING', 'CANCELLATION_REQUESTED', 'RETURN_REQUESTED', 'RETURN_RECEIVED'].includes(status);
   }
   if (tab === 'Completed') {
     return status === 'Delivered';
@@ -1972,7 +1974,7 @@ export async function getOrdersForUser(
   if (mongoConnected && mongoose.isValidObjectId(actorId)) {
     const statusList: OrderStatus[] =
       tab === 'Current'
-        ? ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery']
+        ? ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING', 'CANCELLATION_REQUESTED', 'RETURN_REQUESTED', 'RETURN_RECEIVED']
         : tab === 'Completed'
           ? ['Delivered']
           : ['Delivered', 'Cancelled'];

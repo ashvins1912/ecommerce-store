@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { AuthSessionSummary, User } from '../../shared/types.js';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'kala-karat-ssl-session-secret-2026';
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 export interface AuthSessionRecord {
@@ -63,7 +64,7 @@ export function getSslSessionCookieOpts() {
   return {
     httpOnly: true,
     secure: true,
-    sameSite: 'none' as const,
+    sameSite: 'lax' as const,
     maxAge: TOKEN_TTL_MS,
     path: '/',
   };
@@ -184,4 +185,8 @@ export function attachSslSecurityHeaders(res: Response) {
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
 }

@@ -2,6 +2,9 @@ import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
+import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -93,6 +96,7 @@ import {
   checkRateLimit,
 } from './src/server/services/redis.js';
 import { processAndStoreImage, getUploadDir } from './src/server/services/storage.js';
+import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerce-defaults.js';
 import {
   isValidE164,
   checkWhatsAppNumberExists,
@@ -113,7 +117,8 @@ import type {
 } from './src/shared/types.js';
 
 const PORT = 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'kala-karat-dev-secret-2026';
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -142,7 +147,7 @@ function getCookieOpts() {
   return {
     httpOnly: true,
     secure: true,
-    sameSite: 'none' as const,
+    sameSite: 'lax' as const,
     maxAge: 1000 * 60 * 60 * 24 * 30,
     path: '/',
   };
@@ -232,6 +237,7 @@ async function saveCartForActor(
 
 async function startServer() {
   const dbStatus = await initDatabase();
+  if (dbStatus.mode === 'mongodb') await migrateCommerceDefaults();
   await recalculateTrendingAndBadges();
 
   const app = express();
@@ -240,8 +246,36 @@ async function startServer() {
     attachSslSecurityHeaders(res);
     next();
   });
-  app.use(express.json({ limit: '4mb' }));
+  app.use(express.json({ limit: '4mb', verify: (req: any, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
   app.use(cookieParser());
+
+  // Same-origin and synchronized-token CSRF protection for state-changing APIs.
+  const originConfig = process.env.CORS_ALLOWED_ORIGINS || ((process.env.APP_URL || '').startsWith('http') ? process.env.APP_URL! : '');
+  const configuredOrigins = originConfig
+    .split(',').map((origin) => origin.trim()).filter(Boolean).map((origin) => new URL(origin).origin);
+  app.use(async (req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/')) return next();
+    let suppliedOrigin = String(req.headers.origin || '');
+    if (!suppliedOrigin && req.headers.referer) { try { suppliedOrigin = new URL(String(req.headers.referer)).origin; } catch { return res.status(403).json({ error: 'INVALID_REFERER' }); } }
+    if (suppliedOrigin) {
+      const requestOrigin = req.protocol + '://' + req.get('host');
+      const allowed = configuredOrigins.length ? configuredOrigins : [requestOrigin];
+      if (!allowed.includes(suppliedOrigin)) return res.status(403).json({ error: 'ORIGIN_NOT_ALLOWED' });
+    }
+    const hasSessionCredential = Boolean(req.cookies?.kk_session || String(req.headers.authorization || '').toLowerCase().startsWith('bearer '));
+    if (hasSessionCredential) {
+      try {
+        const actor = await resolveActor(req, res);
+        if (actor.session) {
+          const supplied = String(req.headers['x-csrf-token'] || '');
+          const expected = actor.session.csrfToken;
+          const a = Buffer.from(supplied); const b = Buffer.from(expected);
+          if (!supplied || a.length !== b.length || !timingSafeEqual(a, b)) return res.status(403).json({ error: 'CSRF_TOKEN_INVALID' });
+        } else if (req.cookies?.kk_session) return res.status(401).json({ error: 'SESSION_INVALID' });
+      } catch { return res.status(403).json({ error: 'CSRF_VALIDATION_FAILED' }); }
+    }
+    next();
+  });
 
   // Static serving for generated images & Sharp WebP uploads
   app.use('/uploads', express.static(getUploadDir()));
@@ -787,13 +821,15 @@ async function startServer() {
       limit: 20, // Strictly 20 products per page
       sellerId: typeof req.query.sellerId === 'string' ? req.query.sellerId : undefined,
       includeDisabled: allowDisabled,
+      viewerId: user?._id,
     });
     res.json(result);
   });
 
   app.get('/api/products/:idOrSlug', async (req, res) => {
+    const { user } = await resolveActor(req, res);
     const product = await getProductByIdOrSlug(req.params.idOrSlug);
-    if (!product) return res.status(404).json({ error: 'Product not found' });
+    if (!product || (product.visibility === 'ASSIGNED' && (!user || !(product.assignedCustomerIds || []).map(String).includes(user._id)))) return res.status(404).json({ error: 'Product not found' });
     await incrementProductView(product._id);
     const [reviews, recData] = await Promise.all([
       getProductReviews(product._id),
@@ -802,7 +838,7 @@ async function startServer() {
     res.json({
       product: { ...product, viewsCount: product.viewsCount + 1 },
       reviews,
-      recommendations: recData.recommendations,
+      recommendations: recData.recommendations.filter((item: any) => item.visibility !== 'ASSIGNED' || (user && (item.assignedCustomerIds || []).map(String).includes(user._id))),
       recommendationStrategy: recData.strategySummary,
     });
   });
@@ -901,6 +937,12 @@ async function startServer() {
       description: z.string().min(10),
       careInstructions: z.string().default('Store dry in protective pouch.'),
       basePrice: z.number().positive(),
+      visibility: z.enum(['PUBLIC', 'ASSIGNED']).default('PUBLIC'),
+      assignedCustomerIds: z.array(z.string().min(1)).max(500).default([]),
+      onlinePaymentRequired: z.boolean().default(false),
+      codAllowed: z.boolean().default(true),
+      isReturnable: z.boolean().default(true),
+      returnWindowDays: z.number().int().min(0).max(90).default(7),
       discountPercent: z.number().min(0).max(90).default(0),
       totalStock: z.number().int().min(0),
       images: z
@@ -960,6 +1002,9 @@ async function startServer() {
       return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid product payload' });
     }
 
+    if (parsed.data.visibility === 'ASSIGNED' && parsed.data.assignedCustomerIds.length === 0) return res.status(400).json({ error: 'ASSIGNED_PRODUCTS_REQUIRE_CUSTOMERS' });
+    const validCustomers = parsed.data.assignedCustomerIds.length ? await UserModel.countDocuments({ _id: { $in: parsed.data.assignedCustomerIds }, role: 'BUYER' }) : 0;
+    if (validCustomers !== parsed.data.assignedCustomerIds.length) return res.status(400).json({ error: 'INVALID_ASSIGNED_CUSTOMER' });
     const created = await createProduct(user._id, {
       ...parsed.data,
       seasons: parsed.data.seasons && parsed.data.seasons.length > 0 ? parsed.data.seasons : ['Diwali', 'New Year'],
@@ -979,6 +1024,12 @@ async function startServer() {
     }
     const schema = z.object({
       discountPercent: z.number().min(0).max(95).optional(),
+      visibility: z.enum(['PUBLIC', 'ASSIGNED']).optional(),
+      assignedCustomerIds: z.array(z.string().min(1)).max(500).optional(),
+      onlinePaymentRequired: z.boolean().optional(),
+      codAllowed: z.boolean().optional(),
+      isReturnable: z.boolean().optional(),
+      returnWindowDays: z.number().int().min(0).max(90).optional(),
       salePrice: z.number().positive().optional(),
       basePrice: z.number().positive().optional(),
       totalStock: z.number().int().min(0).optional(),
@@ -1002,7 +1053,26 @@ async function startServer() {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid update values' });
     }
+    if (parsed.data.visibility === 'ASSIGNED' && !(parsed.data.assignedCustomerIds?.length)) return res.status(400).json({ error: 'ASSIGNED_PRODUCTS_REQUIRE_CUSTOMERS' });
+    if (parsed.data.assignedCustomerIds?.length) {
+      const validCustomers = await UserModel.countDocuments({ _id: { $in: parsed.data.assignedCustomerIds }, role: 'BUYER' });
+      if (validCustomers !== parsed.data.assignedCustomerIds.length) return res.status(400).json({ error: 'INVALID_ASSIGNED_CUSTOMER' });
+    }
     const updated = await updateProductDiscountOrStock(req.params.id, user._id, parsed.data);
+    if (updated && ('visibility' in parsed.data || 'assignedCustomerIds' in parsed.data)) {
+      await ProductModel.updateOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }, { $set: {
+        ...(parsed.data.visibility !== undefined ? { visibility: parsed.data.visibility } : {}),
+        ...(parsed.data.assignedCustomerIds !== undefined ? { assignedCustomerIds: parsed.data.assignedCustomerIds } : {}),
+      }});
+    }
+    if (updated && ['onlinePaymentRequired', 'codAllowed', 'isReturnable', 'returnWindowDays'].some((key) => key in parsed.data)) {
+      await ProductModel.updateOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }, { $set: {
+        ...(parsed.data.onlinePaymentRequired !== undefined ? { onlinePaymentRequired: parsed.data.onlinePaymentRequired } : {}),
+        ...(parsed.data.codAllowed !== undefined ? { codAllowed: parsed.data.codAllowed } : {}),
+        ...(parsed.data.isReturnable !== undefined ? { isReturnable: parsed.data.isReturnable } : {}),
+        ...(parsed.data.returnWindowDays !== undefined ? { returnWindowDays: parsed.data.returnWindowDays } : {}),
+      }});
+    }
     if (!updated) return res.status(404).json({ error: 'Product not found or unauthorized' });
     res.json({ product: updated });
   });
@@ -1080,9 +1150,11 @@ async function startServer() {
   });
 
   // --- Seasonal Sales Campaigns & Flash Sale Countdowns ---
-  app.get('/api/campaigns', async (_req, res) => {
+  app.get('/api/campaigns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
     const campaigns = await listStorefrontCampaigns();
-    res.json({ campaigns });
+    const visibleCampaigns = campaigns.map((campaign: any) => ({ ...campaign, products: campaign.products.filter((product: any) => product.visibility !== 'ASSIGNED' || (user && (product.assignedCustomerIds || []).map(String).includes(user._id))) })).filter((campaign: any) => campaign.products.length > 0);
+    res.json({ campaigns: visibleCampaigns });
   });
 
   app.get('/api/seller/campaigns', async (req, res) => {
@@ -1402,6 +1474,7 @@ async function startServer() {
 
   app.post('/api/orders', async (req, res) => {
     const { guestToken, user } = await resolveActor(req, res);
+    if (user) { const rate = await checkRateLimit('checkout:' + user._id, 10, 60); if (!rate.allowed) return res.status(429).json({ error: 'CHECKOUT_RATE_LIMITED' }); }
     if (!user) {
       return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Sign in to complete checkout.' });
     }
@@ -1419,20 +1492,65 @@ async function startServer() {
     }
 
     const couponCode = typeof req.body?.couponCode === 'string' ? req.body.couponCode.trim() : undefined;
+    const itemProducts = await Promise.all(itemsToOrder.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+    if (itemProducts.some((product) => product?.visibility === 'ASSIGNED' && (!product.assignedCustomerIds || !product.assignedCustomerIds.map(String).includes(user._id)))) return res.status(403).json({ error: 'PRODUCT_NOT_ASSIGNED_TO_BUYER' });
+    const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
+    const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
+    const prepaidProviderBySeller = new Map<string, 'razorpay' | 'stripe'>();
+    if (requiresPrepaid) {
+      const prepaidSellerIds = new Set(itemsToOrder.filter((item, index) => itemProducts[index] && (itemProducts[index]!.onlinePaymentRequired || itemProducts[index]!.codAllowed === false)).map((item) => item.sellerId));
+      for (const sellerId of prepaidSellerIds) {
+        const alternateProvider = requestedProvider === 'razorpay' ? 'stripe' : 'razorpay';
+        const preferred = await getGatewaySecrets(sellerId, requestedProvider);
+        const alternate = preferred ? null : await getGatewaySecrets(sellerId, alternateProvider);
+        const activeProvider = preferred ? requestedProvider : alternate ? alternateProvider : null;
+        if (!activeProvider) return res.status(409).json({ error: 'PREPAID_REQUIRED_ACTIVE_GATEWAY_MISSING', sellerId });
+        prepaidProviderBySeller.set(sellerId, activeProvider);
+      }
+    }
     let createdOrders;
     try {
       createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode });
+      for (const order of createdOrders) {
+        const prepaid = requiresPrepaid && order.items.some((item) => {
+          const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
+          return idx >= 0 && itemProducts[idx] && (itemProducts[idx]!.onlinePaymentRequired || itemProducts[idx]!.codAllowed === false);
+        });
+        order.items = order.items.map((item: any) => {
+          const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === String(item.productId));
+          const product = idx >= 0 ? itemProducts[idx] : null;
+          return { ...item, isReturnable: product?.isReturnable !== false, returnWindowDays: product?.returnWindowDays ?? 7 };
+        });
+        const providerForOrder = prepaidProviderBySeller.get(String(order.sellerId)) || requestedProvider;
+        order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
+        order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
+        order.status = 'PENDING_SELLER_CONFIRMATION';
+        order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
+        await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } });
+      }
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
     }
 
-    // Trigger automated WhatsApp alert to each seller
+    // Notify each seller with the complete fulfilment summary and a login-protected Seller Hub deep link.
     for (const order of createdOrders) {
       const seller = await findUserById(order.sellerId);
-      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber || '+919820112233';
+      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
       const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
-      const msg = `New Order ${order.orderNumber}! Items: ${itemSummary}. Buyer City: ${order.shippingAddress.city}. Total: INR ${order.totalAmount}.`;
-      order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
+      const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
+      const msg = [
+        'New order ' + order.orderNumber,
+        'Items: ' + itemSummary,
+        'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
+        'Contact: ' + order.shippingAddress.phone,
+        'Payment: ' + order.paymentMode,
+        'Total: INR ' + order.totalAmount,
+        'Confirm after checking stock: ' + confirmationUrl,
+      ].join('\\n');
+      if (sellerPhone) {
+        order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
+        await OrderModel.updateOne({ _id: order._id }, { $set: { whatsappDispatch: order.whatsappDispatch } });
+      }
     }
 
     await saveCartForActor({ userId: user._id, guestToken }, []);
@@ -1473,13 +1591,33 @@ async function startServer() {
       });
     }
 
+    const existingOrder = await OrderModel.findById(req.params.id).lean();
+    if (!existingOrder) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (user.role !== 'ADMIN' && (user.role !== 'SELLER' || !user.isWhatsappVerified || String(existingOrder.sellerId) !== user._id)) {
+      return res.status(403).json({ error: 'ORDER_OWNER_REQUIRED' });
+    }
+    const allowedTransitions: Record<string, string[]> = {
+      Pending: ['Confirmed', 'Cancelled'],
+      PENDING_SELLER_CONFIRMATION: ['Confirmed', 'CONFIRMED_AWAITING_PAYMENT', 'Cancelled'],
+      Confirmed: ['Packed', 'Cancelled'],
+      PAID_AND_PROCESSING: ['Packed', 'Cancelled'],
+      Packed: ['Shipped', 'Cancelled'],
+      Shipped: ['Out for Delivery', 'Delivered'],
+      'Out for Delivery': ['Delivered'],
+      CANCELLATION_REQUESTED: ['Cancelled', 'Confirmed'],
+    };
+    if (user.role !== 'ADMIN' && !(allowedTransitions[String(existingOrder.status)] || []).includes(parsed.data.status)) {
+      return res.status(409).json({ error: 'INVALID_ORDER_STATUS_TRANSITION' });
+    }
     const updated = await updateOrderStatusOrTracking(req.params.id, {
       status: parsed.data.status as OrderStatus,
       note: parsed.data.note,
       courierTracking: parsed.data.courierTracking,
     });
     if (!updated) return res.status(404).json({ error: 'Order not found' });
+    if (parsed.data.status === 'Cancelled') await restoreCancelledOrderInventory(String(updated._id));
 
+    if (parsed.data.status === 'Delivered') await OrderModel.updateOne({ _id: updated._id }, { $set: { deliveredAt: new Date() } });
     if (parsed.data.status === 'Shipped' && updated.courierTracking) {
       const dispatch = await sendWhatsAppMessage(
         updated.shippingAddress.phone,
@@ -1488,14 +1626,439 @@ async function startServer() {
       updated.whatsappDispatch = dispatch;
     } else if (parsed.data.status === 'Cancelled') {
       const seller = await findUserById(updated.sellerId);
-      const sellerPhone = seller?.whatsappNumber || '+919820112233';
-      updated.whatsappDispatch = await sendWhatsAppMessage(
-        sellerPhone,
-        `Order ${updated.orderNumber} was cancelled. Total INR ${updated.totalAmount}.`
-      );
+      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
+      if (sellerPhone) updated.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, `Order ${updated.orderNumber} was cancelled. Total INR ${updated.totalAmount}.`);
     }
 
     res.json({ order: updated });
+  });
+
+
+  // Seller-scoped customer lookup. PUID, name and phone are searchable; response is deliberately minimized.
+  app.get('/api/seller/customers/search', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const searchRate = await checkRateLimit('seller-customer-search:' + user._id, 60, 60);
+    if (!searchRate.allowed) return res.status(429).json({ error: 'SEARCH_RATE_LIMITED' });
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    if (q.length < 2) return res.json({ customers: [] });
+    const escaped = q.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
+    const docs = await UserModel.find({
+      role: 'BUYER',
+      $or: [
+        { name: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { mobileNumber: { $regex: escaped, $options: 'i' } },
+        ...( /^[a-f0-9]{24}$/i.test(q) ? [{ _id: q }] : [] ),
+      ],
+    }).select('_id name email mobileNumber').limit(20).lean();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ customers: docs.map((d: any) => ({ _id: String(d._id), puid: String(d._id), name: d.name, email: d.email, mobileNumber: d.mobileNumber })) });
+  });
+
+  // Gateway secrets are encrypted at rest and never returned by this API.
+  app.get('/api/seller/payment-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const settings = await listGatewayConfigurations(user._id);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ gateways: settings });
+  });
+  app.put('/api/seller/payment-settings/:provider', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const provider = z.enum(['razorpay', 'stripe']).safeParse(req.params.provider);
+    if (!provider.success) return res.status(400).json({ error: 'UNSUPPORTED_PAYMENT_PROVIDER' });
+    const parsed = z.object({
+      keyId: z.string().trim().min(4).max(160),
+      secret: z.string().max(500).optional().default(''),
+      webhookSecret: z.string().max(500).optional().default(''),
+      enabled: z.boolean(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_GATEWAY_CONFIGURATION' });
+    try {
+      const gateway = await saveGatewayConfiguration({ sellerId: user._id, provider: provider.data, ...parsed.data });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ gateway });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  // Buyer wallet is backed by an immutable, idempotent ledger.
+  app.get('/api/wallet', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await getWalletSummary(user._id));
+  });
+  app.post('/api/wallet/redeem', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const parsed = z.object({ orderId: z.string().min(1), amountPaise: z.number().int().positive().max(100000000), idempotencyKey: z.string().min(12).max(120) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_WALLET_REDEMPTION' });
+    const order = await OrderModel.findOne({ _id: parsed.data.orderId, buyerId: user._id }).lean();
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (order.status !== 'CONFIRMED_AWAITING_PAYMENT') return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_WALLET_REDEMPTION' });
+    const currentApplied = Number(order.walletAppliedPaise || 0);
+    const remaining = Math.max(0, Math.round(Number(order.totalAmount) * 100) - currentApplied);
+    if (parsed.data.amountPaise > remaining) return res.status(400).json({ error: 'WALLET_REDEMPTION_EXCEEDS_ORDER_BALANCE' });
+    try {
+      const transaction = await applyWalletTransaction({
+        userId: user._id, idempotencyKey: parsed.data.idempotencyKey,
+        type: 'DEBIT_ORDER_REDEMPTION', amountPaise: parsed.data.amountPaise,
+        orderId: parsed.data.orderId,
+      });
+      const newApplied = transaction.replayed ? currentApplied : currentApplied + parsed.data.amountPaise;
+      const fullyPaid = newApplied >= Math.round(Number(order.totalAmount) * 100);
+      const update = await OrderModel.updateOne(
+        { _id: order._id, buyerId: user._id, walletAppliedPaise: currentApplied, status: 'CONFIRMED_AWAITING_PAYMENT' },
+        { $set: { walletAppliedPaise: newApplied, paymentMode: fullyPaid ? 'WALLET' : 'MIXED', paymentStatus: fullyPaid ? 'PAID' : 'PENDING', ...(fullyPaid ? { status: 'PAID_AND_PROCESSING' } : {}) } }
+      );
+      if (!transaction.replayed && !update.modifiedCount) {
+        await applyWalletTransaction({ userId: user._id, idempotencyKey: 'compensate:' + parsed.data.idempotencyKey, type: 'CREDIT_REFUND', amountPaise: parsed.data.amountPaise, orderId: parsed.data.orderId, reference: 'Compensation for failed order wallet update' });
+        return res.status(409).json({ error: 'ORDER_CHANGED_WALLET_DEBIT_REVERSED' });
+      }
+      res.json({ transaction, fullyPaid });
+    } catch (err) {
+      res.status((err as Error).message === 'INSUFFICIENT_WALLET_BALANCE' ? 409 : 400).json({ error: (err as Error).message });
+    }
+  });
+
+
+  // Buyer payment intent is created only after the seller has confirmed availability.
+  app.post('/api/orders/:id/payment-intent', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const paymentRate = await checkRateLimit('order-payment:' + user._id, 10, 60);
+    if (!paymentRate.allowed) return res.status(429).json({ error: 'PAYMENT_RATE_LIMITED' });
+    const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (order.status !== 'CONFIRMED_AWAITING_PAYMENT' || order.paymentStatus === 'PAID') return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PAYMENT' });
+    const parsed = z.object({ provider: z.enum(['razorpay', 'stripe']) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PAYMENT_PROVIDER' });
+    if (order.paymentStatus === 'PENDING' && order.paymentReference) {
+      if (order.paymentProvider !== parsed.data.provider) return res.status(409).json({ error: 'PAYMENT_ATTEMPT_ALREADY_OPEN', provider: order.paymentProvider });
+      const existingGateway = parsed.data.provider === 'razorpay' ? await getGatewaySecrets(String(order.sellerId), 'razorpay') : null;
+      return res.json({ checkout: {
+        provider: parsed.data.provider,
+        reference: order.paymentReference,
+        amountPaise: Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0)),
+        currency: 'INR',
+        ...(existingGateway ? { keyId: existingGateway.keyId } : {}),
+        ...(order.paymentCheckoutUrl ? { url: order.paymentCheckoutUrl } : {}),
+      }});
+    }
+    try {
+      const checkout = await createGatewayCheckout({
+        sellerId: String(order.sellerId), provider: parsed.data.provider,
+        orderId: String(order._id), orderNumber: order.orderNumber,
+        amountPaise: Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0)),
+      });
+      order.paymentProvider = checkout.provider;
+      order.paymentReference = checkout.reference;
+      order.paymentCheckoutUrl = checkout.url || null;
+      order.paymentMode = checkout.provider === 'razorpay' ? 'RAZORPAY' : 'STRIPE';
+      order.paymentStatus = 'PENDING';
+      await order.save();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ checkout });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/webhooks/razorpay/:sellerId', async (req, res) => {
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const signature = String(req.headers['x-razorpay-signature'] || '');
+    if (!rawBody || !await verifyPaymentWebhook({ sellerId: req.params.sellerId, provider: 'razorpay', signature, rawBody })) {
+      return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
+    }
+    const event = req.body as any;
+    const payment = event.payload?.payment?.entity;
+    const refundEntity = event.payload?.refund?.entity;
+    const order = event.event === 'payment.captured'
+      ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentReference: payment?.order_id })
+      : event.event === 'refund.processed'
+        ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentTransactionId: refundEntity?.payment_id })
+        : null;
+    if (!order) return res.json({ received: true, ignored: true });
+    const eventId = String(event.id || payment?.id || refundEntity?.id || '');
+    if (!eventId) return res.status(400).json({ error: 'WEBHOOK_EVENT_ID_REQUIRED' });
+    const claimed = await claimPaymentEvent('razorpay', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
+    if (!claimed) return res.json({ received: true, duplicate: true });
+    if (event.event === 'payment.captured' && payment?.id) {
+      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+      if (order.paymentProvider !== 'razorpay' || Number(payment.amount) !== expectedAmount || String(payment.currency).toUpperCase() !== 'INR') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
+      order.paymentTransactionId = String(payment.id);
+      order.paymentStatus = 'PAID';
+      order.status = 'PAID_AND_PROCESSING';
+      order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+    } else if (event.event === 'refund.processed') {
+      const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
+      if (hasReturnRefund) {
+        order.refundStatus = 'PARTIAL';
+        await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+      } else {
+        order.paymentStatus = 'REFUNDED';
+        order.refundStatus = 'REFUNDED';
+      }
+    }
+    await order.save();
+    res.json({ received: true });
+  });
+
+  app.post('/api/webhooks/stripe/:sellerId', async (req, res) => {
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const signature = String(req.headers['stripe-signature'] || '');
+    if (!rawBody || !await verifyPaymentWebhook({ sellerId: req.params.sellerId, provider: 'stripe', signature, rawBody })) {
+      return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
+    }
+    const event = req.body as any;
+    const object = event.data?.object;
+    const order = event.type === 'checkout.session.completed'
+      ? await OrderModel.findOne({ _id: object?.metadata?.orderId, sellerId: req.params.sellerId, paymentReference: object?.id })
+      : event.type === 'charge.refunded'
+        ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentTransactionId: object?.payment_intent })
+        : null;
+    if (!order) return res.json({ received: true, ignored: true });
+    const claimed = await claimPaymentEvent('stripe', String(event.id), String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
+    if (!claimed) return res.json({ received: true, duplicate: true });
+    if (event.type === 'checkout.session.completed') {
+      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+      if (order.paymentProvider !== 'stripe' || Number(object.amount_total) !== expectedAmount || String(object.currency).toLowerCase() !== 'inr' || object.payment_status !== 'paid') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
+      order.paymentTransactionId = String(object.payment_intent);
+      order.paymentStatus = 'PAID';
+      order.status = 'PAID_AND_PROCESSING';
+      order.statusTimeline.push({ status: order.status, note: 'Stripe Checkout payment verified by signed webhook.', timestamp: new Date() });
+    } else if (event.type === 'charge.refunded') {
+      const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
+      if (hasReturnRefund) {
+        order.refundStatus = 'PARTIAL';
+        await ReturnRequestModel.updateMany({ orderId: String(order._id), status: 'REFUND_PENDING' }, { $set: { status: 'REFUNDED' } });
+      } else {
+        order.paymentStatus = 'REFUNDED';
+        order.refundStatus = 'REFUNDED';
+      }
+    }
+    await order.save();
+    res.json({ received: true });
+  });
+
+  // Buyer cancellation is a request once fulfilment has started; it never silently refunds.
+  app.post('/api/orders/:id/cancellation-request', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (!['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING'].includes(order.status)) {
+      return res.status(409).json({ error: 'ORDER_NOT_CANCELLABLE' });
+    }
+    const previousStatus = order.status;
+    order.cancellationPreviousStatus = previousStatus;
+    order.status = (['Shipped', 'Out for Delivery'].includes(order.status) || order.paymentStatus === 'PAID') ? 'CANCELLATION_REQUESTED' : 'Cancelled';
+    order.cancellationRequestedAt = new Date();
+    order.statusTimeline.push({ status: order.status, note: 'Cancellation requested by buyer; seller refund review required where applicable.', timestamp: new Date() });
+    await order.save();
+    if (order.status === 'Cancelled') await restoreCancelledOrderInventory(String(order._id));
+    res.json({ order });
+  });
+
+  // Seller confirms stock/availability before prepaid checkout is enabled.
+  app.post('/api/seller/orders/:id/confirm', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (!['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(order.status)) return res.status(409).json({ error: 'INVALID_ORDER_TRANSITION' });
+    order.status = order.paymentMode === 'COD' ? 'Confirmed' : 'CONFIRMED_AWAITING_PAYMENT';
+    order.statusTimeline.push({ status: order.status, note: 'Seller confirmed product availability.', timestamp: new Date() });
+    await order.save();
+    if (order.paymentMode !== 'COD') {
+      const checkoutUrl = getAppBaseUrl(req) + '/orders';
+      await sendWhatsAppMessage(order.shippingAddress.phone, 'Seller confirmed order ' + order.orderNumber + '. Complete secure payment from your order page: ' + checkoutUrl);
+    }
+    res.json({ order });
+  });
+
+  app.post('/api/returns/upload', upload.array('media', 8), async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const rate = await checkRateLimit('return-upload:' + user._id, 12, 3600);
+    if (!rate.allowed) return res.status(429).json({ error: 'RETURN_UPLOAD_RATE_LIMITED' });
+    const files = (req.files || []) as Express.Multer.File[];
+    if (!files.length || files.length > 8) return res.status(400).json({ error: 'UPLOAD_1_TO_8_RETURN_PHOTOS' });
+    if (files.some((file) => !['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype))) return res.status(415).json({ error: 'RETURN_PHOTOS_ONLY' });
+    try {
+      const media = [];
+      for (const file of files) media.push(await processAndStoreImage(file.buffer, file.originalname));
+      res.status(201).json({ media: media.map((item: any) => ({ url: item.url, mimeType: 'image/webp', durationSeconds: 0 })) });
+    } catch (err) {
+      res.status(400).json({ error: 'RETURN_MEDIA_PROCESSING_FAILED', message: (err as Error).message });
+    }
+  });
+
+  app.patch('/api/seller/orders/:id/cancellation-review', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const parsed = z.object({ action: z.enum(['approve', 'reject']), refundDestination: z.enum(['ORIGINAL_SOURCE', 'WALLET']).default('WALLET') }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_CANCELLATION_REVIEW' });
+    const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
+    if (!order || order.status !== 'CANCELLATION_REQUESTED') return res.status(404).json({ error: 'CANCELLATION_REQUEST_NOT_FOUND' });
+    if (parsed.data.action === 'reject') {
+      order.status = order.cancellationPreviousStatus || 'Confirmed';
+      order.cancellationPreviousStatus = null;
+      order.refundStatus = 'REJECTED';
+      order.statusTimeline.push({ status: 'Confirmed', note: 'Seller rejected cancellation request.', timestamp: new Date() });
+      await order.save();
+      return res.json({ order });
+    }
+    if (order.paymentStatus === 'PAID') {
+      const amountPaise = Math.max(0, Math.round(Number(order.totalAmount) * 100));
+      if (parsed.data.refundDestination === 'WALLET') {
+        await applyWalletTransaction({ userId: String(order.buyerId), idempotencyKey: 'cancel-refund:' + String(order._id), type: 'CREDIT_REFUND', amountPaise, orderId: String(order._id), reference: 'Seller-approved cancellation refund' });
+        order.paymentStatus = 'REFUNDED';
+        order.refundStatus = 'REFUNDED';
+      } else {
+        const walletPart = Math.min(amountPaise, Number(order.walletAppliedPaise || 0));
+        const externalPart = amountPaise - walletPart;
+        if (walletPart > 0) {
+          await applyWalletTransaction({ userId: String(order.buyerId), idempotencyKey: 'cancel-wallet-refund:' + String(order._id), type: 'CREDIT_REFUND', amountPaise: walletPart, orderId: String(order._id), reference: 'Restore wallet portion of cancelled order' });
+        }
+        if (externalPart > 0) {
+          if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
+          await refundGatewayPayment({ sellerId: String(order.sellerId), provider: order.paymentProvider, paymentReference: String(order.paymentTransactionId), amountPaise: externalPart, idempotencyKey: 'cancel-refund:' + String(order._id) });
+          order.paymentStatus = 'REFUND_PENDING';
+          order.refundStatus = 'PROCESSING';
+        } else {
+          order.paymentStatus = 'REFUNDED';
+          order.refundStatus = 'REFUNDED';
+        }
+      }
+    }
+    order.status = 'Cancelled';
+    order.statusTimeline.push({ status: 'Cancelled', note: 'Seller approved cancellation.', timestamp: new Date() });
+    await order.save();
+    if (order.status === 'Cancelled') await restoreCancelledOrderInventory(String(order._id));
+    res.json({ order });
+  });
+
+  // Return eligibility and media are checked server-side; media references must be hosted URLs.
+  app.post('/api/orders/:id/returns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(403).json({ error: 'BUYER_ACCESS_REQUIRED' });
+    const parsed = z.object({
+      productId: z.string().min(1), quantity: z.number().int().positive(),
+      reason: z.string().trim().min(5).max(1000),
+      media: z.array(z.object({ url: z.string().min(1).max(2048), mimeType: z.enum(['image/jpeg','image/png','image/webp']), durationSeconds: z.number().max(0).default(0) })).min(1).max(8),
+      selfCourier: z.boolean().default(false), courierName: z.string().max(100).optional(),
+      trackingId: z.string().max(120).optional(), trackingUrl: z.string().url().optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_RETURN_REQUEST' });
+    const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
+    if (!order || !['Delivered', 'RETURN_REQUESTED', 'RETURN_RECEIVED'].includes(order.status)) return res.status(409).json({ error: 'ONLY_DELIVERED_ORDERS_CAN_BE_RETURNED' });
+    const item = order.items.find((entry: any) => String(entry.productId) === parsed.data.productId);
+    if (!item || parsed.data.quantity > item.quantity) return res.status(400).json({ error: 'INVALID_RETURN_ITEM_OR_QUANTITY' });
+    if (item.isReturnable === false) return res.status(409).json({ error: 'PRODUCT_NOT_RETURNABLE' });
+    const deliveredAt = order.deliveredAt ? new Date(order.deliveredAt).getTime() : new Date(order.updatedAt).getTime();
+    const deadline = deliveredAt + Math.max(0, Number(item.returnWindowDays ?? 7)) * 86400000;
+    if (Date.now() > deadline) return res.status(409).json({ error: 'RETURN_WINDOW_EXPIRED' });
+    if (parsed.data.media.length === 0) return res.status(400).json({ error: 'RETURN_PHOTO_EVIDENCE_REQUIRED' });
+    const cdnBase = (process.env.R2_PUBLIC_CDN_URL || '').replace(/\/$/, '');
+    if (parsed.data.media.some((item) => !(item.url.startsWith('/uploads/') || (cdnBase && item.url.startsWith(cdnBase + '/products/'))))) return res.status(400).json({ error: 'RETURN_MEDIA_MUST_BE_UPLOADED_TO_STORE' });
+    if (parsed.data.selfCourier && (!parsed.data.courierName || !parsed.data.trackingId)) return res.status(400).json({ error: 'SELF_COURIER_DETAILS_REQUIRED' });
+    try {
+      const request = await ReturnRequestModel.create({
+        orderId: String(order._id), buyerId: user._id, sellerId: String(order.sellerId),
+        productId: parsed.data.productId, quantity: parsed.data.quantity,
+        reason: parsed.data.reason, media: parsed.data.media,
+        selfCourier: parsed.data.selfCourier, courierName: parsed.data.courierName,
+        trackingId: parsed.data.trackingId, trackingUrl: parsed.data.trackingUrl,
+        status: 'REQUESTED',
+      });
+      order.status = 'RETURN_REQUESTED';
+      order.statusTimeline.push({ status: 'RETURN_REQUESTED', note: 'Buyer submitted return evidence for seller review.', timestamp: new Date() });
+      await order.save();
+      return res.status(201).json({ returnRequest: request });
+    } catch (err) {
+      return res.status(409).json({ error: 'RETURN_REQUEST_ALREADY_EXISTS_OR_INVALID' });
+    }
+  });
+
+  app.get('/api/seller/returns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const requests = await ReturnRequestModel.find(user.role === 'ADMIN' ? {} : { sellerId: user._id }).sort({ createdAt: -1 }).limit(100).lean();
+    res.json({ returns: requests.map((item: any) => ({ ...item, _id: String(item._id) })) });
+  });
+
+  app.patch('/api/seller/returns/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const parsed = z.object({ action: z.enum(['approve', 'reject', 'mark_received']), refundDestination: z.enum(['ORIGINAL_SOURCE', 'WALLET']).default('WALLET') }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_RETURN_ACTION' });
+    const filter = { _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) };
+    const request = await ReturnRequestModel.findOne(filter);
+    if (!request) return res.status(404).json({ error: 'RETURN_NOT_FOUND' });
+    if (parsed.data.action === 'approve') request.status = request.selfCourier ? 'IN_TRANSIT' : 'APPROVED';
+    else if (parsed.data.action === 'reject') request.status = 'REJECTED';
+    else {
+      if (!['APPROVED', 'IN_TRANSIT'].includes(request.status)) return res.status(409).json({ error: 'RETURN_NOT_READY_FOR_RECEIPT' });
+      request.status = parsed.data.refundDestination === 'WALLET' ? 'RECEIVED' : 'REFUND_PENDING';
+      request.receivedAt = new Date();
+      request.refundDestination = parsed.data.refundDestination;
+    }
+    await request.save();
+    if (parsed.data.action === 'mark_received' && parsed.data.refundDestination === 'ORIGINAL_SOURCE') {
+      const order = await OrderModel.findById(request.orderId);
+      if (!order || !order.paymentProvider || !order.paymentTransactionId || order.paymentStatus !== 'PAID') {
+        return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
+      }
+      try {
+        const item = order.items.find((entry: any) => String(entry.productId) === request.productId);
+        const amountPaise = Math.round(Number(item?.unitPrice || 0) * request.quantity * 100);
+        const walletPart = Math.min(amountPaise, Math.round(Number(order.walletAppliedPaise || 0) * (amountPaise / Math.max(1, Math.round(Number(order.totalAmount) * 100)))));
+        const externalPart = amountPaise - walletPart;
+        if (walletPart > 0) {
+          await applyWalletTransaction({ userId: String(order.buyerId), idempotencyKey: 'return-wallet-refund:' + String(request._id), type: 'CREDIT_REFUND', amountPaise: walletPart, orderId: String(order._id), reference: 'Restore wallet portion of returned item' });
+        }
+        let refund: any = null;
+        if (externalPart > 0) {
+          if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
+          refund = await refundGatewayPayment({
+            sellerId: String(order.sellerId), provider: order.paymentProvider,
+            paymentReference: String(order.paymentTransactionId), amountPaise: externalPart,
+            idempotencyKey: 'return-refund:' + String(request._id),
+          });
+          order.refundStatus = 'PARTIAL';
+        } else {
+          order.refundStatus = 'PARTIAL';
+          request.status = 'REFUNDED';
+          await request.save();
+        }
+        await order.save();
+        return res.json({ returnRequest: request, refund });
+      } catch (err) {
+        return res.status(502).json({ error: (err as Error).message });
+      }
+    }
+    if (parsed.data.action === 'mark_received' && parsed.data.refundDestination === 'WALLET') {
+      const order = await OrderModel.findById(request.orderId);
+      if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+      const item = order.items.find((entry: any) => String(entry.productId) === request.productId);
+      const amountPaise = Math.round(Number(item?.unitPrice || 0) * request.quantity * 100);
+      await applyWalletTransaction({
+        userId: request.buyerId, idempotencyKey: 'return-refund:' + String(request._id),
+        type: 'CREDIT_REFUND', amountPaise, orderId: request.orderId,
+        reference: 'Return refund after seller receipt verification',
+      });
+      request.status = 'REFUNDED';
+      await request.save();
+      order.refundStatus = 'PARTIAL';
+      order.status = 'RETURN_RECEIVED';
+      await order.save();
+    }
+    res.json({ returnRequest: request });
   });
 
   // --- Seller Analytics & Trending Cron ---

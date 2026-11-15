@@ -66,3 +66,10 @@ The website uses modern web technologies to deliver a responsive and interactive
 
 **E-Commerce Store**  
 A simple, convenient, and modern way to shop online.</Writing
+
+
+## Commerce security and payment workflows
+
+Configure `ENCRYPTION_MASTER_KEY` as a base64-encoded 32-byte key (for example, generate it with `openssl rand -base64 32`). The key is used for AES-256-GCM encryption of seller payment API and webhook secrets. Back it up in a managed secrets vault and rotate with a versioned migration plan; losing it makes encrypted gateway credentials unrecoverable. Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of exact HTTPS storefront origins. Session cookies use `HttpOnly`, `Secure`, and `SameSite=Lax`; state-changing requests with an authenticated session must send the session-bound `X-CSRF-Token` returned by `/api/auth/me` or sign-in.
+
+Seller payment configuration endpoints support Razorpay and Stripe. Configure each provider's webhook URL as `/api/webhooks/razorpay/:sellerId` or `/api/webhooks/stripe/:sellerId`, using the matching seller ID in the URL. The webhook signing secret must be configured in Seller Hub. Payment confirmation is webhook-driven; never mark an order paid based only on a browser callback. Wallet ledger operations require MongoDB transactions (Atlas replica set or sharded cluster). The return evidence upload endpoint currently accepts validated photos; server-side video duration probing is not enabled, so do not submit video evidence until a media-probing pipeline is added.

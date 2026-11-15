@@ -1791,6 +1791,12 @@ const STATUS_MAP: Record<Language, Record<OrderStatus, string>> = {
     'Out for Delivery': 'Out for Delivery',
     Delivered: 'Delivered',
     Cancelled: 'Cancelled',
+    PENDING_SELLER_CONFIRMATION: 'Awaiting seller confirmation',
+    CONFIRMED_AWAITING_PAYMENT: 'Awaiting payment',
+    PAID_AND_PROCESSING: 'Paid and processing',
+    CANCELLATION_REQUESTED: 'Cancellation requested',
+    RETURN_REQUESTED: 'Return requested',
+    RETURN_RECEIVED: 'Return received',
   },
   hi: {
     Pending: 'लंबित',
@@ -1800,6 +1806,12 @@ const STATUS_MAP: Record<Language, Record<OrderStatus, string>> = {
     'Out for Delivery': 'डिलीवरी के लिए निकला',
     Delivered: 'डिलीवर हुआ',
     Cancelled: 'रद्द',
+    PENDING_SELLER_CONFIRMATION: 'विक्रेता की पुष्टि बाकी',
+    CONFIRMED_AWAITING_PAYMENT: 'भुगतान बाकी',
+    PAID_AND_PROCESSING: 'भुगतान हुआ और प्रक्रिया में',
+    CANCELLATION_REQUESTED: 'रद्द करने का अनुरोध',
+    RETURN_REQUESTED: 'वापसी का अनुरोध',
+    RETURN_RECEIVED: 'वापसी प्राप्त हुई',
   },
   bn: {
     Pending: 'অপেক্ষমাণ',
@@ -1809,6 +1821,12 @@ const STATUS_MAP: Record<Language, Record<OrderStatus, string>> = {
     'Out for Delivery': 'ডেলিভারির পথে',
     Delivered: 'ডেলিভারি সম্পন্ন',
     Cancelled: 'বাতিল',
+    PENDING_SELLER_CONFIRMATION: 'বিক্রেতার নিশ্চিতকরণ অপেক্ষমাণ',
+    CONFIRMED_AWAITING_PAYMENT: 'পেমেন্ট অপেক্ষমাণ',
+    PAID_AND_PROCESSING: 'পেমেন্ট সম্পন্ন, প্রক্রিয়াধীন',
+    CANCELLATION_REQUESTED: 'বাতিলের অনুরোধ',
+    RETURN_REQUESTED: 'ফেরতের অনুরোধ',
+    RETURN_RECEIVED: 'ফেরত গৃহীত',
   },
 };
 

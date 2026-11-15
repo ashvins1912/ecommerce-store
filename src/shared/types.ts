@@ -52,7 +52,13 @@ export type OrderStatus =
   | 'Shipped'
   | 'Out for Delivery'
   | 'Delivered'
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'PENDING_SELLER_CONFIRMATION'
+  | 'CONFIRMED_AWAITING_PAYMENT'
+  | 'PAID_AND_PROCESSING'
+  | 'CANCELLATION_REQUESTED'
+  | 'RETURN_REQUESTED'
+  | 'RETURN_RECEIVED';
 
 export type OrderTab = 'Current' | 'Past' | 'Completed';
 
@@ -164,6 +170,12 @@ export interface Product {
   sellerId: string;
   sellerName?: string;
   sellerTrusted?: boolean;
+  visibility?: 'PUBLIC' | 'ASSIGNED';
+  assignedCustomerIds?: string[];
+  onlinePaymentRequired?: boolean;
+  codAllowed?: boolean;
+  isReturnable?: boolean;
+  returnWindowDays?: number;
   title: string;
   slug: string;
   sku: string;
@@ -244,6 +256,8 @@ export interface OrderItem {
   imageUrl: string;
   quantity: number;
   unitPrice: number;
+  isReturnable?: boolean;
+  returnWindowDays?: number;
   catalogStatus?: 'active' | 'unpublished' | 'discontinued' | 'removed';
 }
 
@@ -268,6 +282,13 @@ export interface Order {
   sellerId: string;
   items: OrderItem[];
   totalAmount: number;
+  paymentMode?: 'COD' | 'RAZORPAY' | 'STRIPE' | 'WALLET' | 'MIXED';
+  paymentStatus?: 'NOT_REQUIRED' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUNDED';
+  paymentProvider?: 'razorpay' | 'stripe';
+  paymentReference?: string | null;
+  paymentTransactionId?: string | null;
+  walletAppliedPaise?: number;
+  refundStatus?: 'NONE' | 'REQUESTED' | 'APPROVED' | 'PROCESSING' | 'PARTIAL' | 'REFUNDED' | 'REJECTED';
   appliedCoupon?: {
     couponId: string;
     code: string;
@@ -286,6 +307,7 @@ export interface Order {
   };
   createdAt: string;
   updatedAt: string;
+  deliveredAt?: string | null;
 }
 
 export interface CartItem {

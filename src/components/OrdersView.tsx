@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, Package, PackageCheck, Truck } from 'lucide-react';
+import { ExternalLink, Package, PackageCheck, Truck, Wallet } from 'lucide-react';
 import type {
   Order,
   OrderListResponse,
@@ -10,6 +10,12 @@ import type {
 } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, any>) => { open: () => void };
+  }
+}
 
 interface OrdersViewProps {
   user: User | null;
@@ -47,6 +53,21 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
 
   const [granularity, setGranularity] = useState<TimeGranularity>('month');
   const [buckets, setBuckets] = useState<OrderTimeBucket[]>([]);
+  const [walletBalancePaise, setWalletBalancePaise] = useState(0);
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [returnTarget, setReturnTarget] = useState<{ order: Order; productId: string; title: string } | null>(null);
+  const [returnReason, setReturnReason] = useState('');
+  const [returnFiles, setReturnFiles] = useState<File[]>([]);
+  const [returnBusy, setReturnBusy] = useState(false);
+  const [returnError, setReturnError] = useState('');
+  const [selfCourier, setSelfCourier] = useState(false);
+  const [courierName, setCourierName] = useState('');
+  const [returnTrackingId, setReturnTrackingId] = useState('');
+  const [returnTrackingUrl, setReturnTrackingUrl] = useState('');
+  const [walletAmounts, setWalletAmounts] = useState<Record<string, string>>({});
+  const [walletBusyOrderId, setWalletBusyOrderId] = useState<string | null>(null);
 
   const fetchOrders = useCallback(
     async (tab: OrderTab, skipVal: number, append: boolean) => {
@@ -83,6 +104,120 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
       fetchOrders(activeTab, 0, false);
     }
   }, [user, activeTab, fetchOrders]);
+
+  useEffect(() => {
+    if (user?.role === 'BUYER') {
+      apiFetch<{ balancePaise: number }>('/api/wallet').then((data) => setWalletBalancePaise(data.balancePaise || 0)).catch(() => setWalletBalancePaise(0));
+    }
+  }, [user?._id, user?.role]);
+
+  const redeemWallet = async (order: Order) => {
+    const rupees = Number(walletAmounts[order._id] || 0);
+    if (!Number.isFinite(rupees) || rupees <= 0) {
+      setPaymentError('Enter a valid wallet amount in rupees.');
+      return;
+    }
+    setWalletBusyOrderId(order._id);
+    setPaymentError(null);
+    try {
+      await apiFetch('/api/wallet/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ orderId: order._id, amountPaise: Math.round(rupees * 100), idempotencyKey: window.crypto.randomUUID() }),
+      });
+      setWalletAmounts((prev) => ({ ...prev, [order._id]: '' }));
+      await Promise.all([
+        fetchOrders(activeTab, 0, false),
+        apiFetch<{ balancePaise: number }>('/api/wallet').then((wallet) => setWalletBalancePaise(wallet.balancePaise || 0)),
+      ]);
+    } catch (err) {
+      setPaymentError((err as Error).message);
+    } finally {
+      setWalletBusyOrderId(null);
+    }
+  };
+
+  const requestCancellation = async (order: Order) => {
+    setBusyOrderId(order._id);
+    try {
+      await apiFetch('/api/orders/' + encodeURIComponent(order._id) + '/cancellation-request', { method: 'POST', body: JSON.stringify({}) });
+      await fetchOrders(activeTab, 0, false);
+    } catch (err) {
+      setPaymentError((err as Error).message);
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
+
+  const submitReturn = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!returnTarget || !returnFiles.length) {
+      setReturnError('Upload at least one clear product or packaging photo.');
+      return;
+    }
+    setReturnBusy(true);
+    setReturnError('');
+    try {
+      const form = new FormData();
+      returnFiles.forEach((file) => form.append('media', file));
+      const upload = await apiFetch<{ media: Array<{ url: string; mimeType: string; durationSeconds: number }> }>('/api/returns/upload', { method: 'POST', body: form });
+      await apiFetch('/api/orders/' + encodeURIComponent(returnTarget.order._id) + '/returns', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: returnTarget.productId, quantity: 1, reason: returnReason,
+          media: upload.media, selfCourier, courierName: selfCourier ? courierName : undefined,
+          trackingId: selfCourier ? returnTrackingId : undefined, trackingUrl: selfCourier && returnTrackingUrl ? returnTrackingUrl : undefined,
+        }),
+      });
+      setReturnTarget(null); setReturnReason(''); setReturnFiles([]); setSelfCourier(false);
+      await fetchOrders(activeTab, 0, false);
+    } catch (err) {
+      setReturnError((err as Error).message);
+    } finally {
+      setReturnBusy(false);
+    }
+  };
+
+  const payOrder = async (order: Order, provider: 'razorpay' | 'stripe') => {
+    setPayingOrderId(order._id);
+    setPaymentError(null);
+    try {
+      const result = await apiFetch<{ checkout: { provider: string; reference: string; keyId?: string; amountPaise: number; currency: string; url?: string } }>(
+        '/api/orders/' + encodeURIComponent(order._id) + '/payment-intent',
+        { method: 'POST', body: JSON.stringify({ provider }) }
+      );
+      const checkout = result.checkout;
+      if (provider === 'stripe') {
+        if (!checkout.url) throw new Error('Stripe Checkout URL was not returned.');
+        window.location.assign(checkout.url);
+        return;
+      }
+      const scriptUrl = 'https://checkout.razorpay.com/v1/checkout.js';
+      if (!document.querySelector('script[src="' + scriptUrl + '"]')) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = scriptUrl;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Unable to load Razorpay Checkout.'));
+          document.body.appendChild(script);
+        });
+      }
+      if (!window.Razorpay || !checkout.keyId) throw new Error('Razorpay Checkout is unavailable or not configured.');
+      const razorpay = new window.Razorpay({
+        key: checkout.keyId,
+        amount: checkout.amountPaise,
+        currency: checkout.currency,
+        order_id: checkout.reference,
+        name: 'E-Commerce Store',
+        description: 'Order ' + order.orderNumber,
+        handler: () => { void fetchOrders(activeTab, 0, false); },
+        modal: { ondismiss: () => setPayingOrderId(null) },
+      });
+      razorpay.open();
+    } catch (err) {
+      setPaymentError((err as Error).message);
+      setPayingOrderId(null);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -138,6 +273,14 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
           ))}
         </div>
       </div>
+
+      {user.role === 'BUYER' && (
+        <div className="flex items-center justify-between rounded-lg border border-[#E8E6E1] bg-white p-4">
+          <div className="flex items-center gap-3"><Wallet className="h-5 w-5 text-[#881337]"/><div><div className="text-xs font-semibold">Store wallet</div><div className="text-[11px] text-[#78716C]">1 point = ₹1</div></div></div>
+          <div className="text-lg font-semibold tabular-nums">{formatINR(walletBalancePaise / 100)}</div>
+        </div>
+      )}
+      {paymentError && <p role="alert" className="text-xs text-red-700">{paymentError}</p>}
 
       {/* Strictly limit(5) Paginated Order List */}
       <section className="space-y-4">
@@ -245,6 +388,32 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                   ))}
                 </div>
 
+                {(order.status === 'CONFIRMED_AWAITING_PAYMENT' && order.paymentStatus !== 'PAID') && (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-[#F0EEE9] pt-3">
+                    <span className="text-xs text-[#57534E]">Seller confirmed availability. Complete payment:</span>
+                    {walletBalancePaise > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-[#57534E]">Wallet balance: {formatINR(walletBalancePaise / 100)}</span>
+                        <input type="number" min="1" step="0.01" max={walletBalancePaise / 100} value={walletAmounts[order._id] || ''} onChange={(e) => setWalletAmounts((prev) => ({ ...prev, [order._id]: e.target.value }))} placeholder="Amount ₹" className="w-28 rounded-md border border-[#D6D3CD] px-2 py-2 text-xs"/>
+                        <button type="button" disabled={walletBusyOrderId === order._id} onClick={() => void redeemWallet(order)} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-semibold disabled:opacity-50">{walletBusyOrderId === order._id ? 'Applying…' : 'Apply wallet'}</button>
+                      </div>
+                    )}
+
+                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'razorpay')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{payingOrderId === order._id ? 'Opening…' : 'Pay with Razorpay'}</button>
+                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'stripe')} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-semibold text-[#292524] disabled:opacity-50">Pay with Stripe</button>
+                  </div>
+                )}
+
+                {(order.status === 'Pending' || order.status === 'Confirmed' || order.status === 'Packed' || order.status === 'Shipped' || order.status === 'Out for Delivery' || order.status === 'PENDING_SELLER_CONFIRMATION' || order.status === 'CONFIRMED_AWAITING_PAYMENT' || order.status === 'PAID_AND_PROCESSING') && (
+                  <div className="border-t border-[#F0EEE9] pt-3">
+                    <button type="button" disabled={busyOrderId === order._id} onClick={() => void requestCancellation(order)} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-medium text-[#57534E] disabled:opacity-50">{busyOrderId === order._id ? 'Submitting…' : 'Request cancellation'}</button>
+                  </div>
+                )}
+                {order.status === 'Delivered' && order.items.filter((item) => item.isReturnable !== false && Date.now() <= new Date(order.deliveredAt || order.updatedAt).getTime() + (item.returnWindowDays ?? 7) * 86400000).map((item) => (
+                  <div key={item.productId} className="border-t border-[#F0EEE9] pt-2">
+                    <button type="button" onClick={() => { setReturnTarget({ order, productId: item.productId, title: item.title }); setReturnError(''); }} className="text-xs font-semibold text-[#881337] underline underline-offset-2">Return {item.title}</button>
+                  </div>
+                ))}
                 {/* Compact Timeline */}
                 <div className="flex flex-wrap items-center gap-4 border-t border-[#F0EEE9] pt-3 text-[11px] text-[#6B6A65]">
                   {order.statusTimeline.map((step, i) => (
@@ -280,6 +449,29 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
           </div>
         )}
       </section>
+
+      {returnTarget && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+          <form onSubmit={submitReturn} className="w-full max-w-lg rounded-xl bg-white p-5 space-y-4">
+            <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Return {returnTarget.title}</h2><button type="button" onClick={() => setReturnTarget(null)} className="text-sm text-[#78716C]">Close</button></div>
+            <p className="text-xs text-[#78716C]">Upload clear photos of the product or packaging. The server checks order ownership, delivery status, returnability and the return window.</p>
+            <label className="block text-xs font-medium">Reason
+              <textarea required minLength={5} maxLength={1000} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} className="mt-1 w-full rounded-md border border-[#D6D3CD] p-2" rows={3}/>
+            </label>
+            <label className="block text-xs font-medium">Evidence photos (1–8)
+              <input required type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e) => setReturnFiles(Array.from(e.target.files || []).slice(0, 8))} className="mt-1 block w-full text-xs"/>
+            </label>
+            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={selfCourier} onChange={(e) => setSelfCourier(e.target.checked)}/> I will self-ship the return</label>
+            {selfCourier && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input required value={courierName} onChange={(e) => setCourierName(e.target.value)} placeholder="Courier name" className="rounded-md border border-[#D6D3CD] p-2 text-xs"/>
+              <input required value={returnTrackingId} onChange={(e) => setReturnTrackingId(e.target.value)} placeholder="Tracking ID" className="rounded-md border border-[#D6D3CD] p-2 text-xs"/>
+              <input type="url" value={returnTrackingUrl} onChange={(e) => setReturnTrackingUrl(e.target.value)} placeholder="Tracking URL (optional)" className="sm:col-span-2 rounded-md border border-[#D6D3CD] p-2 text-xs"/>
+            </div>}
+            {returnError && <p role="alert" className="text-xs text-red-700">{returnError}</p>}
+            <button disabled={returnBusy} className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-50">{returnBusy ? 'Submitting…' : 'Submit return request'}</button>
+          </form>
+        </div>
+      )}
 
       {/* Time-Based $dateTrunc Order History Aggregation */}
       <section className="border-t border-[#E8E6E1] pt-8 space-y-4">
