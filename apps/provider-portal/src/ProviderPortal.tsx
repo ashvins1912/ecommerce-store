@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-type Product = { _id:string; title:string; status:string; basePricePaise:number; category:string; updatedAt:string };
+type Product = { _id:string; title:string; status:string; basePricePaise:number; category:string; updatedAt:string; negotiationHistory?:Array<{comment?:string;action?:string;targetPricePaise?:number}> };
 type Settlement = { _id:string; orderId:string; amountPaise:number; quantity:number; status:string; utrReference?:string };
 let csrfToken = '';
 const api = async (url:string, init:RequestInit={}) => { const response=await fetch(url,{...init,credentials:'include',headers:{'Content-Type':'application/json',...(csrfToken?{'X-CSRF-Token':csrfToken}:{}),...(init.headers||{})}}); const data=await response.json(); if(url==='/api/auth/me' && data.csrfToken) csrfToken=data.csrfToken; if(!response.ok) throw new Error(data.error||'Request failed'); return data; };
