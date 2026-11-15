@@ -1942,7 +1942,7 @@ async function startServer() {
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_RETURN_REQUEST' });
     const order = await OrderModel.findOne({ _id: req.params.id, buyerId: user._id });
-    if (!order || order.status !== 'Delivered') return res.status(409).json({ error: 'ONLY_DELIVERED_ORDERS_CAN_BE_RETURNED' });
+    if (!order || !['Delivered', 'RETURN_REQUESTED', 'RETURN_RECEIVED'].includes(order.status)) return res.status(409).json({ error: 'ONLY_DELIVERED_ORDERS_CAN_BE_RETURNED' });
     const item = order.items.find((entry: any) => String(entry.productId) === parsed.data.productId);
     if (!item || parsed.data.quantity > item.quantity) return res.status(400).json({ error: 'INVALID_RETURN_ITEM_OR_QUANTITY' });
     if (item.isReturnable === false) return res.status(409).json({ error: 'PRODUCT_NOT_RETURNABLE' });
