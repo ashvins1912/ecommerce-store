@@ -56,7 +56,7 @@ import {
   CategoryControlModel,
   ShareEventModel,
 } from '../models/schemas.js';
-import { ProviderProfileModel } from '../models/providerSchemas.js';
+import { ProviderProfileModel, ProviderProductModel } from '../models/providerSchemas.js';
 import { encryptField } from './fieldEncryption.js';
 import type { AuthSessionRecord } from './session.js';
 import { deleteStoredImageAssets } from './storage.js';
