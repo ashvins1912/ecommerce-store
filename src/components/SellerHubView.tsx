@@ -1290,10 +1290,12 @@ export function SellerHubView({
     status: OrderStatus,
     tracking?: { companyName: string; trackingId: string; trackingUrl: string }
   ) => {
-    const res = await apiFetch<{ order: Order }>(`/api/orders/${order._id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status, courierTracking: tracking }),
-    });
+    const res = status === 'Confirmed' && ['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(order.status)
+      ? await apiFetch<{ order: Order }>(`/api/seller/orders/${order._id}/confirm`, { method: 'POST', body: JSON.stringify({}) })
+      : await apiFetch<{ order: Order }>(`/api/orders/${order._id}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status, courierTracking: tracking }),
+        });
     setSellerOrders((prev) => prev.map((o) => (o._id === order._id ? res.order : o)));
     setShipOrderTarget(null);
   };
