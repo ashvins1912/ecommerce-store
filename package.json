@@ -16,7 +16,7 @@
     "build:seller": "vite build --config apps/seller-hub/vite.config.ts",
     "dev:provider": "vite --config apps/provider-portal/vite.config.ts",
     "build:provider": "vite build --config apps/provider-portal/vite.config.ts",
-    "build:workspace": "bun run build:customer && bun run build:seller && bun run build:provider"
+    "build:workspace": "npm run build:customer && npm run build:seller && npm run build:provider"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
@@ -45,9 +45,9 @@
     "wink-sentiment": "^5.0.2",
     "yet-another-react-lightbox": "^3.33.1",
     "zod": "^4.6.7",
-    "@commerce/shared-types": "workspace:*",
-    "@commerce/shared-utils": "workspace:*",
-    "@commerce/shared-ui": "workspace:*"
+    "@commerce/shared-types": "^1.0.0",
+    "@commerce/shared-utils": "^1.0.0",
+    "@commerce/shared-ui": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
