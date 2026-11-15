@@ -1493,6 +1493,7 @@ async function startServer() {
 
     const couponCode = typeof req.body?.couponCode === 'string' ? req.body.couponCode.trim() : undefined;
     const itemProducts = await Promise.all(itemsToOrder.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+    if (itemProducts.some((product) => product?.visibility === 'ASSIGNED' && (!product.assignedCustomerIds || !product.assignedCustomerIds.map(String).includes(user._id)))) return res.status(403).json({ error: 'PRODUCT_NOT_ASSIGNED_TO_BUYER' });
     const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
     const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
     const prepaidProviderBySeller = new Map<string, 'razorpay' | 'stripe'>();
