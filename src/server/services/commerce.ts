@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 import {
   PaymentGatewayConfigModel,
   WalletModel,
   WalletTransactionModel,
   PaymentEventModel,
+  OrderModel,
+  ProductModel,
 } from '../models/schemas.js';
 import { decryptField, encryptField, maskSecret } from './fieldEncryption.js';
 
@@ -227,4 +230,31 @@ export async function refundGatewayPayment(input: {
   const body = await response.json() as any;
   if (!response.ok) throw new Error(body.error?.message || 'STRIPE_REFUND_FAILED');
   return { provider: 'stripe' as const, refundId: String(body.id), status: String(body.status || 'pending') };
+}
+
+export async function restoreCancelledOrderInventory(orderId: string) {
+  if (!mongoose.isValidObjectId(orderId)) return false;
+  const session = await mongoose.startSession();
+  let restored = false;
+  try {
+    await session.withTransaction(async () => {
+      const order = await OrderModel.findOneAndUpdate(
+        { _id: orderId, status: 'Cancelled', inventoryRestored: { $ne: true } },
+        { $set: { inventoryRestored: true } },
+        { new: true, session }
+      );
+      if (!order) return;
+      for (const item of order.items || []) {
+        await ProductModel.updateOne(
+          { _id: item.productId },
+          { $inc: { totalStock: item.quantity, 'variants.$[variant].stock': item.quantity } },
+          { arrayFilters: [{ 'variant.variantSku': item.variantSku }], session }
+        );
+      }
+      restored = true;
+    });
+  } finally {
+    await session.endSession();
+  }
+  return restored;
 }
