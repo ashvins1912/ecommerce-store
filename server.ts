@@ -1561,6 +1561,24 @@ async function startServer() {
       });
     }
 
+    const existingOrder = await OrderModel.findById(req.params.id).lean();
+    if (!existingOrder) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (user.role !== 'ADMIN' && (user.role !== 'SELLER' || String(existingOrder.sellerId) !== user._id)) {
+      return res.status(403).json({ error: 'ORDER_OWNER_REQUIRED' });
+    }
+    const allowedTransitions: Record<string, string[]> = {
+      Pending: ['Confirmed', 'Cancelled'],
+      PENDING_SELLER_CONFIRMATION: ['Confirmed', 'CONFIRMED_AWAITING_PAYMENT', 'Cancelled'],
+      Confirmed: ['Packed', 'Cancelled'],
+      PAID_AND_PROCESSING: ['Packed', 'Cancelled'],
+      Packed: ['Shipped', 'Cancelled'],
+      Shipped: ['Out for Delivery', 'Delivered'],
+      'Out for Delivery': ['Delivered'],
+      CANCELLATION_REQUESTED: ['Cancelled', 'Confirmed'],
+    };
+    if (user.role !== 'ADMIN' && !(allowedTransitions[String(existingOrder.status)] || []).includes(parsed.data.status)) {
+      return res.status(409).json({ error: 'INVALID_ORDER_STATUS_TRANSITION' });
+    }
     const updated = await updateOrderStatusOrTracking(req.params.id, {
       status: parsed.data.status as OrderStatus,
       note: parsed.data.note,
@@ -1650,15 +1668,27 @@ async function startServer() {
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_WALLET_REDEMPTION' });
     const order = await OrderModel.findOne({ _id: parsed.data.orderId, buyerId: user._id }).lean();
     if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
-    if (parsed.data.amountPaise > Math.round(Number(order.totalAmount) * 100)) return res.status(400).json({ error: 'WALLET_REDEMPTION_EXCEEDS_ORDER_TOTAL' });
+    if (order.status !== 'CONFIRMED_AWAITING_PAYMENT') return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_WALLET_REDEMPTION' });
+    const currentApplied = Number(order.walletAppliedPaise || 0);
+    const remaining = Math.max(0, Math.round(Number(order.totalAmount) * 100) - currentApplied);
+    if (parsed.data.amountPaise > remaining) return res.status(400).json({ error: 'WALLET_REDEMPTION_EXCEEDS_ORDER_BALANCE' });
     try {
       const transaction = await applyWalletTransaction({
         userId: user._id, idempotencyKey: parsed.data.idempotencyKey,
         type: 'DEBIT_ORDER_REDEMPTION', amountPaise: parsed.data.amountPaise,
         orderId: parsed.data.orderId,
       });
-      await OrderModel.updateOne({ _id: order._id, buyerId: user._id }, { $set: { walletAppliedPaise: transaction.replayed ? order.walletAppliedPaise : parsed.data.amountPaise } });
-      res.json({ transaction });
+      const newApplied = transaction.replayed ? currentApplied : currentApplied + parsed.data.amountPaise;
+      const fullyPaid = newApplied >= Math.round(Number(order.totalAmount) * 100);
+      const update = await OrderModel.updateOne(
+        { _id: order._id, buyerId: user._id, walletAppliedPaise: currentApplied, status: 'CONFIRMED_AWAITING_PAYMENT' },
+        { $set: { walletAppliedPaise: newApplied, paymentMode: fullyPaid ? 'WALLET' : 'MIXED', paymentStatus: fullyPaid ? 'PAID' : 'PENDING', ...(fullyPaid ? { status: 'PAID_AND_PROCESSING' } : {}) } }
+      );
+      if (!transaction.replayed && !update.modifiedCount) {
+        await applyWalletTransaction({ userId: user._id, idempotencyKey: 'compensate:' + parsed.data.idempotencyKey, type: 'CREDIT_REFUND', amountPaise: parsed.data.amountPaise, orderId: parsed.data.orderId, reference: 'Compensation for failed order wallet update' });
+        return res.status(409).json({ error: 'ORDER_CHANGED_WALLET_DEBIT_REVERSED' });
+      }
+      res.json({ transaction, fullyPaid });
     } catch (err) {
       res.status((err as Error).message === 'INSUFFICIENT_WALLET_BALANCE' ? 409 : 400).json({ error: (err as Error).message });
     }
