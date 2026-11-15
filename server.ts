@@ -1495,8 +1495,8 @@ async function startServer() {
     const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
     const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
     if (requiresPrepaid) {
-      const bySeller = new Set(itemsToOrder.map((item) => item.sellerId));
-      for (const sellerId of bySeller) {
+      const prepaidSellerIds = new Set(itemsToOrder.filter((item, index) => itemProducts[index] && (itemProducts[index]!.onlinePaymentRequired || itemProducts[index]!.codAllowed === false)).map((item) => item.sellerId));
+      for (const sellerId of prepaidSellerIds) {
         const gateway = await getGatewaySecrets(sellerId, requestedProvider);
         if (!gateway) return res.status(409).json({ error: 'PREPAID_REQUIRED_ACTIVE_GATEWAY_MISSING', sellerId });
       }
