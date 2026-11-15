@@ -523,7 +523,7 @@ export async function getSearchSuggestions(query: string): Promise<string[]> {
   }
 
   for (const p of all) {
-    if (!isProductPubliclyVisible(p) || disabledSet.has(p.category.toLowerCase())) continue;
+    if (!isProductPubliclyVisible(p) || p.visibility === 'ASSIGNED' || disabledSet.has(p.category.toLowerCase())) continue;
     const titleLower = p.title.toLowerCase();
     const specBlob = [
       p.subCategory,
