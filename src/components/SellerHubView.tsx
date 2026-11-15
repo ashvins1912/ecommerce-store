@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
+  Image as ImageIcon,
   Link2,
   Lock,
   Mail,
@@ -180,7 +181,14 @@ export function SellerHubView({
   const [uploadedImages, setUploadedImages] = useState<
     Array<{ url: string; thumbUrl: string; byteSize: number; storage: string }>
   >([]);
+  const [newImageUrlInput, setNewImageUrlInput] = useState('');
   const [uploadingImg, setUploadingImg] = useState(false);
+  const [editImagesTarget, setEditImagesTarget] = useState<Product | null>(null);
+  const [editImagesList, setEditImagesList] = useState<
+    Array<{ url: string; thumbUrl: string; altText: string; sortOrder: number }>
+  >([]);
+  const [editImageUrlInput, setEditImageUrlInput] = useState('');
+  const [savingImages, setSavingImages] = useState(false);
   const [baseMetal, setBaseMetal] = useState('Brass Alloy');
   const [plating, setPlating] = useState('22k Antique Gold');
   const [stoneType, setStoneType] = useState('Glass Kundan & Pearl');
@@ -659,17 +667,58 @@ export function SellerHubView({
   };
 
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
     setUploadingImg(true);
     setCreateError(null);
     try {
-      const uploaded = await compressAndUploadImage(file);
-      setUploadedImages((prev) => [...prev, uploaded]);
+      const results = await Promise.all(files.map((file) => compressAndUploadImage(file)));
+      setUploadedImages((prev) => [...prev, ...results]);
     } catch (err) {
       setCreateError((err as Error).message);
     } finally {
       setUploadingImg(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleEditImagesFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0 || !editImagesTarget) return;
+    setUploadingImg(true);
+    try {
+      const results = await Promise.all(files.map((file) => compressAndUploadImage(file)));
+      setEditImagesList((prev) => [
+        ...prev,
+        ...results.map((r, i) => ({
+          url: r.url,
+          thumbUrl: r.thumbUrl,
+          altText: editImagesTarget.title,
+          sortOrder: prev.length + i,
+        })),
+      ]);
+    } finally {
+      setUploadingImg(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleSaveProductImages = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editImagesTarget || editImagesList.length === 0) return;
+    setSavingImages(true);
+    try {
+      await apiFetch(`/api/products/${editImagesTarget._id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          images: editImagesList.map((img, idx) => ({ ...img, sortOrder: idx })),
+        }),
+      });
+      setEditImagesTarget(null);
+      await loadSellerCatalog();
+      onCatalogMutated();
+    } finally {
+      setSavingImages(false);
     }
   };
 
@@ -1391,14 +1440,28 @@ export function SellerHubView({
                         />
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          disabled={savingProdId === p._id}
-                          onClick={() => handleSaveInlineOffer(p._id)}
-                          className="rounded border border-[#881337] px-3 py-1 text-xs font-medium text-[#881337] hover:bg-[#881337] hover:text-white transition-colors cursor-pointer"
-                        >
-                          {savingProdId === p._id ? t('seller.saving') : t('seller.updateOffer')}
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditImagesTarget(p);
+                              setEditImagesList(p.images.map((img, i) => ({ ...img, sortOrder: i })));
+                              setEditImageUrlInput('');
+                            }}
+                            className="inline-flex items-center gap-1 rounded border border-[#D6D3CD] bg-white px-2.5 py-1 text-xs font-medium text-[#141413] hover:border-[#141413] whitespace-nowrap cursor-pointer"
+                          >
+                            <ImageIcon className="h-3 w-3" />
+                            <span>{t('seller.manageImages', { count: p.images.length })}</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingProdId === p._id}
+                            onClick={() => handleSaveInlineOffer(p._id)}
+                            className="rounded border border-[#881337] px-3 py-1 text-xs font-medium text-[#881337] hover:bg-[#881337] hover:text-white transition-colors whitespace-nowrap cursor-pointer"
+                          >
+                            {savingProdId === p._id ? t('seller.saving') : t('seller.updateOffer')}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1879,34 +1942,99 @@ export function SellerHubView({
                 </div>
               )}
 
-              <div className="border-t border-[#F0EEE9] pt-3 space-y-2">
-                <label className="inline-flex items-center gap-2 rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] cursor-pointer">
-                  <Upload className="h-3.5 w-3.5" />
-                  <span>
-                    {uploadingImg ? t('seller.uploadingWebp') : t('seller.uploadWebp')}
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageFileChange}
-                    className="hidden"
-                  />
-                </label>
+              <div className="border-t border-[#F0EEE9] pt-3 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex items-center gap-2 rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] cursor-pointer">
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>
+                      {uploadingImg ? t('seller.uploadingWebp') : t('seller.uploadWebpMulti')}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageFileChange}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <div className="flex flex-1 min-w-[200px] items-center gap-1.5">
+                    <input
+                      type="url"
+                      placeholder={t('seller.imageUrlPlaceholder')}
+                      value={newImageUrlInput}
+                      onChange={(e) => setNewImageUrlInput(e.target.value)}
+                      className="flex-1 rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clean = newImageUrlInput.trim();
+                        if (!clean) return;
+                        setUploadedImages((prev) => [
+                          ...prev,
+                          { url: clean, thumbUrl: clean, byteSize: 0, storage: 'url' },
+                        ]);
+                        setNewImageUrlInput('');
+                      }}
+                      className="rounded-md border border-[#D6D3CD] bg-[#FAF9F6] px-3 py-2 text-xs font-medium text-[#141413] hover:border-[#141413] whitespace-nowrap cursor-pointer"
+                    >
+                      {t('seller.addUrlBtn')}
+                    </button>
+                  </div>
+                </div>
+
                 {uploadedImages.length > 0 && (
-                  <div className="flex flex-wrap gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {uploadedImages.map((u, i) => (
                       <div
-                        key={i}
-                        className="flex items-center gap-2 rounded border border-[#E8E6E1] p-1.5"
+                        key={`${u.url}-${i}`}
+                        className="flex items-center justify-between gap-2 rounded border border-[#E8E6E1] p-2"
                       >
-                        <img
-                          src={u.thumbUrl}
-                          alt="Uploaded"
-                          className="h-10 w-10 rounded object-cover"
-                        />
-                        <span className="text-[11px] font-mono text-[#6B6A65]">
-                          {(u.byteSize / 1024).toFixed(1)} KB WebP ({u.storage})
-                        </span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <img
+                            src={u.thumbUrl}
+                            alt={`Product ${i + 1}`}
+                            className="h-11 w-11 shrink-0 rounded object-cover border border-[#E8E6E1]"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-semibold text-[#141413]">
+                              {i === 0 ? t('seller.primaryLabel') : `#${i + 1}`}
+                            </div>
+                            <div className="text-[10px] font-mono text-[#6B6A65] truncate">
+                              {u.byteSize > 0
+                                ? `${(u.byteSize / 1024).toFixed(1)} KB WebP (${u.storage})`
+                                : u.url}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {i > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setUploadedImages((prev) => {
+                                  const next = [...prev];
+                                  const [picked] = next.splice(i, 1);
+                                  return [picked, ...next];
+                                })
+                              }
+                              className="rounded border border-[#D6D3CD] px-2 py-1 text-[10px] font-medium text-[#141413] hover:border-[#881337] cursor-pointer"
+                            >
+                              {t('seller.setPrimary')}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={t('detail.close')}
+                            onClick={() =>
+                              setUploadedImages((prev) => prev.filter((_, idx) => idx !== i))
+                            }
+                            className="rounded p-1 text-[#78716C] hover:text-red-700 cursor-pointer"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1919,6 +2047,143 @@ export function SellerHubView({
                 className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
               >
                 {creatingProduct ? t('seller.saving') : t('seller.addListing')}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Existing Product Multi-Image Manager Modal */}
+      {editImagesTarget && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-4">
+          <div className="mx-auto max-w-xl rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 space-y-4 my-6">
+            <div className="flex items-start justify-between gap-3 border-b border-[#F0EEE9] pb-3">
+              <div>
+                <h3 className="font-display text-2xl font-semibold text-[#141413]">
+                  {t('seller.imagesModalTitle')}
+                </h3>
+                <p className="text-xs text-[#6B6A65] truncate max-w-sm">
+                  {editImagesTarget.title}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label={t('detail.close')}
+                onClick={() => setEditImagesTarget(null)}
+                className="p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProductImages} className="space-y-4 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-2 rounded-md border border-[#D6D3CD] px-3 py-2 font-medium text-[#141413] hover:border-[#881337] cursor-pointer">
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>
+                    {uploadingImg ? t('seller.uploadingWebp') : t('seller.uploadWebpMulti')}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleEditImagesFileChange}
+                    className="hidden"
+                  />
+                </label>
+
+                <div className="flex flex-1 min-w-[200px] items-center gap-1.5">
+                  <input
+                    type="url"
+                    placeholder={t('seller.imageUrlPlaceholder')}
+                    value={editImageUrlInput}
+                    onChange={(e) => setEditImageUrlInput(e.target.value)}
+                    className="flex-1 rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const clean = editImageUrlInput.trim();
+                      if (!clean) return;
+                      setEditImagesList((prev) => [
+                        ...prev,
+                        {
+                          url: clean,
+                          thumbUrl: clean,
+                          altText: editImagesTarget.title,
+                          sortOrder: prev.length,
+                        },
+                      ]);
+                      setEditImageUrlInput('');
+                    }}
+                    className="rounded-md border border-[#D6D3CD] bg-[#FAF9F6] px-3 py-2 font-medium text-[#141413] hover:border-[#141413] whitespace-nowrap cursor-pointer"
+                  >
+                    {t('seller.addUrlBtn')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto">
+                {editImagesList.map((img, i) => (
+                  <div
+                    key={`${img.url}-${i}`}
+                    className="flex items-center justify-between gap-2 rounded border border-[#E8E6E1] p-2"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={img.thumbUrl || img.url}
+                        alt={img.altText || editImagesTarget.title}
+                        referrerPolicy="no-referrer"
+                        className="h-12 w-12 shrink-0 rounded object-cover border border-[#E8E6E1]"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-[#141413]">
+                          {i === 0 ? t('seller.primaryLabel') : `#${i + 1}`}
+                        </div>
+                        <div className="text-[10px] font-mono text-[#6B6A65] truncate max-w-[140px]">
+                          {img.url}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {i > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditImagesList((prev) => {
+                              const next = [...prev];
+                              const [picked] = next.splice(i, 1);
+                              return [picked, ...next];
+                            })
+                          }
+                          className="rounded border border-[#D6D3CD] px-2 py-1 text-[10px] font-medium text-[#141413] hover:border-[#881337] cursor-pointer"
+                        >
+                          {t('seller.setPrimary')}
+                        </button>
+                      )}
+                      {editImagesList.length > 1 && (
+                        <button
+                          type="button"
+                          aria-label={t('detail.close')}
+                          onClick={() =>
+                            setEditImagesList((prev) => prev.filter((_, idx) => idx !== i))
+                          }
+                          className="rounded p-1 text-[#78716C] hover:text-red-700 cursor-pointer"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingImages || editImagesList.length === 0}
+                className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] disabled:opacity-50 cursor-pointer"
+              >
+                {savingImages ? t('seller.saving') : t('seller.saveImages')}
               </button>
             </form>
           </div>

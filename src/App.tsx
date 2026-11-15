@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowUp,
   ChevronLeft,
@@ -24,6 +25,7 @@ import { apiFetch } from './lib/api';
 import { useI18n } from './lib/i18n';
 import { TopBar, type ActivePage } from './components/TopBar';
 import { ProductCard } from './components/ProductCard';
+import { ProductCardSkeleton } from './components/ProductCardSkeleton';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { AuthModal } from './components/AuthModal';
@@ -735,10 +737,7 @@ export default function App() {
             {catalogLoading ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-80 rounded-lg border border-[#E8E6E1] bg-white animate-pulse"
-                  />
+                  <ProductCardSkeleton key={i} />
                 ))}
               </div>
             ) : catalog.products.length === 0 ? (
@@ -1011,40 +1010,58 @@ export default function App() {
       )}
 
       {/* WhatsApp Share Confirmation & Deep Link */}
-      {shareNotice && (
-        <div className="fixed bottom-4 left-4 right-4 sm:bottom-5 sm:left-5 sm:right-auto z-60 flex items-center justify-between gap-3 rounded-lg border border-[#E8E6E1] bg-white px-4 py-3 text-xs text-[#141413] shadow-xl sm:max-w-[420px]">
-          <div className="min-w-0">
-            <div className="font-semibold truncate max-w-[180px] sm:max-w-[210px]">
-              {t('share.ready', { title: shareNotice.title })}
+      <AnimatePresence>
+        {shareNotice && (
+          <motion.div
+            key={shareNotice.waLink}
+            initial={{ opacity: 0, y: 20, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 14, scale: 0.96 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed bottom-4 left-4 right-4 sm:bottom-5 sm:left-5 sm:right-auto z-60 flex items-center justify-between gap-3 rounded-lg border border-[#E8E6E1] bg-white px-4 py-3 text-xs text-[#141413] shadow-xl sm:max-w-[420px]"
+          >
+            <div className="min-w-0">
+              <div className="font-semibold truncate max-w-[180px] sm:max-w-[210px]">
+                {t('share.ready', { title: shareNotice.title })}
+              </div>
+              <div className="text-[11px] text-[#6B6A65]">{t('share.copied')}</div>
             </div>
-            <div className="text-[11px] text-[#6B6A65]">{t('share.copied')}</div>
-          </div>
-          <a
-            href={shareNotice.waLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-md bg-[#166534] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#15803d] whitespace-nowrap shrink-0"
-          >
-            <span>{t('share.openWhatsapp')}</span>
-            <ExternalLink className="h-3 w-3" />
-          </a>
-          <button
-            type="button"
-            aria-label={t('detail.close')}
-            onClick={() => setShareNotice(null)}
-            className="p-1 text-[#6B6A65] hover:text-[#141413] cursor-pointer"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+            <a
+              href={shareNotice.waLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md bg-[#166534] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#15803d] whitespace-nowrap shrink-0"
+            >
+              <span>{t('share.openWhatsapp')}</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
+            <button
+              type="button"
+              aria-label={t('detail.close')}
+              onClick={() => setShareNotice(null)}
+              className="p-1 text-[#6B6A65] hover:text-[#141413] cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Non-intrusive bottom toast */}
-      {toast && (
-        <div className="fixed bottom-20 sm:bottom-18 right-4 sm:right-5 left-4 sm:left-auto z-60 rounded-md bg-[#141413] px-4 py-2.5 text-xs font-medium text-white shadow-lg text-center sm:text-left">
-          {toast}
-        </div>
-      )}
+      {/* Non-intrusive bottom toast with Framer Motion slide-in & fade */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            key={toast}
+            initial={{ opacity: 0, y: 20, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 14, scale: 0.96 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed bottom-20 sm:bottom-18 right-4 sm:right-5 left-4 sm:left-auto z-60 rounded-md bg-[#141413] px-4 py-2.5 text-xs font-medium text-white shadow-lg text-center sm:text-left"
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

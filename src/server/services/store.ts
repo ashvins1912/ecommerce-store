@@ -556,6 +556,7 @@ export async function updateProductDiscountOrStock(
     totalStock?: number;
     title?: string;
     occasions?: OccasionType[];
+    images?: Product['images'];
   }
 ): Promise<Product | null> {
   const existing = await getProductByIdOrSlug(productId);
@@ -582,9 +583,15 @@ export async function updateProductDiscountOrStock(
   if (discountPercent >= 15) badges.add('Special Offer');
   else badges.delete('Special Offer');
 
+  const normalizedImages =
+    updates.images && updates.images.length > 0
+      ? updates.images.map((img, idx) => ({ ...img, sortOrder: idx }))
+      : undefined;
+
   const patch = {
     ...(updates.title ? { title: updates.title } : {}),
     ...(updates.occasions ? { occasions: updates.occasions } : {}),
+    ...(normalizedImages ? { images: normalizedImages } : {}),
     ...(typeof updates.totalStock === 'number' ? { totalStock: updates.totalStock } : {}),
     basePrice,
     discountPercent,

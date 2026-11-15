@@ -109,8 +109,36 @@ export function ProductCard({
           </div>
         )}
 
-        {/* Top-Right Image Actions: Share to WhatsApp & Like (above Quick Look overlay) */}
-        <div className="relative z-20 flex justify-end gap-1.5 p-3 pointer-events-none">
+        {/* Top Bar over Image: Multi-Image Indicator Dots (left) + Share/Like (right) */}
+        <div className="relative z-20 flex items-start justify-between gap-2 p-3 pointer-events-none">
+          {product.images.length > 1 ? (
+            <div
+              className="pointer-events-auto inline-flex items-center gap-1 rounded bg-black/45 px-2 py-1.5 backdrop-blur-xs"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {product.images.slice(0, 6).map((img, idx) => (
+                <button
+                  key={`${img.url}-${idx}`}
+                  type="button"
+                  aria-label={t('card.photoLabel', {
+                    index: idx + 1,
+                    total: product.images.length,
+                  })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setImgError(false);
+                    setActiveImgIdx(idx);
+                  }}
+                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                    activeImgIdx === idx ? 'w-4 bg-white' : 'w-1.5 bg-white/60 hover:bg-white'
+                  }`}
+                />
+              ))}
+            </div>
+          ) : (
+            <span />
+          )}
+
           <div className="flex items-center gap-1.5 pointer-events-auto">
             <button
               type="button"

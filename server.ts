@@ -703,6 +703,17 @@ async function startServer() {
       basePrice: z.number().positive().optional(),
       totalStock: z.number().int().min(0).optional(),
       title: z.string().min(3).optional(),
+      images: z
+        .array(
+          z.object({
+            url: z.string().min(1),
+            thumbUrl: z.string().min(1),
+            altText: z.string().default('Product image'),
+            sortOrder: z.number().default(0),
+          })
+        )
+        .min(1)
+        .optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {

@@ -71,6 +71,7 @@ const EN = {
   'card.sizesCount': '{count} size options',
   'card.shareWhatsapp': 'Share to WhatsApp',
   'card.shareMessage': 'Check out {title} ({price}) on Kala & Karat: {url}',
+  'card.photoLabel': 'Photo {index} of {total}',
 
   // Recently Viewed Carousel
   'recent.kicker': 'Your Session History',
@@ -382,6 +383,15 @@ const EN = {
   'admin.statusAccepted': 'Accepted',
   'admin.statusRevoked': 'Revoked',
   'admin.statusExpired': 'Expired',
+  'seller.uploadWebpMulti': 'Upload Images (Multiple WebP CDN)',
+  'seller.addImageUrlLabel': 'Or add image URL',
+  'seller.imageUrlPlaceholder': 'https://... image URL',
+  'seller.addUrlBtn': 'Add URL',
+  'seller.manageImages': 'Images ({count})',
+  'seller.imagesModalTitle': 'Manage Product Images',
+  'seller.primaryLabel': 'Primary',
+  'seller.setPrimary': 'Set Primary',
+  'seller.saveImages': 'Save Images',
 } as const;
 
 export type TranslationKey = keyof typeof EN;
@@ -441,6 +451,7 @@ const HI: Record<TranslationKey, string> = {
   'card.sizesCount': '{count} आकार विकल्प',
   'card.shareWhatsapp': 'व्हाट्सऐप पर साझा करें',
   'card.shareMessage': 'कला और कैरेट पर {title} ({price}) देखें: {url}',
+  'card.photoLabel': 'फ़ोटो {index} / {total}',
 
   'recent.kicker': 'आपका सत्र इतिहास',
   'recent.title': 'हाल ही में देखे गए',
@@ -737,6 +748,15 @@ const HI: Record<TranslationKey, string> = {
   'admin.statusAccepted': 'स्वीकृत',
   'admin.statusRevoked': 'निरस्त',
   'admin.statusExpired': 'समाप्त',
+  'seller.uploadWebpMulti': 'कई छवियां अपलोड करें (WebP CDN)',
+  'seller.addImageUrlLabel': 'या छवि URL जोड़ें',
+  'seller.imageUrlPlaceholder': 'https://... छवि URL',
+  'seller.addUrlBtn': 'URL जोड़ें',
+  'seller.manageImages': 'छवियां ({count})',
+  'seller.imagesModalTitle': 'उत्पाद छवियां प्रबंधित करें',
+  'seller.primaryLabel': 'मुख्य',
+  'seller.setPrimary': 'मुख्य बनाएं',
+  'seller.saveImages': 'छवियां सहेजें',
 };
 
 const BN: Record<TranslationKey, string> = {
@@ -794,6 +814,7 @@ const BN: Record<TranslationKey, string> = {
   'card.sizesCount': '{count}-টি সাইজ বিকল্প',
   'card.shareWhatsapp': 'হোয়াটসঅ্যাপে শেয়ার করুন',
   'card.shareMessage': 'কলা ও ক্যারেটে {title} ({price}) দেখুন: {url}',
+  'card.photoLabel': 'ছবি {index} / {total}',
 
   'recent.kicker': 'আপনার সেশন ইতিহাস',
   'recent.title': 'সম্প্রতি দেখা হয়েছে',
@@ -1089,6 +1110,15 @@ const BN: Record<TranslationKey, string> = {
   'admin.statusAccepted': 'গৃহীত',
   'admin.statusRevoked': 'বাতিল',
   'admin.statusExpired': 'মেয়াদোত্তীর্ণ',
+  'seller.uploadWebpMulti': 'একাধিক ছবি আপলোড করুন (WebP CDN)',
+  'seller.addImageUrlLabel': 'অথবা ছবির URL যোগ করুন',
+  'seller.imageUrlPlaceholder': 'https://... ছবির URL',
+  'seller.addUrlBtn': 'URL যোগ করুন',
+  'seller.manageImages': 'ছবি ({count})',
+  'seller.imagesModalTitle': 'পণ্যের ছবি পরিচালনা করুন',
+  'seller.primaryLabel': 'প্রধান',
+  'seller.setPrimary': 'প্রধান করুন',
+  'seller.saveImages': 'ছবি সংরক্ষণ করুন',
 };
 
 const DICTIONARIES: Record<Language, Record<TranslationKey, string>> = {

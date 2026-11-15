@@ -3,6 +3,7 @@ import { GitCompare, Heart, ShoppingBag, Trash2 } from 'lucide-react';
 import type { Product, ProductVariant } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { ProductCardSkeleton } from './ProductCardSkeleton';
 
 interface WishlistViewProps {
   likedIds: Set<string>;
@@ -70,10 +71,7 @@ export function WishlistView({
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {Array.from({ length: 4 }).map((_, idx) => (
-            <div
-              key={idx}
-              className="h-80 rounded-lg border border-[#E8E6E1] bg-white animate-pulse"
-            />
+            <ProductCardSkeleton key={idx} />
           ))}
         </div>
       ) : visibleItems.length === 0 ? (
