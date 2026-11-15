@@ -1596,6 +1596,8 @@ export default function App() {
         onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
+          const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+          if (returnTo && returnTo.startsWith('/')) window.location.assign(returnTo);
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
           if (payload.cart) {
             setCart(payload.cart);
