@@ -25,6 +25,7 @@ export function CustomerSearchModal({ open, selected, onClose, onChange }: Custo
 
   useEffect(() => {
     if (!open || query.trim().length < 2) {
+      setLoading(false);
       setResults([]);
       return;
     }
