@@ -220,6 +220,7 @@ const OrderSchema = new Schema(
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
     cancellationRequestedAt: { type: Date, default: null },
     cancellationPreviousStatus: { type: String, default: null },
+    inventoryRestored: { type: Boolean, default: false },
     deliveredAt: { type: Date, default: null },
     refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'REFUNDED', 'REJECTED'], default: 'NONE' },
     appliedCoupon: {
