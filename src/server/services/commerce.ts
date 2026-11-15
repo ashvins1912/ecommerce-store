@@ -158,8 +158,8 @@ export async function createGatewayCheckout(input: {
     'line_items[0][price_data][unit_amount]': String(input.amountPaise),
     'line_items[0][price_data][product_data][name]': 'Order ' + input.orderNumber,
     'line_items[0][quantity]': '1',
-    success_url: appUrl.replace(/\/$/, '') + '/orders?payment=success',
-    cancel_url: appUrl.replace(/\/$/, '') + '/orders?payment=cancelled',
+    success_url: appUrl.replace(/\/$/, '') + '/?page=orders&payment=success',
+    cancel_url: appUrl.replace(/\/$/, '') + '/?page=orders&payment=cancelled',
     'metadata[orderId]': input.orderId,
     'metadata[orderNumber]': input.orderNumber,
   });
