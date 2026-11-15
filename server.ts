@@ -1891,7 +1891,7 @@ async function startServer() {
     const parsed = z.object({
       productId: z.string().min(1), quantity: z.number().int().positive(),
       reason: z.string().trim().min(5).max(1000),
-      media: z.array(z.object({ url: z.string().url(), mimeType: z.enum(['image/jpeg','image/png','image/webp']), durationSeconds: z.number().max(0).default(0) })).min(1).max(8),
+      media: z.array(z.object({ url: z.string().min(1).max(2048), mimeType: z.enum(['image/jpeg','image/png','image/webp']), durationSeconds: z.number().max(0).default(0) })).min(1).max(8),
       selfCourier: z.boolean().default(false), courierName: z.string().max(100).optional(),
       trackingId: z.string().max(120).optional(), trackingUrl: z.string().url().optional(),
     }).safeParse(req.body);
@@ -1925,6 +1925,13 @@ async function startServer() {
     } catch (err) {
       return res.status(409).json({ error: 'RETURN_REQUEST_ALREADY_EXISTS_OR_INVALID' });
     }
+  });
+
+  app.get('/api/seller/returns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const requests = await ReturnRequestModel.find(user.role === 'ADMIN' ? {} : { sellerId: user._id }).sort({ createdAt: -1 }).limit(100).lean();
+    res.json({ returns: requests.map((item: any) => ({ ...item, _id: String(item._id) })) });
   });
 
   app.patch('/api/seller/returns/:id', async (req, res) => {
