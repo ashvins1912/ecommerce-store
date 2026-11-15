@@ -288,7 +288,7 @@ export interface Order {
   paymentReference?: string | null;
   paymentTransactionId?: string | null;
   walletAppliedPaise?: number;
-  refundStatus?: 'NONE' | 'REQUESTED' | 'APPROVED' | 'PROCESSING' | 'REFUNDED' | 'REJECTED';
+  refundStatus?: 'NONE' | 'REQUESTED' | 'APPROVED' | 'PROCESSING' | 'PARTIAL' | 'REFUNDED' | 'REJECTED';
   appliedCoupon?: {
     couponId: string;
     code: string;
