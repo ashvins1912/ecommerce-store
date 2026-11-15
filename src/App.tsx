@@ -155,7 +155,7 @@ function upsertJsonLdScript(payload: Record<string, unknown>): void {
 export default function App() {
   const { t, tc, to, tseason, tsort } = useI18n();
   const [activePage, setActivePage] = useState<ActivePage>(() =>
-    typeof window !== 'undefined' && window.location.pathname.replace(/\\/+$/, '') === '/seller-hub'
+    typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/seller-hub'
       ? 'seller'
       : 'store'
   );
@@ -277,7 +277,7 @@ export default function App() {
     ) {
       setSeason(urlSeason as SeasonType | 'All');
     }
-    const pathIsSellerHub = window.location.pathname.replace(/\\/+$/, '') === '/seller-hub';
+    const pathIsSellerHub = window.location.pathname.replace(/\/+$/, '') === '/seller-hub';
     const inviteParam = params.get('sellerInvite') || params.get('invite');
     if (inviteParam || pathIsSellerHub) {
       setSellerInviteToken(inviteParam);
