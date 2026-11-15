@@ -2,9 +2,9 @@ name: Commerce feature checks
 
 on:
   pull_request:
-    branches: [main, feat/seller-route-auth-redesign]
+    branches: [main, feat/seller-route-auth-redesign, feat/commerce-complete-workflows]
   push:
-    branches: [feat/commerce-complete-workflows]
+    branches: [feat/commerce-complete-workflows, feat/provider-supply-settlement-workflows]
 
 jobs:
   typecheck-and-build:
@@ -17,3 +17,4 @@ jobs:
       - run: bun install --no-save
       - run: bun run lint
       - run: bun run build
+      - run: bun run build:workspace

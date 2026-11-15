@@ -40,6 +40,7 @@ import { AccountSignUpView } from './components/CustomerSignUpView';
 import { JewelleryCompareModal } from './components/JewelleryCompareModal';
 import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
 import { FlashSaleSection } from './components/FlashSaleSection';
+import ProviderPortal from '../apps/provider-portal/src/ProviderPortal';
 
 const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
 const RECENT_STORAGE_KEY = 'kk_recently_viewed';
@@ -262,6 +263,7 @@ export default function App() {
   // Support shared product/category deep-links (?product=..., ?category=..., ?season=...), Admin invite links (?sellerInvite=... or ?invite=...), and hero scroll tracking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('auth') === '1') { setAuthInitialMode('signin'); setAuthOpen(true); }
     const sharedProd = params.get('product');
     if (sharedProd) {
       setSelectedProductKey(sharedProd);
@@ -1402,7 +1404,9 @@ export default function App() {
                   const isTopTrending =
                     typeof threshold === 'number' && product.trendScore >= threshold;
 
-                  return (
+                  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
+
+  return (
                     <ProductCard
                       key={product._id}
                       product={product}
@@ -1592,6 +1596,8 @@ export default function App() {
         onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
+          const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+          if (returnTo && returnTo.startsWith('/')) { const target = new URL(returnTo, window.location.origin); if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search + target.hash); }
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
           if (payload.cart) {
             setCart(payload.cart);

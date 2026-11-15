@@ -62,6 +62,7 @@ import type {
 import { apiFetch, compressAndUploadImage, formatINR, setClientSessionTokens } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { CustomerSearchModal, type AssignableCustomer } from './CustomerSearchModal';
+import { ProviderManagementPanel } from './ProviderManagementPanel';
 
 const OCCASIONS: OccasionType[] = [
   'Wedding',
@@ -91,6 +92,7 @@ type SellerTab =
   | 'coupons'
   | 'payments'
   | 'returns'
+  | 'providers'
   | 'orders';
 
 interface AdminInviteRow extends SellerInvite {
@@ -1379,6 +1381,7 @@ export function SellerHubView({
     { id: 'coupons', label: t('seller.tabCoupons') },
     { id: 'payments', label: 'Payments' },
     { id: 'returns', label: 'Returns' },
+    { id: 'providers', label: 'Providers & payouts' },
     { id: 'orders', label: t('seller.tabOrders') },
   ];
 
@@ -2968,6 +2971,8 @@ export function SellerHubView({
       )}
 
       {/* TAB 3: SELLER ORDERS & COURIER TRACKING */}
+      {isVerifiedSellerOrAdmin && sellerTab === 'providers' && <ProviderManagementPanel isAdmin={isAdmin} />}
+
       {isVerifiedSellerOrAdmin && sellerTab === 'returns' && (
         <section className="space-y-4">
           <div><h2 className="text-lg font-semibold">Returns and cancellation review</h2><p className="text-xs text-[#78716C]">Review buyer evidence and confirm physical receipt before releasing wallet refunds.</p></div>

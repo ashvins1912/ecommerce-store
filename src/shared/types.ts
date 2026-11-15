@@ -1,4 +1,4 @@
-export type UserRole = 'GUEST' | 'BUYER' | 'SELLER' | 'ADMIN';
+export type UserRole = 'GUEST' | 'BUYER' | 'SELLER' | 'PROVIDER' | 'ADMIN';
 
 export type BuiltinProductCategory = 'Artificial Jewellery' | 'Clothing' | 'Accessories';
 
@@ -203,6 +203,8 @@ export interface Product {
   reviewCount: number;
   badges: ProductBadge[];
   isProductTrusted: boolean;
+  isQualityChecked?: boolean;
+  manufacturerWarrantyVerified?: boolean;
   isActive: boolean;
   listingStatus?: ProductListingStatus;
   isPublished?: boolean;

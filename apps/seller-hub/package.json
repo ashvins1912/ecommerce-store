@@ -1,0 +1,15 @@
+{
+  "name": "@commerce/seller-hub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "build": "vite build --config vite.config.ts"
+  },
+  "dependencies": {
+    "@commerce/shared-types": "workspace:*",
+    "@commerce/shared-utils": "workspace:*",
+    "@commerce/shared-ui": "workspace:*"
+  }
+}
