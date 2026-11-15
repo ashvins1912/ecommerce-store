@@ -1516,13 +1516,25 @@ async function startServer() {
       return res.status(400).json({ error: (err as Error).message });
     }
 
-    // Trigger automated WhatsApp alert to each seller
+    // Notify each seller with the complete fulfilment summary and a login-protected Seller Hub deep link.
     for (const order of createdOrders) {
       const seller = await findUserById(order.sellerId);
-      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber || '+919820112233';
+      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
       const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
-      const msg = `New Order ${order.orderNumber}! Items: ${itemSummary}. Buyer City: ${order.shippingAddress.city}. Total: INR ${order.totalAmount}.`;
-      order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
+      const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
+      const msg = [
+        'New order ' + order.orderNumber,
+        'Items: ' + itemSummary,
+        'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
+        'Contact: ' + order.shippingAddress.phone,
+        'Payment: ' + order.paymentMode,
+        'Total: INR ' + order.totalAmount,
+        'Confirm after checking stock: ' + confirmationUrl,
+      ].join('\\n');
+      if (sellerPhone) {
+        order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
+        await OrderModel.updateOne({ _id: order._id }, { $set: { whatsappDispatch: order.whatsappDispatch } });
+      }
     }
 
     await saveCartForActor({ userId: user._id, guestToken }, []);
