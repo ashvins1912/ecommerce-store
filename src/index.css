@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Explicitly scan shared app and workspace sources for Tailwind v4 utilities. */
+@source "../apps";
+@source "../packages";
+@source "./";
+
 @theme {
   --font-display: "Cormorant Garamond", Georgia, serif;
   --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
