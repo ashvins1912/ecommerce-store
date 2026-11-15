@@ -484,6 +484,9 @@ async function startServer() {
       let sessionProvider: 'supabase' | 'demo' = 'supabase';
 
       if ('quickDemoUserId' in parsed.data) {
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(404).json({ error: 'Test accounts are disabled in production.' });
+        }
         user = await findUserById(parsed.data.quickDemoUserId);
         if (!user && parsed.data.email) {
           user = await findUserByEmail(parsed.data.email);
