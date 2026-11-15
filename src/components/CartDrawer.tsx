@@ -450,7 +450,7 @@ export function CartDrawer({
       {/* Mandatory Checkout Profile Gate Modal */}
       {showGateModal && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/55 p-4">
-          <div className="w-full max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 shadow-2xl">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 shadow-2xl">
             <div className="flex items-start justify-between border-b border-[#F0EEE9] pb-3">
               <div>
                 <h3 className="font-display text-2xl font-semibold text-[#141413]">
