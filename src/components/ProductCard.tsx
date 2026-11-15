@@ -254,7 +254,7 @@ export function ProductCard({
 
           <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] font-medium">
             {product.isReturnable !== false ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-800">Returnable · {product.returnWindowDays ?? 7} days</span> : <span className="rounded bg-[#F5F5F4] px-2 py-0.5 text-[#57534E]">Non-returnable</span>}
-            {(product.onlinePaymentRequired || product.codAllowed === false) && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-800">Prepaid only</span>}
+            {(product.onlinePaymentRequired || product.codAllowed === false) && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-800">Prepaid only</span>}{product.isQualityChecked && <span className="rounded bg-sky-50 px-2 py-0.5 text-sky-800">Quality checked</span>}{product.manufacturerWarrantyVerified && <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-800">Manufacturer warranty verified</span>}
           </div>
 
           {/* Product Title */}
