@@ -1495,11 +1495,16 @@ async function startServer() {
     const itemProducts = await Promise.all(itemsToOrder.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
     const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
     const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
+    const prepaidProviderBySeller = new Map<string, 'razorpay' | 'stripe'>();
     if (requiresPrepaid) {
       const prepaidSellerIds = new Set(itemsToOrder.filter((item, index) => itemProducts[index] && (itemProducts[index]!.onlinePaymentRequired || itemProducts[index]!.codAllowed === false)).map((item) => item.sellerId));
       for (const sellerId of prepaidSellerIds) {
-        const gateway = await getGatewaySecrets(sellerId, requestedProvider);
-        if (!gateway) return res.status(409).json({ error: 'PREPAID_REQUIRED_ACTIVE_GATEWAY_MISSING', sellerId });
+        const alternateProvider = requestedProvider === 'razorpay' ? 'stripe' : 'razorpay';
+        const preferred = await getGatewaySecrets(sellerId, requestedProvider);
+        const alternate = preferred ? null : await getGatewaySecrets(sellerId, alternateProvider);
+        const activeProvider = preferred ? requestedProvider : alternate ? alternateProvider : null;
+        if (!activeProvider) return res.status(409).json({ error: 'PREPAID_REQUIRED_ACTIVE_GATEWAY_MISSING', sellerId });
+        prepaidProviderBySeller.set(sellerId, activeProvider);
       }
     }
     let createdOrders;
@@ -1515,7 +1520,8 @@ async function startServer() {
           const product = idx >= 0 ? itemProducts[idx] : null;
           return { ...item, isReturnable: product?.isReturnable !== false, returnWindowDays: product?.returnWindowDays ?? 7 };
         });
-        order.paymentMode = prepaid ? (requestedProvider === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
+        const providerForOrder = prepaidProviderBySeller.get(String(order.sellerId)) || requestedProvider;
+        order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
         order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
         order.status = 'PENDING_SELLER_CONFIRMATION';
         order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date() });
