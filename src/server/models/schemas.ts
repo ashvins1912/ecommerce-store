@@ -131,6 +131,8 @@ const ProductSchema = new Schema(
       default: ['Newly Added'],
     },
     isProductTrusted: { type: Boolean, default: false },
+    isQualityChecked: { type: Boolean, default: false },
+    manufacturerWarrantyVerified: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true, index: true },
     listingStatus: {
       type: String,
