@@ -422,7 +422,7 @@ async function startServer() {
     }
   });
 
-  // Customer Sign-In via Supabase Auth (or 1-click dummy test role switch) + SSL Token Issue
+  // Account Sign-In via Supabase Auth (or 1-click dummy test role switch) + SSL Token Issue
   app.post('/api/auth/signin', async (req, res) => {
     const schema = z.union([
       z.object({
