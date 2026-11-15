@@ -248,7 +248,8 @@ async function startServer() {
   app.use(cookieParser());
 
   // Same-origin and synchronized-token CSRF protection for state-changing APIs.
-  const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || '')
+  const originConfig = process.env.CORS_ALLOWED_ORIGINS || ((process.env.APP_URL || '').startsWith('http') ? process.env.APP_URL! : '');
+  const configuredOrigins = originConfig
     .split(',').map((origin) => origin.trim()).filter(Boolean).map((origin) => new URL(origin).origin);
   app.use(async (req, res, next) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/')) return next();
@@ -824,8 +825,9 @@ async function startServer() {
   });
 
   app.get('/api/products/:idOrSlug', async (req, res) => {
+    const { user } = await resolveActor(req, res);
     const product = await getProductByIdOrSlug(req.params.idOrSlug);
-    if (!product) return res.status(404).json({ error: 'Product not found' });
+    if (!product || (product.visibility === 'ASSIGNED' && (!user || !(product.assignedCustomerIds || []).map(String).includes(user._id)))) return res.status(404).json({ error: 'Product not found' });
     await incrementProductView(product._id);
     const [reviews, recData] = await Promise.all([
       getProductReviews(product._id),
