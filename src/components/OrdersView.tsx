@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, Package, PackageCheck, Truck } from 'lucide-react';
+import { ExternalLink, Package, PackageCheck, Truck, Wallet } from 'lucide-react';
 import type {
   Order,
   OrderListResponse,
@@ -10,6 +10,12 @@ import type {
 } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, any>) => { open: () => void };
+  }
+}
 
 interface OrdersViewProps {
   user: User | null;
@@ -47,6 +53,9 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
 
   const [granularity, setGranularity] = useState<TimeGranularity>('month');
   const [buckets, setBuckets] = useState<OrderTimeBucket[]>([]);
+  const [walletBalancePaise, setWalletBalancePaise] = useState(0);
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const fetchOrders = useCallback(
     async (tab: OrderTab, skipVal: number, append: boolean) => {
@@ -83,6 +92,54 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
       fetchOrders(activeTab, 0, false);
     }
   }, [user, activeTab, fetchOrders]);
+
+  useEffect(() => {
+    if (user?.role === 'BUYER') {
+      apiFetch<{ balancePaise: number }>('/api/wallet').then((data) => setWalletBalancePaise(data.balancePaise || 0)).catch(() => setWalletBalancePaise(0));
+    }
+  }, [user?._id, user?.role]);
+
+  const payOrder = async (order: Order, provider: 'razorpay' | 'stripe') => {
+    setPayingOrderId(order._id);
+    setPaymentError(null);
+    try {
+      const result = await apiFetch<{ checkout: { provider: string; reference: string; keyId?: string; amountPaise: number; currency: string; url?: string } }>(
+        '/api/orders/' + encodeURIComponent(order._id) + '/payment-intent',
+        { method: 'POST', body: JSON.stringify({ provider }) }
+      );
+      const checkout = result.checkout;
+      if (provider === 'stripe') {
+        if (!checkout.url) throw new Error('Stripe Checkout URL was not returned.');
+        window.location.assign(checkout.url);
+        return;
+      }
+      const scriptUrl = 'https://checkout.razorpay.com/v1/checkout.js';
+      if (!document.querySelector('script[src="' + scriptUrl + '"]')) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = scriptUrl;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Unable to load Razorpay Checkout.'));
+          document.body.appendChild(script);
+        });
+      }
+      if (!window.Razorpay || !checkout.keyId) throw new Error('Razorpay Checkout is unavailable or not configured.');
+      const razorpay = new window.Razorpay({
+        key: checkout.keyId,
+        amount: checkout.amountPaise,
+        currency: checkout.currency,
+        order_id: checkout.reference,
+        name: 'E-Commerce Store',
+        description: 'Order ' + order.orderNumber,
+        handler: () => { void fetchOrders(activeTab, 0, false); },
+        modal: { ondismiss: () => setPayingOrderId(null) },
+      });
+      razorpay.open();
+    } catch (err) {
+      setPaymentError((err as Error).message);
+      setPayingOrderId(null);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -138,6 +195,14 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
           ))}
         </div>
       </div>
+
+      {user.role === 'BUYER' && (
+        <div className="flex items-center justify-between rounded-lg border border-[#E8E6E1] bg-white p-4">
+          <div className="flex items-center gap-3"><Wallet className="h-5 w-5 text-[#881337]"/><div><div className="text-xs font-semibold">Store wallet</div><div className="text-[11px] text-[#78716C]">1 point = ₹1</div></div></div>
+          <div className="text-lg font-semibold tabular-nums">{formatINR(walletBalancePaise / 100)}</div>
+        </div>
+      )}
+      {paymentError && <p role="alert" className="text-xs text-red-700">{paymentError}</p>}
 
       {/* Strictly limit(5) Paginated Order List */}
       <section className="space-y-4">
@@ -244,6 +309,14 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                     </div>
                   ))}
                 </div>
+
+                {(order.status === 'CONFIRMED_AWAITING_PAYMENT' && order.paymentStatus !== 'PAID') && (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-[#F0EEE9] pt-3">
+                    <span className="text-xs text-[#57534E]">Seller confirmed availability. Complete payment:</span>
+                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'razorpay')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{payingOrderId === order._id ? 'Opening…' : 'Pay with Razorpay'}</button>
+                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'stripe')} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-semibold text-[#292524] disabled:opacity-50">Pay with Stripe</button>
+                  </div>
+                )}
 
                 {/* Compact Timeline */}
                 <div className="flex flex-wrap items-center gap-4 border-t border-[#F0EEE9] pt-3 text-[11px] text-[#6B6A65]">
