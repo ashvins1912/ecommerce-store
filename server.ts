@@ -1525,7 +1525,7 @@ async function startServer() {
         order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
         order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
         order.status = 'PENDING_SELLER_CONFIRMATION';
-        order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date() });
+        order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
         await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } });
       }
     } catch (err) {
