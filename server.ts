@@ -1856,7 +1856,7 @@ async function startServer() {
   app.get('/api/seller/providers/products/review-queue', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
-    const filter = user.role === 'ADMIN' ? { status: { $in: ['PENDING_REVIEW', 'RESUBMITTED'] } } : { linkedSellerIds: user._id, status: { $in: ['PENDING_REVIEW', 'RESUBMITTED', 'NEGOTIATION_REQUESTED'] } };
+    const filter = user.role === 'ADMIN' ? { status: { $in: ['PENDING_REVIEW', 'RESUBMITTED', 'APPROVED'] } } : { linkedSellerIds: user._id, status: { $in: ['PENDING_REVIEW', 'RESUBMITTED', 'NEGOTIATION_REQUESTED', 'APPROVED'] } };
     const products = await ProviderProductModel.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
     res.json({ products });
   });
