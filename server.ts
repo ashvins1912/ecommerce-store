@@ -1777,7 +1777,7 @@ async function startServer() {
     if (!['Pending', 'Confirmed', 'Packed', 'Shipped', 'Out for Delivery', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT', 'PAID_AND_PROCESSING'].includes(order.status)) {
       return res.status(409).json({ error: 'ORDER_NOT_CANCELLABLE' });
     }
-    order.status = ['Shipped', 'Out for Delivery'].includes(order.status) ? 'CANCELLATION_REQUESTED' : 'Cancelled';
+    order.status = (['Shipped', 'Out for Delivery'].includes(order.status) || order.paymentStatus === 'PAID') ? 'CANCELLATION_REQUESTED' : 'Cancelled';
     order.cancellationRequestedAt = new Date();
     order.statusTimeline.push({ status: order.status, note: 'Cancellation requested by buyer; seller refund review required where applicable.', timestamp: new Date() });
     await order.save();
@@ -1814,6 +1814,39 @@ async function startServer() {
     }
   });
 
+  app.patch('/api/seller/orders/:id/cancellation-review', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const parsed = z.object({ action: z.enum(['approve', 'reject']), refundDestination: z.enum(['ORIGINAL_SOURCE', 'WALLET']).default('WALLET') }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_CANCELLATION_REVIEW' });
+    const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
+    if (!order || order.status !== 'CANCELLATION_REQUESTED') return res.status(404).json({ error: 'CANCELLATION_REQUEST_NOT_FOUND' });
+    if (parsed.data.action === 'reject') {
+      order.status = 'Confirmed';
+      order.refundStatus = 'REJECTED';
+      order.statusTimeline.push({ status: 'Confirmed', note: 'Seller rejected cancellation request.', timestamp: new Date() });
+      await order.save();
+      return res.json({ order });
+    }
+    if (order.paymentStatus === 'PAID') {
+      const amountPaise = Math.max(0, Math.round(Number(order.totalAmount) * 100));
+      if (parsed.data.refundDestination === 'WALLET') {
+        await applyWalletTransaction({ userId: String(order.buyerId), idempotencyKey: 'cancel-refund:' + String(order._id), type: 'CREDIT_REFUND', amountPaise, orderId: String(order._id), reference: 'Seller-approved cancellation refund' });
+        order.paymentStatus = 'REFUNDED';
+        order.refundStatus = 'REFUNDED';
+      } else {
+        if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
+        await refundGatewayPayment({ sellerId: String(order.sellerId), provider: order.paymentProvider, paymentReference: String(order.paymentTransactionId), amountPaise, idempotencyKey: 'cancel-refund:' + String(order._id) });
+        order.paymentStatus = 'REFUND_PENDING';
+        order.refundStatus = 'PROCESSING';
+      }
+    }
+    order.status = 'Cancelled';
+    order.statusTimeline.push({ status: 'Cancelled', note: 'Seller approved cancellation.', timestamp: new Date() });
+    await order.save();
+    res.json({ order });
+  });
+
   // Return eligibility and media are checked server-side; media references must be hosted URLs.
   app.post('/api/orders/:id/returns', async (req, res) => {
     const { user } = await resolveActor(req, res);
@@ -1844,6 +1877,7 @@ async function startServer() {
         reason: parsed.data.reason, media: parsed.data.media,
         selfCourier: parsed.data.selfCourier, courierName: parsed.data.courierName,
         trackingId: parsed.data.trackingId, trackingUrl: parsed.data.trackingUrl,
+        status: parsed.data.selfCourier ? 'IN_TRANSIT' : 'REQUESTED',
       });
       order.status = 'RETURN_REQUESTED';
       order.statusTimeline.push({ status: 'RETURN_REQUESTED', note: 'Buyer submitted return evidence for seller review.', timestamp: new Date() });
