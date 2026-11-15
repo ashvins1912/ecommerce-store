@@ -685,7 +685,25 @@ export default function App() {
   );
 
   const handleShareWhatsApp = useCallback(
-    (payload: { product: Product; waLink: string; messagePreview: string }) => {
+    (payload: {
+      product: Product;
+      waLink: string;
+      messagePreview: string;
+      sharesCount?: number;
+    }) => {
+      if (typeof payload.sharesCount === 'number') {
+        const nextShares = payload.sharesCount;
+        const pid = payload.product._id;
+        setCatalog((prev) => ({
+          ...prev,
+          products: prev.products.map((p) =>
+            p._id === pid ? { ...p, sharesCount: nextShares } : p
+          ),
+        }));
+        setRecentlyViewed((prev) =>
+          prev.map((p) => (p._id === pid ? { ...p, sharesCount: nextShares } : p))
+        );
+      }
       setShareNotice({ title: payload.product.title, waLink: payload.waLink });
       setTimeout(() => {
         setShareNotice((prev) => (prev?.waLink === payload.waLink ? null : prev));
@@ -864,7 +882,7 @@ export default function App() {
                       setShowSuggestions(true);
                     }}
                     placeholder={t('search.placeholder')}
-                    className="w-full rounded-md border border-[#D6D3CD] bg-white py-2.5 pl-10 pr-9 text-sm text-[#141413] placeholder:text-[#A8A29E] focus:border-[#881337] focus:outline-none"
+                    className="w-full min-h-[44px] rounded-md border border-[#D6D3CD] bg-white py-2.5 pl-10 pr-12 text-sm text-[#141413] placeholder:text-[#A8A29E] focus:border-[#881337] focus:outline-none"
                   />
                   {searchInput && (
                     <button
@@ -875,7 +893,7 @@ export default function App() {
                         setDebouncedQuery('');
                         setSuggestions([]);
                       }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#78716C] hover:text-[#141413] cursor-pointer"
+                      className="absolute right-0 top-1/2 -translate-y-1/2 flex min-h-[44px] min-w-[44px] items-center justify-center text-[#78716C] hover:text-[#141413] cursor-pointer"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -892,9 +910,9 @@ export default function App() {
                             setDebouncedQuery(sug);
                             setShowSuggestions(false);
                           }}
-                          className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
+                          className="flex w-full min-h-[44px] items-center gap-2 px-4 py-2.5 text-left text-xs text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
                         >
-                          <Search className="h-3 w-3 text-[#881337]" />
+                          <Search className="h-3.5 w-3.5 text-[#881337]" />
                           <span>{sug}</span>
                         </button>
                       ))}
@@ -907,7 +925,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setShowMoreFilters((v) => !v)}
-                    className={`inline-flex items-center gap-1.5 rounded-md border px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                    className={`inline-flex min-h-[44px] min-w-[44px] items-center gap-1.5 rounded-md border px-4 py-2.5 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
                       showMoreFilters ||
                       minPrice ||
                       maxPrice ||
@@ -929,7 +947,7 @@ export default function App() {
                       setSort(e.target.value as SortOption);
                       setPage(1);
                     }}
-                    className="rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs font-medium text-[#141413] focus:border-[#881337] focus:outline-none cursor-pointer"
+                    className="min-h-[44px] rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2.5 text-xs font-medium text-[#141413] focus:border-[#881337] focus:outline-none cursor-pointer"
                   >
                     {SORT_OPTION_VALUES.map((val) => (
                       <option key={val} value={val}>
@@ -952,7 +970,7 @@ export default function App() {
                       setDebouncedQuery(chip);
                       setPage(1);
                     }}
-                    className={`rounded border px-2 py-0.5 transition-colors cursor-pointer ${
+                    className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded border px-3.5 py-2 transition-colors cursor-pointer ${
                       searchInput.toLowerCase() === chip.toLowerCase()
                         ? 'border-[#881337] bg-[#881337]/5 text-[#881337] font-medium'
                         : 'border-[#E8E6E1] bg-white text-[#57534E] hover:border-[#141413]'
@@ -973,7 +991,7 @@ export default function App() {
                       setDebouncedQuery(catalog.didYouMean!);
                       setPage(1);
                     }}
-                    className="font-semibold text-[#881337] hover:underline cursor-pointer"
+                    className="inline-flex min-h-[44px] items-center px-2 font-semibold text-[#881337] hover:underline cursor-pointer"
                   >
                     {t('search.didYouMean', { term: catalog.didYouMean })}
                   </button>
@@ -981,7 +999,7 @@ export default function App() {
               )}
 
               {selectedCampaignId && (
-                <div className="flex items-center justify-between rounded-md border border-[#881337]/25 bg-[#881337]/5 px-3.5 py-2 text-xs">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-[#881337]/25 bg-[#881337]/5 px-3.5 py-1.5 text-xs">
                   <span className="font-semibold text-[#881337]">
                     {t('flash.filteringCampaign', {
                       name:
@@ -995,7 +1013,7 @@ export default function App() {
                       setSelectedCampaignId(null);
                       setPage(1);
                     }}
-                    className="font-medium text-[#141413] hover:underline cursor-pointer"
+                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center px-3 font-medium text-[#141413] hover:underline cursor-pointer"
                   >
                     {t('flash.clearCampaign')}
                   </button>
@@ -1016,7 +1034,7 @@ export default function App() {
                       setCategory(e.target.value as ProductCategory | 'All');
                       setPage(1);
                     }}
-                    className="w-full sm:w-auto rounded border border-[#D6D3CD] bg-white px-3 py-2 sm:py-1.5 text-xs"
+                    className="w-full sm:w-auto min-h-[44px] rounded border border-[#D6D3CD] bg-white px-3 py-2 text-xs"
                   >
                     <option value="All">{t('filter.allCategories')}</option>
                     {(storeCategories.length > 0
@@ -1041,7 +1059,7 @@ export default function App() {
                       setMinPrice(e.target.value);
                       setPage(1);
                     }}
-                    className="w-full sm:w-28 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs tabular-nums"
+                    className="w-full sm:w-28 min-h-[44px] rounded border border-[#D6D3CD] px-3 py-2 text-xs tabular-nums"
                   />
                 </div>
                 <div className="w-full sm:w-auto">
@@ -1056,7 +1074,7 @@ export default function App() {
                       setMaxPrice(e.target.value);
                       setPage(1);
                     }}
-                    className="w-full sm:w-28 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs tabular-nums"
+                    className="w-full sm:w-28 min-h-[44px] rounded border border-[#D6D3CD] px-3 py-2 text-xs tabular-nums"
                   />
                 </div>
                 <div className="w-full sm:w-auto">
@@ -1069,7 +1087,7 @@ export default function App() {
                       setMinDiscount(e.target.value);
                       setPage(1);
                     }}
-                    className="w-full sm:w-auto rounded border border-[#D6D3CD] bg-white px-3 py-2 sm:py-1.5 text-xs"
+                    className="w-full sm:w-auto min-h-[44px] rounded border border-[#D6D3CD] bg-white px-3 py-2 text-xs"
                   >
                     <option value="">{t('search.anyDiscount')}</option>
                     <option value="10">10%+</option>
@@ -1089,10 +1107,10 @@ export default function App() {
                       setColorFilter(e.target.value);
                       setPage(1);
                     }}
-                    className="w-full sm:w-36 rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs"
+                    className="w-full sm:w-36 min-h-[44px] rounded border border-[#D6D3CD] px-3 py-2 text-xs"
                   />
                 </div>
-                <label className="inline-flex items-center gap-2 py-1.5 text-xs font-medium text-[#44403C] cursor-pointer">
+                <label className="inline-flex min-h-[44px] items-center gap-2 px-1 py-2 text-xs font-medium text-[#44403C] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={inStockOnly}
@@ -1100,6 +1118,7 @@ export default function App() {
                       setInStockOnly(e.target.checked);
                       setPage(1);
                     }}
+                    className="h-4 w-4"
                   />
                   <span>{t('search.inStockOnly')}</span>
                 </label>
@@ -1126,7 +1145,7 @@ export default function App() {
                       setColorFilter('');
                       setPage(1);
                     }}
-                    className="w-full sm:w-auto rounded border border-[#D6D3CD] px-3 py-2 sm:py-1.5 text-xs font-medium text-[#881337] hover:bg-[#FAF9F6] cursor-pointer"
+                    className="w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center rounded border border-[#D6D3CD] px-4 py-2 text-xs font-medium text-[#881337] hover:bg-[#FAF9F6] cursor-pointer"
                   >
                     {t('filter.reset')}
                   </button>
@@ -1144,7 +1163,7 @@ export default function App() {
                       setCategory('All');
                       setPage(1);
                     }}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                       category === 'All'
                         ? 'bg-white text-[#141413] shadow-xs'
                         : 'text-[#57534E] hover:text-[#141413]'
@@ -1163,7 +1182,7 @@ export default function App() {
                         setCategory(cat);
                         setPage(1);
                       }}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                         category === cat
                           ? 'bg-white text-[#141413] shadow-xs'
                           : 'text-[#57534E] hover:text-[#141413]'
@@ -1194,7 +1213,7 @@ export default function App() {
                         setOccasion(occ);
                         setPage(1);
                       }}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                         occasion === occ
                           ? 'bg-white text-[#141413] shadow-xs'
                           : 'text-[#57534E] hover:text-[#141413]'
@@ -1214,7 +1233,7 @@ export default function App() {
                         setSeason(ssn);
                         setPage(1);
                       }}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                         season === ssn
                           ? 'bg-white text-[#881337] font-semibold shadow-xs'
                           : 'text-[#57534E] hover:text-[#141413]'
@@ -1256,7 +1275,7 @@ export default function App() {
                     setColorFilter('');
                     setPage(1);
                   }}
-                  className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white cursor-pointer"
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white cursor-pointer"
                 >
                   {t('catalog.showAll')}
                 </button>
@@ -1300,7 +1319,7 @@ export default function App() {
                     setPage((p) => Math.max(1, p - 1));
                     catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[#D6D3CD] bg-white px-4 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] disabled:opacity-40 cursor-pointer"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-[#D6D3CD] bg-white px-4 py-2.5 text-xs font-medium text-[#141413] hover:border-[#881337] disabled:opacity-40 cursor-pointer"
                 >
                   <ChevronLeft className="h-4 w-4" />
                   <span>{t('pagination.prev')}</span>
@@ -1318,7 +1337,7 @@ export default function App() {
                     setPage((p) => Math.min(catalog.totalPages, p + 1));
                     catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[#D6D3CD] bg-white px-4 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] disabled:opacity-40 cursor-pointer"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-[#D6D3CD] bg-white px-4 py-2.5 text-xs font-medium text-[#141413] hover:border-[#881337] disabled:opacity-40 cursor-pointer"
                 >
                   <span>{t('pagination.next')}</span>
                   <ChevronRight className="h-4 w-4" />

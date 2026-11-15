@@ -111,6 +111,7 @@ const ProductSchema = new Schema(
     likesCount: { type: Number, default: 0 },
     viewsCount: { type: Number, default: 0 },
     cartAddsCount: { type: Number, default: 0 },
+    sharesCount: { type: Number, default: 0 },
     salesCount: { type: Number, default: 0 },
     trendScore: { type: Number, default: 0, index: true },
     averageRating: { type: Number, default: 0 },
@@ -342,6 +343,16 @@ const CategoryControlSchema = new Schema(
   { timestamps: true }
 );
 
+const ShareEventSchema = new Schema(
+  {
+    productId: { type: String, required: true, index: true },
+    channel: { type: String, enum: ['whatsapp'], default: 'whatsapp', index: true },
+    userId: { type: String, default: null },
+    guestToken: { type: String, default: null },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } }
+);
+
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);
 export const ProductModel: Model<any> =
@@ -362,3 +373,5 @@ export const CouponModel: Model<any> =
   mongoose.models.Coupon || mongoose.model('Coupon', CouponSchema);
 export const CategoryControlModel: Model<any> =
   mongoose.models.CategoryControl || mongoose.model('CategoryControl', CategoryControlSchema);
+export const ShareEventModel: Model<any> =
+  mongoose.models.ShareEvent || mongoose.model('ShareEvent', ShareEventSchema);

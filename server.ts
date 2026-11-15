@@ -61,6 +61,7 @@ import {
   createCategoryControl,
   updateCategoryControl,
   deleteCategoryControl,
+  logShareEvent,
 } from './src/server/services/store.js';
 import {
   verifySslSessionToken,
@@ -1423,14 +1424,69 @@ async function startServer() {
     res.json(result);
   });
 
+  app.post('/api/products/:id/share', async (req, res) => {
+    const { guestToken, user } = await resolveActor(req, res);
+    const rate = await checkRateLimit(`share:${user?._id || guestToken}`, 40, 60);
+    if (!rate.allowed) {
+      return res.status(429).json({ error: 'Too many share requests. Please wait a moment.' });
+    }
+    const channel = req.body?.channel === 'whatsapp' || !req.body?.channel ? 'whatsapp' : 'whatsapp';
+    const logged = await logShareEvent({
+      productId: req.params.id,
+      channel,
+      userId: user?._id || null,
+      guestToken,
+    });
+    if (!logged) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    res.status(201).json({ ok: true, channel, ...logged });
+  });
+
+  app.post('/api/shares', async (req, res) => {
+    const { guestToken, user } = await resolveActor(req, res);
+    const rate = await checkRateLimit(`share:${user?._id || guestToken}`, 40, 60);
+    if (!rate.allowed) {
+      return res.status(429).json({ error: 'Too many share requests. Please wait a moment.' });
+    }
+    const schema = z.object({
+      productId: z.string().min(1),
+      channel: z.enum(['whatsapp']).optional().default('whatsapp'),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'productId is required' });
+    }
+    const logged = await logShareEvent({
+      productId: parsed.data.productId,
+      channel: parsed.data.channel,
+      userId: user?._id || null,
+      guestToken,
+    });
+    if (!logged) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    res.status(201).json({ ok: true, channel: parsed.data.channel, ...logged });
+  });
+
   app.post('/api/whatsapp/share', async (req, res) => {
     const schema = z.object({
       toPhone: z.string().optional().default(''),
       message: z.string().min(3).max(1000),
+      productId: z.string().optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Share message is required' });
+    }
+    if (parsed.data.productId) {
+      const { guestToken, user } = await resolveActor(req, res);
+      await logShareEvent({
+        productId: parsed.data.productId,
+        channel: 'whatsapp',
+        userId: user?._id || null,
+        guestToken,
+      }).catch(() => {});
     }
     const result = await sendWhatsAppMessage(parsed.data.toPhone, parsed.data.message);
     res.json(result);

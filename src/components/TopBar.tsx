@@ -1,4 +1,4 @@
-import { Globe, ShoppingBag, User as UserIcon } from 'lucide-react';
+import { Globe, Heart, ShoppingBag, User as UserIcon } from 'lucide-react';
 import type { ProductCategory, User } from '../shared/types';
 import { useI18n, type Language } from '../lib/i18n';
 
@@ -72,13 +72,31 @@ export function TopBar({
           <button
             type="button"
             onClick={onNavigateWishlist}
-            className={`whitespace-nowrap shrink-0 py-1 border-b-2 transition-colors tabular-nums cursor-pointer ${
+            aria-label={`${t('nav.wishlist')} (${wishlistCount})`}
+            className={`inline-flex items-center gap-2 whitespace-nowrap shrink-0 py-1 border-b-2 transition-colors tabular-nums cursor-pointer ${
               activePage === 'wishlist'
                 ? 'border-[#881337] text-[#141413]'
                 : 'border-transparent hover:text-[#141413]'
             }`}
           >
-            {t('nav.wishlist')} ({wishlistCount})
+            <span className="relative inline-flex items-center">
+              <Heart
+                className={`h-4 w-4 ${
+                  wishlistCount > 0 ? 'fill-[#881337] text-[#881337]' : 'text-[#57534E]'
+                }`}
+              />
+              <span
+                data-testid="wishlist-count-badge"
+                className={`-top-2 -right-2.5 absolute inline-flex min-w-[17px] h-[17px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none tabular-nums ${
+                  wishlistCount > 0
+                    ? 'bg-[#881337] text-white'
+                    : 'bg-[#E8E6E1] text-[#141413]'
+                }`}
+              >
+                {wishlistCount}
+              </span>
+            </span>
+            <span>{t('nav.wishlist')}</span>
           </button>
           <button
             type="button"
@@ -104,7 +122,7 @@ export function TopBar({
           </button>
         </nav>
 
-        {/* Zone 3: Single compact action group (Language + Account + Bag CTA) */}
+        {/* Zone 3: Language + Mobile Wishlist Icon + Account + Bag CTA */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           <div className="inline-flex items-center gap-1 rounded-md border border-[#E8E6E1] bg-white px-1.5 sm:px-2 py-1 sm:py-1.5 text-xs text-[#44403C]">
             <Globe className="hidden sm:block h-3.5 w-3.5 text-[#78716C] shrink-0" />
@@ -119,6 +137,28 @@ export function TopBar({
               <option value="bn">বাংলা</option>
             </select>
           </div>
+
+          <button
+            type="button"
+            onClick={onNavigateWishlist}
+            aria-label={`${t('nav.wishlist')} (${wishlistCount})`}
+            className="md:hidden relative inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E8E6E1] bg-white text-[#44403C] hover:text-[#881337] cursor-pointer"
+          >
+            <Heart
+              className={`h-4 w-4 ${
+                wishlistCount > 0 ? 'fill-[#881337] text-[#881337]' : 'text-[#44403C]'
+              }`}
+            />
+            <span
+              className={`-top-1.5 -right-1.5 absolute inline-flex min-w-[17px] h-[17px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none tabular-nums ${
+                wishlistCount > 0
+                  ? 'bg-[#881337] text-white'
+                  : 'bg-[#E8E6E1] text-[#141413]'
+              }`}
+            >
+              {wishlistCount}
+            </span>
+          </button>
 
           <button
             type="button"
@@ -170,9 +210,21 @@ export function TopBar({
         <button
           type="button"
           onClick={onNavigateWishlist}
-          className={`whitespace-nowrap shrink-0 tabular-nums ${activePage === 'wishlist' ? 'text-[#881337] font-semibold' : ''}`}
+          className={`inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 tabular-nums ${activePage === 'wishlist' ? 'text-[#881337] font-semibold' : ''}`}
         >
-          {t('nav.wishlist')} ({wishlistCount})
+          <Heart
+            className={`h-3.5 w-3.5 ${
+              wishlistCount > 0 ? 'fill-[#881337] text-[#881337]' : 'text-[#57534E]'
+            }`}
+          />
+          <span>{t('nav.wishlist')}</span>
+          <span
+            className={`inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${
+              wishlistCount > 0 ? 'bg-[#881337] text-white' : 'bg-[#E8E6E1] text-[#141413]'
+            }`}
+          >
+            {wishlistCount}
+          </span>
         </button>
         <button
           type="button"

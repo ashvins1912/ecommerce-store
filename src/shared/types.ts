@@ -171,6 +171,7 @@ export interface Product {
   likesCount: number;
   viewsCount: number;
   cartAddsCount: number;
+  sharesCount?: number;
   salesCount: number;
   trendScore: number;
   averageRating: number;
@@ -185,6 +186,15 @@ export interface Product {
 export interface LikeRecord {
   _id: string;
   productId: string;
+  userId?: string | null;
+  guestToken?: string | null;
+  createdAt: string;
+}
+
+export interface ShareEventRecord {
+  _id: string;
+  productId: string;
+  channel: 'whatsapp';
   userId?: string | null;
   guestToken?: string | null;
   createdAt: string;
@@ -407,6 +417,7 @@ export interface SellerAnalyticsResponse {
     totalViews: number;
     totalLikes: number;
     totalCartAdds: number;
+    totalShares: number;
     conversionRate: number;
     trustScore: number;
   };
@@ -426,8 +437,17 @@ export interface SellerAnalyticsResponse {
     viewsCount: number;
     likesCount: number;
     cartAddsCount: number;
+    sharesCount: number;
     salesCount: number;
     revenue: number;
     conversionRate: number;
+  }>;
+  mostSharedProducts: Array<{
+    _id: string;
+    title: string;
+    category: ProductCategory;
+    sharesCount: number;
+    viewsCount: number;
+    salesCount: number;
   }>;
 }

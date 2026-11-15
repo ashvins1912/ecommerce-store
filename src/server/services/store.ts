@@ -30,6 +30,7 @@ import type {
   CouponDiscountType,
   CouponScope,
   CategoryControl,
+  ShareEventRecord,
 } from '../../shared/types.js';
 import {
   SEED_USERS,
@@ -51,6 +52,7 @@ import {
   SalesCampaignModel,
   CouponModel,
   CategoryControlModel,
+  ShareEventModel,
 } from '../models/schemas.js';
 import type { AuthSessionRecord } from './session.js';
 
@@ -69,6 +71,7 @@ interface StoreState {
   salesCampaigns: SalesCampaign[];
   coupons: Coupon[];
   categories: CategoryControl[];
+  shareEvents: ShareEventRecord[];
 }
 
 function buildDefaultCategories(): CategoryControl[] {
@@ -156,7 +159,15 @@ function loadLocalStore(): StoreState {
           parsed.categories = buildDefaultCategories();
           dirty = true;
         }
+        if (!Array.isArray(parsed.shareEvents)) {
+          parsed.shareEvents = [];
+          dirty = true;
+        }
         for (const p of parsed.products) {
+          if (typeof p.sharesCount !== 'number') {
+            p.sharesCount = 0;
+            dirty = true;
+          }
           if (!Array.isArray(p.seasons) || p.seasons.length === 0) {
             const seedMatch = SEED_PRODUCTS.find((sp) => sp._id === p._id);
             p.seasons = seedMatch?.seasons || inferSeedSeasons(p);
@@ -183,7 +194,7 @@ function loadLocalStore(): StoreState {
   }
   const initial: StoreState = {
     users: structuredClone(SEED_USERS),
-    products: structuredClone(SEED_PRODUCTS),
+    products: structuredClone(SEED_PRODUCTS).map((p) => ({ ...p, sharesCount: p.sharesCount ?? 0 })),
     likes: [],
     reviews: structuredClone(SEED_REVIEWS),
     orders: structuredClone(SEED_ORDERS),
@@ -193,6 +204,7 @@ function loadLocalStore(): StoreState {
     salesCampaigns: buildSeedCampaigns(),
     coupons: structuredClone(SEED_COUPONS),
     categories: buildDefaultCategories(),
+    shareEvents: [],
   };
   saveLocalStore(initial);
   return initial;
@@ -1179,9 +1191,67 @@ export async function incrementCartAddCount(productId: string): Promise<void> {
   const prod = localState.products.find((p) => p._id === productId);
   if (prod) {
     prod.cartAddsCount += 1;
-    prod.trendScore = prod.likesCount + prod.cartAddsCount * 3 + prod.salesCount * 5;
+    prod.trendScore =
+      prod.likesCount + (prod.sharesCount || 0) * 2 + prod.cartAddsCount * 3 + prod.salesCount * 5;
     saveLocalStore(localState);
   }
+}
+
+export async function logShareEvent(input: {
+  productId: string;
+  channel?: 'whatsapp';
+  userId?: string | null;
+  guestToken?: string | null;
+}): Promise<{ eventId: string; productId: string; sharesCount: number } | null> {
+  const channel: 'whatsapp' = input.channel || 'whatsapp';
+  const nowIso = new Date().toISOString();
+
+  if (mongoConnected && mongoose.isValidObjectId(input.productId)) {
+    const updated = await ProductModel.findByIdAndUpdate(
+      input.productId,
+      { $inc: { sharesCount: 1, trendScore: 2 } },
+      { new: true }
+    ).lean();
+    if (!updated) return null;
+    const ev = await ShareEventModel.create({
+      productId: String((updated as any)._id),
+      channel,
+      userId: input.userId || null,
+      guestToken: input.guestToken || null,
+    });
+    return {
+      eventId: String(ev._id),
+      productId: String((updated as any)._id),
+      sharesCount: Number((updated as any).sharesCount || 0),
+    };
+  }
+
+  const prod = localState.products.find(
+    (p) => p._id === input.productId || p.slug === input.productId
+  );
+  if (!prod) return null;
+
+  prod.sharesCount = (prod.sharesCount || 0) + 1;
+  prod.trendScore =
+    prod.likesCount + prod.sharesCount * 2 + prod.cartAddsCount * 3 + prod.salesCount * 5;
+  const event: ShareEventRecord = {
+    _id: `shr_${crypto.randomBytes(6).toString('hex')}`,
+    productId: prod._id,
+    channel,
+    userId: input.userId || null,
+    guestToken: input.guestToken || null,
+    createdAt: nowIso,
+  };
+  localState.shareEvents.unshift(event);
+  if (localState.shareEvents.length > 5000) {
+    localState.shareEvents = localState.shareEvents.slice(0, 5000);
+  }
+  saveLocalStore(localState);
+  return {
+    eventId: event._id,
+    productId: prod._id,
+    sharesCount: prod.sharesCount,
+  };
 }
 
 // --- Reviews & Classed Sentiment ---
@@ -1720,6 +1790,7 @@ export async function getSellerAnalytics(
   const totalViews = sellerProducts.reduce((s, p) => s + p.viewsCount, 0);
   const totalLikes = sellerProducts.reduce((s, p) => s + p.likesCount, 0);
   const totalCartAdds = sellerProducts.reduce((s, p) => s + p.cartAddsCount, 0);
+  const totalShares = sellerProducts.reduce((s, p) => s + (p.sharesCount || 0), 0);
   const totalPurchases = sellerProducts.reduce((s, p) => s + p.salesCount, 0);
   const totalRevenue = sellerOrders.reduce((s, o) => s + o.totalAmount, 0);
 
@@ -1791,9 +1862,22 @@ export async function getSellerAnalytics(
       viewsCount: p.viewsCount,
       likesCount: p.likesCount,
       cartAddsCount: p.cartAddsCount,
+      sharesCount: p.sharesCount || 0,
       salesCount: p.salesCount,
       revenue: p.salesCount * p.salePrice,
       conversionRate: p.viewsCount > 0 ? Number(((p.salesCount / p.viewsCount) * 100).toFixed(1)) : 0,
+    }));
+
+  const mostSharedProducts = [...sellerProducts]
+    .sort((a, b) => (b.sharesCount || 0) - (a.sharesCount || 0) || b.salesCount - a.salesCount)
+    .slice(0, 6)
+    .map((p) => ({
+      _id: p._id,
+      title: p.title,
+      category: p.category,
+      sharesCount: p.sharesCount || 0,
+      viewsCount: p.viewsCount,
+      salesCount: p.salesCount,
     }));
 
   return {
@@ -1803,12 +1887,14 @@ export async function getSellerAnalytics(
       totalViews,
       totalLikes,
       totalCartAdds,
+      totalShares,
       conversionRate: totalViews > 0 ? Number(((totalPurchases / totalViews) * 100).toFixed(2)) : 0,
       trustScore: user?.sellerProfile?.trustScore || 4.8,
     },
     funnel: [
       { stage: 'Product Views', count: totalViews },
       { stage: 'Likes', count: totalLikes },
+      { stage: 'WhatsApp Shares', count: totalShares },
       { stage: 'Cart Adds', count: totalCartAdds },
       { stage: 'Purchases', count: totalPurchases },
     ],
@@ -1826,6 +1912,7 @@ export async function getSellerAnalytics(
       aspectRatings,
     },
     topProducts,
+    mostSharedProducts,
   };
 }
 
@@ -1839,7 +1926,8 @@ export async function recalculateTrendingAndBadges(): Promise<{
   const products = await getAllProductsRaw();
 
   for (const p of products) {
-    const trendScore = p.likesCount + p.cartAddsCount * 3 + p.salesCount * 5;
+    const trendScore =
+      p.likesCount + (p.sharesCount || 0) * 2 + p.cartAddsCount * 3 + p.salesCount * 5;
     const ageDays = (nowMs - new Date(p.createdAt).getTime()) / 86400_000;
     const badges: ProductBadge[] = [];
     if (ageDays <= 10) badges.push('Newly Added');

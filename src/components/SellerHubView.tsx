@@ -24,6 +24,7 @@ import {
   Mail,
   Plus,
   RefreshCw,
+  Share2,
   ShieldCheck,
   Tag,
   Trash2,
@@ -1477,7 +1478,7 @@ export function SellerHubView({
       {/* TAB 1: RECHARTS SELLER ANALYTICS */}
       {sellerTab === 'analytics' && analytics && (
         <div className="space-y-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
             <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
               <div className="text-xs text-[#6B6A65]">{t('seller.kpiRevenue')}</div>
               <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
@@ -1487,9 +1488,9 @@ export function SellerHubView({
                 {analytics.overview.totalOrders} {t('orders.colOrders')}
               </div>
             </div>
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-5">
+            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
               <div className="text-xs text-[#6B6A65]">{t('seller.kpiViews')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[#141413] tabular-nums">
+              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
                 {analytics.overview.totalViews.toLocaleString()}
               </div>
               <div className="mt-1 text-[11px] text-[#6B6A65] tabular-nums">
@@ -1497,15 +1498,27 @@ export function SellerHubView({
                 {analytics.overview.totalCartAdds}
               </div>
             </div>
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-5">
+            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-1 text-xs text-[#6B6A65]">
+                <span>{t('seller.kpiShares')}</span>
+                <Share2 className="h-3.5 w-3.5 text-[#166534]" />
+              </div>
+              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
+                {(analytics.overview.totalShares || 0).toLocaleString()}
+              </div>
+              <div className="mt-1 text-[11px] text-[#166534] tabular-nums">
+                {t('seller.mostSharedSub')}
+              </div>
+            </div>
+            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
               <div className="text-xs text-[#6B6A65]">{t('seller.kpiConv')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[#141413] tabular-nums">
+              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
                 {analytics.overview.conversionRate}%
               </div>
             </div>
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-5">
+            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
               <div className="text-xs text-[#6B6A65]">{t('seller.kpiTrust')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[#141413] tabular-nums">
+              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
                 {analytics.overview.trustScore.toFixed(1)} / 5.0
               </div>
             </div>
@@ -1646,6 +1659,42 @@ export function SellerHubView({
             </div>
           </div>
 
+          {/* Most Shared on WhatsApp */}
+          <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-display text-xl font-semibold text-[#141413]">
+                  {t('seller.mostSharedTitle')}
+                </h3>
+                <p className="text-xs text-[#6B6A65]">{t('seller.mostSharedSub')}</p>
+              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] px-3 py-1 text-xs font-semibold text-[#166534] tabular-nums">
+                <Share2 className="h-3.5 w-3.5" />
+                {t('seller.sharesCountLabel', { count: analytics.overview.totalShares || 0 })}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {(analytics.mostSharedProducts || []).map((sp, idx) => (
+                <div
+                  key={sp._id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-[#E8E6E1] bg-[#FAF9F6]/60 px-3.5 py-2.5 text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium text-[#141413] truncate">
+                      #{idx + 1} · {sp.title}
+                    </div>
+                    <div className="text-[11px] text-[#6B6A65] truncate">
+                      {tc(sp.category)} · {sp.viewsCount.toLocaleString()} {t('seller.colViews')}
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded bg-white border border-[#E8E6E1] px-2 py-1 text-xs font-semibold text-[#166534] tabular-nums">
+                    {t('seller.sharesCountLabel', { count: sp.sharesCount })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="rounded-lg border border-[#E8E6E1] bg-white overflow-hidden">
             <div className="border-b border-[#E8E6E1] px-6 py-4">
               <h3 className="font-display text-xl font-semibold text-[#141413]">
@@ -1653,12 +1702,13 @@ export function SellerHubView({
               </h3>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px] text-left text-xs">
+              <table className="w-full min-w-[660px] text-left text-xs">
                 <thead className="bg-[#FAF9F6] border-b border-[#E8E6E1] text-[#6B6A65]">
                   <tr>
                     <th className="px-5 py-3 font-medium">{t('seller.colProduct')}</th>
                     <th className="px-4 py-3 font-medium text-right">{t('seller.colViews')}</th>
                     <th className="px-4 py-3 font-medium text-right">{t('card.likes')}</th>
+                    <th className="px-4 py-3 font-medium text-right">{t('seller.colShares')}</th>
                     <th className="px-4 py-3 font-medium text-right">{t('seller.colBag')}</th>
                     <th className="px-4 py-3 font-medium text-right">{t('seller.colSales')}</th>
                     <th className="px-4 py-3 font-medium text-right">{t('seller.colConv')}</th>
@@ -1673,6 +1723,9 @@ export function SellerHubView({
                       </td>
                       <td className="px-4 py-3 text-right">{tp.viewsCount.toLocaleString()}</td>
                       <td className="px-4 py-3 text-right">{tp.likesCount}</td>
+                      <td className="px-4 py-3 text-right font-medium text-[#166534]">
+                        {tp.sharesCount ?? 0}
+                      </td>
                       <td className="px-4 py-3 text-right">{tp.cartAddsCount}</td>
                       <td className="px-4 py-3 text-right font-semibold">{tp.salesCount}</td>
                       <td className="px-4 py-3 text-right">{tp.conversionRate}%</td>

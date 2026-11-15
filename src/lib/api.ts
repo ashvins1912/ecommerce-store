@@ -104,3 +104,16 @@ export async function sendWhatsAppMessage(
     };
   }
 }
+
+export async function logShareEvent(
+  productId: string,
+  channel: 'whatsapp' = 'whatsapp'
+): Promise<{ ok: boolean; productId: string; sharesCount: number }> {
+  return apiFetch<{ ok: boolean; productId: string; sharesCount: number }>(
+    `/api/products/${encodeURIComponent(productId)}/share`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ channel }),
+    }
+  );
+}

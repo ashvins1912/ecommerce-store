@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Eye, GitCompare, Heart, Share2, ShoppingBag, Star, Tag, TrendingUp, Zap } from 'lucide-react';
 import type { Coupon, Product } from '../shared/types';
-import { formatINR, sendWhatsAppMessage } from '../lib/api';
+import { formatINR, logShareEvent, sendWhatsAppMessage } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
 interface ProductCardProps {
@@ -15,6 +15,7 @@ interface ProductCardProps {
     product: Product;
     waLink: string;
     messagePreview: string;
+    sharesCount?: number;
   }) => void;
   isCompared?: boolean;
   onToggleCompare?: (product: Product) => void;
@@ -67,7 +68,10 @@ export function ProductCard({
         price: formatINR(product.salePrice),
         url: productUrl,
       });
-      const result = await sendWhatsAppMessage('', msg);
+      const [result, logged] = await Promise.all([
+        sendWhatsAppMessage('', msg),
+        logShareEvent(product._id, 'whatsapp').catch(() => null),
+      ]);
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         navigator.clipboard.writeText(msg).catch(() => {});
       }
@@ -76,6 +80,7 @@ export function ProductCard({
           product,
           waLink: result.waLink,
           messagePreview: result.messagePreview,
+          sharesCount: logged?.sharesCount,
         });
       }
     } finally {

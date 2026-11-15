@@ -95,6 +95,19 @@ export function ProductDetailModal({
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [activeSlide, setActiveSlide] = useState(0);
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
+  const [supportsHoverZoom, setSupportsHoverZoom] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return true;
+    return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const onChange = () => setSupportsHoverZoom(mq.matches);
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
 
   // Review composer state
   const [rating, setRating] = useState(5);
@@ -257,27 +270,49 @@ export function ProductDetailModal({
                       {product.images.map((img, idx) => (
                         <div
                           key={`${img.url}-${idx}`}
-                          className="relative aspect-[4/3] min-w-full [&_.iiz]:block [&_.iiz]:h-full [&_.iiz]:w-full [&_.iiz>div]:h-full [&_.iiz__img]:h-full [&_.iiz__img]:w-full [&_.iiz__img]:object-cover"
+                          className="relative aspect-[4/3] min-w-full [&_.iiz]:block [&_.iiz]:h-full [&_.iiz]:w-full [&_.iiz]:cursor-crosshair [&_.iiz>div]:h-full [&_.iiz__img]:h-full [&_.iiz__img]:w-full [&_.iiz__img]:object-cover [&_.iiz__zoom-img]:max-w-none"
                         >
-                          <InnerImageZoom
-                            src={img.url}
-                            zoomSrc={img.url}
-                            zoomType="hover"
-                            moveType="pan"
-                            zoomScale={2.25}
-                            zoomPreload
-                            fullscreenOnMobile
-                            mobileBreakpoint={640}
-                            hideHint
-                            imgAttributes={{
-                              alt: img.altText || product.title,
-                              referrerPolicy: 'no-referrer',
-                            }}
-                          />
-                          <div className="pointer-events-none hidden sm:inline-flex items-center gap-1.5 absolute bottom-3 left-3 z-10 rounded-md bg-white/90 px-2.5 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs">
+                          {supportsHoverZoom ? (
+                            <InnerImageZoom
+                              src={img.url}
+                              zoomSrc={img.url}
+                              zoomType="hover"
+                              moveType="pan"
+                              zoomScale={2.5}
+                              zoomPreload
+                              fadeDuration={200}
+                              hideHint
+                              imgAttributes={{
+                                alt: img.altText || product.title,
+                                referrerPolicy: 'no-referrer',
+                              }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLightboxIndex(idx);
+                                setLightboxOpen(true);
+                              }}
+                              aria-label={t('detail.tapToZoom')}
+                              className="block h-full w-full cursor-zoom-in text-left"
+                            >
+                              <img
+                                src={img.url}
+                                alt={img.altText || product.title}
+                                referrerPolicy="no-referrer"
+                                className="h-full w-full object-cover"
+                              />
+                            </button>
+                          )}
+
+                          <div className="pointer-events-none inline-flex items-center gap-1.5 absolute bottom-3 left-3 z-10 rounded-md bg-white/90 px-2.5 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs">
                             <ZoomIn className="h-3.5 w-3.5 text-[#881337]" />
-                            <span>{t('detail.hoverZoom')}</span>
+                            <span>
+                              {supportsHoverZoom ? t('detail.hoverZoom') : t('detail.tapToZoom')}
+                            </span>
                           </div>
+
                           <button
                             type="button"
                             onClick={(e) => {
@@ -917,7 +952,7 @@ export function ProductDetailModal({
         )}
       </div>
 
-      {/* Lightbox with Desktop Zoom & Mobile Pinch-to-Zoom */}
+      {/* Lightbox with Desktop Fullscreen & Mobile Pinch-to-Zoom */}
       {product && (
         <Lightbox
           open={lightboxOpen}
@@ -928,7 +963,12 @@ export function ProductDetailModal({
             alt: img.altText || product.title,
           }))}
           plugins={[Zoom]}
-          zoom={{ maxZoomPixelRatio: 3, pinchZoomDistanceFactor: 100 }}
+          zoom={{
+            maxZoomPixelRatio: 4,
+            pinchZoomDistanceFactor: 100,
+            doubleTapDelay: 250,
+            scrollToZoom: true,
+          }}
         />
       )}
 

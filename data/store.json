@@ -215,7 +215,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Diwali"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_02",
@@ -289,7 +290,7 @@
       "viewsCount": 2450,
       "cartAddsCount": 112,
       "salesCount": 86,
-      "trendScore": 1004,
+      "trendScore": 1008,
       "averageRating": 4.8,
       "reviewCount": 2,
       "badges": [
@@ -308,7 +309,8 @@
         "Christmas",
         "New Year",
         "Winter"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_03",
@@ -422,7 +424,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Diwali"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_04",
@@ -571,7 +574,8 @@
         "Diwali",
         "Christmas",
         "New Year"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_05",
@@ -700,7 +704,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_06",
@@ -777,7 +782,8 @@
         "Christmas",
         "New Year",
         "Winter"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_07",
@@ -850,7 +856,8 @@
         "Diwali",
         "Winter",
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_08",
@@ -922,7 +929,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Diwali"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_09",
@@ -1004,7 +1012,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_10",
@@ -1076,7 +1085,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Diwali"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_11",
@@ -1152,7 +1162,8 @@
         "Christmas",
         "New Year",
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_12",
@@ -1228,7 +1239,8 @@
         "Christmas",
         "New Year",
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_13",
@@ -1300,7 +1312,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Diwali"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_14",
@@ -1382,7 +1395,8 @@
       "seasons": [
         "Diwali",
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_15",
@@ -1532,7 +1546,8 @@
         "Christmas",
         "New Year",
         "Winter"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_16",
@@ -1638,7 +1653,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_17",
@@ -1730,7 +1746,8 @@
         "Christmas",
         "New Year",
         "Winter"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_18",
@@ -1860,7 +1877,8 @@
         "Christmas",
         "New Year",
         "Winter"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_19",
@@ -1955,7 +1973,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_20",
@@ -2031,7 +2050,8 @@
         "Christmas",
         "New Year",
         "Winter"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_21",
@@ -2096,7 +2116,8 @@
         "Diwali",
         "Christmas",
         "New Year"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_22",
@@ -2159,7 +2180,8 @@
       "updatedAt": "2026-11-14T11:05:21.590Z",
       "seasons": [
         "Diwali"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_23",
@@ -2225,7 +2247,8 @@
         "Diwali",
         "Christmas",
         "New Year"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_24",
@@ -2300,7 +2323,8 @@
         "Christmas",
         "New Year",
         "Winter"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_25",
@@ -2374,7 +2398,8 @@
         "Diwali",
         "Christmas",
         "New Year"
-      ]
+      ],
+      "sharesCount": 0
     },
     {
       "_id": "prd_26",
@@ -2504,7 +2529,8 @@
         "Diwali",
         "Winter",
         "Summer"
-      ]
+      ],
+      "sharesCount": 0
     }
   ],
   "likes": [],
@@ -3430,6 +3456,21 @@
   ],
   "sessions": [
     {
+      "sessionId": "sess_8a9cec3448277b05b379e2db",
+      "userId": "usr_seller_1",
+      "role": "SELLER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_ba13a66b09bd",
+      "csrfToken": "csrf_1f1ed9c05486c5e9468ac9df",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-15T13:00:29.018Z",
+      "lastActiveAt": "2026-11-15T13:00:29.018Z",
+      "expiresAt": "2026-12-15T13:00:29.018Z",
+      "revokedAt": null
+    },
+    {
       "sessionId": "sess_e66f6baaf880cc3412b8a123",
       "userId": "usr_seller_1",
       "role": "SELLER",
@@ -3737,5 +3778,6 @@
       "updatedAt": "2026-11-15T12:19:05.627Z"
     }
   ],
-  "authSessions": []
+  "authSessions": [],
+  "shareEvents": []
 }
