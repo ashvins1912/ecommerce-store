@@ -4,6 +4,8 @@ import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
+import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
+import { encryptField } from './src/server/services/fieldEncryption.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
@@ -1657,6 +1659,289 @@ async function startServer() {
   });
 
   // Gateway secrets are encrypted at rest and never returned by this API.
+
+  // --- Provider supply network: seller invitations, provider KYC, catalog negotiation and payouts ---
+  const providerAudit = (actor: any, action: string, providerId = '', resourceId = '', metadata: Record<string, unknown> = {}) =>
+    ProviderAuditModel.create({ actorId: String(actor._id), actorRole: actor.role, action, providerId, resourceId, metadata });
+
+  app.post('/api/seller/providers/invites', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const parsed = z.object({ email: z.string().email().optional().or(z.literal('')), note: z.string().max(500).optional() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_INVITE' });
+    const rawToken = crypto.randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const invite = await ProviderInviteModel.create({
+      tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'),
+      sellerId: user._id, email: (parsed.data.email || '').toLowerCase(),
+      expiresAt, status: 'PENDING',
+    });
+    const inviteUrl = getAppBaseUrl(req) + '/provider/onboard?token=' + encodeURIComponent(rawToken);
+    await providerAudit(user, 'PROVIDER_INVITE_CREATED', '', String(invite._id), { email: parsed.data.email || '', expiresAt });
+    res.status(201).json({ invite: { id: String(invite._id), email: invite.email, status: invite.status, expiresAt }, inviteUrl });
+  });
+
+  app.get('/api/provider/invites/:token', async (req, res) => {
+    const token = String(req.params.token || '');
+    if (token.length < 32 || token.length > 128) return res.status(400).json({ error: 'INVALID_INVITE_TOKEN' });
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const invite = await ProviderInviteModel.findOne({ tokenHash }).lean();
+    if (!invite) return res.status(404).json({ error: 'INVITE_NOT_FOUND' });
+    if (invite.status !== 'PENDING' || new Date(invite.expiresAt).getTime() <= Date.now()) {
+      if (invite.status === 'PENDING') await ProviderInviteModel.updateOne({ _id: invite._id, status: 'PENDING' }, { $set: { status: 'EXPIRED' } });
+      return res.status(410).json({ error: 'INVITE_EXPIRED_OR_USED' });
+    }
+    res.json({ sellerId: invite.sellerId, email: invite.email, expiresAt: invite.expiresAt, status: invite.status });
+  });
+
+  app.post('/api/provider/onboarding/accept', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['BUYER', 'PROVIDER'].includes(user.role)) return res.status(401).json({ error: 'SIGN_IN_REQUIRED' });
+    const parsed = z.object({
+      token: z.string().min(32).max(128), businessName: z.string().trim().min(2).max(180),
+      contactPerson: z.string().trim().min(2).max(120), mobile: z.string().trim().min(8).max(20),
+      whatsapp: z.string().trim().max(20).optional().default(''), warehouseAddress: z.string().trim().min(8).max(1000),
+      taxId: z.string().trim().min(4).max(80), settlementDetails: z.string().trim().min(6).max(1000),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_PROVIDER_PROFILE' });
+    const tokenHash = crypto.createHash('sha256').update(parsed.data.token).digest('hex');
+    const invite = await ProviderInviteModel.findOne({ tokenHash, status: 'PENDING', expiresAt: { $gt: new Date() } });
+    if (!invite) return res.status(410).json({ error: 'INVITE_EXPIRED_OR_USED' });
+    if (invite.email && invite.email.toLowerCase() !== user.email.toLowerCase()) return res.status(403).json({ error: 'INVITE_EMAIL_MISMATCH' });
+    if (!process.env.ENCRYPTION_MASTER_KEY) return res.status(503).json({ error: 'PROVIDER_ENCRYPTION_NOT_CONFIGURED' });
+    const profile = await ProviderProfileModel.findOneAndUpdate(
+      { userId: user._id },
+      { $set: {
+        businessName: parsed.data.businessName, contactPerson: parsed.data.contactPerson,
+        mobile: parsed.data.mobile, whatsapp: parsed.data.whatsapp,
+        warehouseAddress: parsed.data.warehouseAddress,
+        encryptedTaxId: encryptField(parsed.data.taxId),
+        encryptedSettlementDetails: encryptField(parsed.data.settlementDetails),
+        settlementDetailsLast4: parsed.data.settlementDetails.slice(-4),
+        kycStatus: 'PENDING',
+      }, $addToSet: { linkedSellerIds: invite.sellerId } },
+      { upsert: true, new: true, runValidators: true }
+    );
+    const consumed = await ProviderInviteModel.updateOne(
+      { _id: invite._id, status: 'PENDING', expiresAt: { $gt: new Date() } },
+      { $set: { status: 'ACCEPTED', acceptedProviderId: user._id, acceptedAt: new Date() } }
+    );
+    if (!consumed.modifiedCount) return res.status(409).json({ error: 'INVITE_ALREADY_CONSUMED' });
+    await UserModel.updateOne({ _id: user._id, role: user.role }, { $set: { role: 'PROVIDER', mobileNumber: parsed.data.mobile, whatsappNumber: parsed.data.whatsapp } });
+    const updatedUser = await findUserById(user._id);
+    if (updatedUser) await issueUserSession(req, res, updatedUser, 'invite');
+    await providerAudit(user, 'PROVIDER_ONBOARDING_SUBMITTED', user._id, String(profile._id), { sellerId: invite.sellerId });
+    res.status(201).json({ ok: true, role: 'PROVIDER', kycStatus: 'PENDING' });
+  });
+
+  app.get('/api/provider/profile', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('-encryptedTaxId -encryptedSettlementDetails').lean();
+    if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
+    res.json({ profile });
+  });
+
+  app.get('/api/provider/products', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const products = await ProviderProductModel.find({ providerId: user._id }).sort({ updatedAt: -1 }).limit(200).lean();
+    res.json({ products });
+  });
+
+  app.post('/api/provider/products', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const profile = await ProviderProfileModel.findOne({ userId: user._id });
+    if (!profile) return res.status(409).json({ error: 'PROVIDER_ONBOARDING_REQUIRED' });
+    const parsed = z.object({
+      title: z.string().trim().min(2).max(180), category: z.string().trim().min(2).max(100),
+      subCategory: z.string().max(100).optional().default(''), description: z.string().trim().min(10).max(5000),
+      brand: z.string().max(120).optional().default(''), manufacturerName: z.string().trim().min(2).max(180),
+      manufacturingDate: z.string().optional(), sizeVariants: z.array(z.string().max(40)).max(40).optional().default([]),
+      colorVariants: z.array(z.string().max(60)).max(40).optional().default([]),
+      imageUrls: z.array(z.string().url().max(2048)).min(1).max(12),
+      basePricePaise: z.number().int().positive().max(1000000000),
+      returnable: z.boolean().default(true), returnWindowDays: z.number().int().min(0).max(90).default(7),
+      damageReplacementPolicy: z.string().max(2000).optional().default(''),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_PROVIDER_PRODUCT' });
+    const product = await ProviderProductModel.create({ ...parsed.data, providerId: user._id, linkedSellerIds: profile.linkedSellerIds, status: 'DRAFT' });
+    await providerAudit(user, 'PROVIDER_PRODUCT_DRAFT_CREATED', user._id, String(product._id));
+    res.status(201).json({ product });
+  });
+
+  app.patch('/api/provider/products/:id', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const allowed = ['DRAFT', 'PENDING_REVIEW', 'NEGOTIATION_REQUESTED', 'RESUBMITTED'];
+    const product = await ProviderProductModel.findOne({ _id: req.params.id, providerId: user._id });
+    if (!product) return res.status(404).json({ error: 'PROVIDER_PRODUCT_NOT_FOUND' });
+    if (!allowed.includes(product.status)) return res.status(409).json({ error: 'PRODUCT_FIELDS_LOCKED_AFTER_APPROVAL' });
+    const parsed = z.object({
+      title: z.string().trim().min(2).max(180).optional(), category: z.string().trim().min(2).max(100).optional(),
+      subCategory: z.string().max(100).optional(), description: z.string().trim().min(10).max(5000).optional(),
+      brand: z.string().max(120).optional(), manufacturerName: z.string().trim().min(2).max(180).optional(),
+      imageUrls: z.array(z.string().url().max(2048)).min(1).max(12).optional(),
+      basePricePaise: z.number().int().positive().max(1000000000).optional(),
+      sizeVariants: z.array(z.string().max(40)).max(40).optional(), colorVariants: z.array(z.string().max(60)).max(40).optional(),
+      returnable: z.boolean().optional(), returnWindowDays: z.number().int().min(0).max(90).optional(),
+      damageReplacementPolicy: z.string().max(2000).optional(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_PRODUCT_PATCH' });
+    product.set(parsed.data);
+    if (product.status === 'NEGOTIATION_REQUESTED') product.status = 'RESUBMITTED';
+    await product.save();
+    await providerAudit(user, 'PROVIDER_PRODUCT_UPDATED', user._id, String(product._id), { fields: Object.keys(parsed.data) });
+    res.json({ product });
+  });
+
+  app.post('/api/provider/products/:id/submit', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const product = await ProviderProductModel.findOne({ _id: req.params.id, providerId: user._id });
+    if (!product) return res.status(404).json({ error: 'PROVIDER_PRODUCT_NOT_FOUND' });
+    if (!['DRAFT', 'NEGOTIATION_REQUESTED', 'RESUBMITTED'].includes(product.status)) return res.status(409).json({ error: 'PRODUCT_CANNOT_BE_SUBMITTED' });
+    product.status = 'PENDING_REVIEW';
+    await product.save();
+    await providerAudit(user, 'PROVIDER_PRODUCT_SUBMITTED', user._id, String(product._id));
+    res.json({ product });
+  });
+
+  app.get('/api/seller/providers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const profiles = await ProviderProfileModel.find(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id })
+      .select('-encryptedTaxId -encryptedSettlementDetails').sort({ updatedAt: -1 }).limit(200).lean();
+    res.json({ providers: profiles });
+  });
+
+  app.get('/api/seller/providers/:providerId/dashboard', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const profile = await ProviderProfileModel.findOne({ userId: req.params.providerId, ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) })
+      .select('-encryptedTaxId -encryptedSettlementDetails').lean();
+    if (!profile) return res.status(404).json({ error: 'LINKED_PROVIDER_NOT_FOUND' });
+    const [products, settlements] = await Promise.all([
+      ProviderProductModel.find({ providerId: req.params.providerId, linkedSellerIds: user.role === 'ADMIN' ? { $exists: true } : user._id }).select('-basePricePaise').limit(200).lean(),
+      ProviderSettlementModel.find({ providerId: req.params.providerId, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }).limit(200).lean(),
+    ]);
+    await providerAudit(user, 'PROVIDER_READ_ONLY_AUDIT_VIEW', req.params.providerId, req.params.providerId);
+    res.json({ readOnly: true, profile, products, settlements });
+  });
+
+  app.get('/api/seller/providers/products/review-queue', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const filter = user.role === 'ADMIN' ? { status: { $in: ['PENDING_REVIEW', 'RESUBMITTED'] } } : { linkedSellerIds: user._id, status: { $in: ['PENDING_REVIEW', 'RESUBMITTED', 'NEGOTIATION_REQUESTED'] } };
+    const products = await ProviderProductModel.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
+    res.json({ products });
+  });
+
+  app.post('/api/seller/providers/products/:id/negotiate', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const parsed = z.object({ fields: z.array(z.enum(['basePricePaise', 'description', 'imageUrls', 'returnable', 'returnWindowDays'])).min(1), targetPricePaise: z.number().int().positive().optional(), comment: z.string().trim().min(3).max(1500) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_NEGOTIATION_REQUEST' });
+    const product = await ProviderProductModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) });
+    if (!product || !['PENDING_REVIEW', 'RESUBMITTED', 'NEGOTIATION_REQUESTED'].includes(product.status)) return res.status(404).json({ error: 'REVIEWABLE_PROVIDER_PRODUCT_NOT_FOUND' });
+    product.status = 'NEGOTIATION_REQUESTED';
+    product.negotiationHistory.push({ sellerId: user._id, actorId: user._id, action: 'COUNTER_OR_REVISION_REQUESTED', fields: parsed.data.fields, targetPricePaise: parsed.data.targetPricePaise, comment: parsed.data.comment, createdAt: new Date() });
+    await product.save();
+    await providerAudit(user, 'PROVIDER_PRODUCT_NEGOTIATION_REQUESTED', product.providerId, String(product._id), { fields: parsed.data.fields });
+    res.json({ product });
+  });
+
+  app.post('/api/seller/providers/products/:id/approve', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const product = await ProviderProductModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) });
+    if (!product || !['PENDING_REVIEW', 'RESUBMITTED'].includes(product.status)) return res.status(404).json({ error: 'REVIEWABLE_PROVIDER_PRODUCT_NOT_FOUND' });
+    product.status = 'APPROVED';
+    product.approvedBasePricePaise = product.basePricePaise;
+    product.approvedAt = new Date();
+    product.negotiationHistory.push({ sellerId: user._id, actorId: user._id, action: 'APPROVED_BASE_PRICE', fields: [], targetPricePaise: product.basePricePaise, comment: 'Provider base price approved.', createdAt: new Date() });
+    await product.save();
+    await providerAudit(user, 'PROVIDER_PRODUCT_APPROVED', product.providerId, String(product._id));
+    res.json({ product });
+  });
+
+  app.post('/api/seller/providers/products/:id/publish', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const parsed = z.object({ mrp: z.number().positive(), sellingPrice: z.number().positive(), totalStock: z.number().int().min(0), codAllowed: z.boolean().default(true), onlinePaymentRequired: z.boolean().default(false), isReturnable: z.boolean().default(true), returnWindowDays: z.number().int().min(0).max(90).default(7), trusted: z.boolean().default(false) }).safeParse(req.body);
+    if (!parsed.success || (parsed.success && parsed.data.sellingPrice > parsed.data.mrp)) return res.status(400).json({ error: 'INVALID_RETAIL_LISTING' });
+    const providerProduct = await ProviderProductModel.findOne({ _id: req.params.id, status: 'APPROVED', ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) });
+    if (!providerProduct) return res.status(409).json({ error: 'PROVIDER_PRODUCT_MUST_BE_APPROVED_FIRST' });
+    if (!mongoose.isValidObjectId(user._id)) return res.status(400).json({ error: 'SELLER_ACCOUNT_ID_INVALID' });
+    if (providerProduct.retailProductId) return res.status(409).json({ error: 'PROVIDER_PRODUCT_ALREADY_PUBLISHED' });
+    const slug = providerProduct.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + crypto.randomBytes(3).toString('hex');
+    const images = providerProduct.imageUrls.map((url: string, i: number) => ({ url, thumbUrl: url, altText: providerProduct.title, sortOrder: i }));
+    const listing = await ProductModel.create({
+      sellerId: new mongoose.Types.ObjectId(user._id), title: providerProduct.title, slug,
+      sku: 'SUP-' + crypto.randomBytes(5).toString('hex').toUpperCase(), category: providerProduct.category,
+      subCategory: providerProduct.subCategory || providerProduct.category, description: providerProduct.description,
+      basePrice: parsed.data.mrp, salePrice: parsed.data.sellingPrice,
+      discountPercent: Math.max(0, Math.round((1 - parsed.data.sellingPrice / parsed.data.mrp) * 100)),
+      totalStock: parsed.data.totalStock, images,
+      variants: [{ variantSku: 'DEFAULT-' + crypto.randomBytes(3).toString('hex'), size: providerProduct.sizeVariants[0] || 'One Size', colorName: providerProduct.colorVariants[0] || 'Default', colorHex: '#808080', stock: parsed.data.totalStock }],
+      isReturnable: parsed.data.isReturnable, returnWindowDays: parsed.data.isReturnable ? parsed.data.returnWindowDays : 0,
+      codAllowed: parsed.data.codAllowed, onlinePaymentRequired: parsed.data.onlinePaymentRequired,
+      isProductTrusted: parsed.data.trusted, providerId: providerProduct.providerId,
+      providerProductId: String(providerProduct._id), providerBasePricePaise: providerProduct.approvedBasePricePaise || providerProduct.basePricePaise,
+    });
+    providerProduct.status = 'APPROVED_AND_PUBLISHED';
+    providerProduct.retailProductId = String(listing._id);
+    await providerProduct.save();
+    await providerAudit(user, 'PROVIDER_PRODUCT_PUBLISHED_TO_STOREFRONT', providerProduct.providerId, String(providerProduct._id), { retailProductId: String(listing._id) });
+    res.status(201).json({ product: listing });
+  });
+
+  app.get('/api/provider/settlements', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    await ProviderSettlementModel.updateMany({ providerId: user._id, status: 'PENDING_CLEARANCE', availableAt: { $lte: new Date() } }, { $set: { status: 'READY_FOR_SETTLEMENT' } });
+    const settlements = await ProviderSettlementModel.find({ providerId: user._id }).sort({ createdAt: -1 }).limit(300).select('-encryptedReceipt').lean();
+    res.json({ settlements });
+  });
+
+  app.get('/api/seller/provider-settlements', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    await ProviderSettlementModel.updateMany({ ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }), status: 'PENDING_CLEARANCE', availableAt: { $lte: new Date() } }, { $set: { status: 'READY_FOR_SETTLEMENT' } });
+    const settlements = await ProviderSettlementModel.find(user.role === 'ADMIN' ? {} : { sellerId: user._id }).sort({ createdAt: -1 }).limit(500).select('-encryptedReceipt').lean();
+    res.json({ settlements });
+  });
+
+  app.post('/api/seller/provider-settlements/settle', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const parsed = z.object({ settlementIds: z.array(z.string().min(1)).min(1).max(100), utrReference: z.string().trim().min(4).max(120) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_SETTLEMENT_BATCH' });
+    const filter = { _id: { $in: parsed.data.settlementIds }, status: 'READY_FOR_SETTLEMENT', ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) };
+    const records = await ProviderSettlementModel.find(filter);
+    if (records.length !== parsed.data.settlementIds.length) return res.status(409).json({ error: 'ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE' });
+    const settledAt = new Date();
+    for (const record of records) {
+      const receipt = JSON.stringify({ settlementId: String(record._id), orderId: record.orderId, sellerId: record.sellerId, providerId: record.providerId, amountPaise: record.amountPaise, utrReference: parsed.data.utrReference, settledAt: settledAt.toISOString() });
+      record.status = 'SETTLED'; record.utrReference = parsed.data.utrReference; record.settledAt = settledAt;
+      record.encryptedReceipt = encryptField(receipt);
+      await record.save();
+      await providerAudit(user, 'PROVIDER_SETTLEMENT_MARKED_SETTLED', record.providerId, String(record._id), { amountPaise: record.amountPaise });
+    }
+    res.json({ settledCount: records.length, utrReference: parsed.data.utrReference });
+  });
+
+  app.get('/api/provider/settlements/:id/receipt', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const record = await ProviderSettlementModel.findOne({ _id: req.params.id, providerId: user._id }).select('+encryptedReceipt').lean();
+    if (!record || record.status !== 'SETTLED' || !record.encryptedReceipt) return res.status(404).json({ error: 'SETTLEMENT_RECEIPT_NOT_FOUND' });
+    const { decryptField } = await import('./src/server/services/fieldEncryption.js');
+    const receipt = JSON.parse(decryptField(record.encryptedReceipt));
+    res.json({ receipt });
+  });
+
   app.get('/api/seller/payment-settings', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
