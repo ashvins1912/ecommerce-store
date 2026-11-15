@@ -65,6 +65,11 @@ import { purgeProductFromCartCaches } from './redis.js';
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 
+// Provider demo identities are excluded from every production seed path.
+const ACTIVE_SEED_USERS = process.env.NODE_ENV === 'production'
+  ? SEED_USERS.filter((user) => user.role !== 'PROVIDER')
+  : SEED_USERS;
+
 interface StoreState {
   users: User[];
   products: Product[];
@@ -204,7 +209,7 @@ function loadLocalStore(): StoreState {
             dirty = true;
           }
         }
-        for (const seedUser of SEED_USERS) {
+        for (const seedUser of ACTIVE_SEED_USERS) {
           const exists = parsed.users.some(
             (u) => u._id === seedUser._id || u.email.toLowerCase() === seedUser.email.toLowerCase()
           );
@@ -223,7 +228,7 @@ function loadLocalStore(): StoreState {
     }
   }
   const initial: StoreState = {
-    users: structuredClone(SEED_USERS),
+    users: structuredClone(ACTIVE_SEED_USERS),
     products: structuredClone(SEED_PRODUCTS).map((p) => ({ ...p, sharesCount: p.sharesCount ?? 0 })),
     likes: [],
     reviews: structuredClone(SEED_REVIEWS),
@@ -265,7 +270,7 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
       const productCount = await ProductModel.countDocuments();
       if (productCount === 0) {
         const idMap = new Map<string, mongoose.Types.ObjectId>();
-        for (const u of SEED_USERS) {
+        for (const u of ACTIVE_SEED_USERS) {
           const oid = new mongoose.Types.ObjectId();
           idMap.set(u._id, oid);
           await UserModel.create({ ...u, _id: oid });
