@@ -1316,6 +1316,19 @@ export function SellerHubView({
     }
   };
 
+  const handleCancellationReview = async (orderId: string, action: 'approve' | 'reject') => {
+    try {
+      await apiFetch('/api/seller/orders/' + encodeURIComponent(orderId) + '/cancellation-review', {
+        method: 'PATCH',
+        body: JSON.stringify({ action, refundDestination: 'WALLET' }),
+      });
+      await loadSellerOrders(orderTab, 0, false);
+      setReturnNotice(action === 'approve' ? 'Cancellation approved and refund initiated.' : 'Cancellation request rejected.');
+    } catch (err) {
+      setReturnNotice((err as Error).message);
+    }
+  };
+
   const handleOrderStatusChange = async (
     order: Order,
     status: OrderStatus,
@@ -3065,8 +3078,15 @@ export function SellerHubView({
                   </div>
                 )}
 
+                {ord.status === 'CANCELLATION_REQUESTED' && (
+                  <div className="flex flex-wrap gap-2 rounded-md bg-[#FFF8F6] p-3">
+                    <span className="w-full text-xs font-medium text-[#57534E]">Buyer requested cancellation. Confirm parcel recovery before approving a refund.</span>
+                    <button type="button" onClick={() => void handleCancellationReview(ord._id, 'approve')} className="rounded bg-[#881337] px-3 py-1.5 text-xs font-semibold text-white">Approve &amp; refund to wallet</button>
+                    <button type="button" onClick={() => void handleCancellationReview(ord._id, 'reject')} className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs">Reject request</button>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#F0EEE9]">
-                  {ord.status === 'Pending' && (
+                  {['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(ord.status) && (
                     <button
                       type="button"
                       onClick={() => handleOrderStatusChange(ord, 'Confirmed')}
@@ -3075,7 +3095,7 @@ export function SellerHubView({
                       {t('seller.confirmOrder')}
                     </button>
                   )}
-                  {(ord.status === 'Pending' || ord.status === 'Confirmed') && (
+                  {(['Pending', 'Confirmed', 'PAID_AND_PROCESSING'].includes(ord.status)) && (
                     <button
                       type="button"
                       onClick={() => handleOrderStatusChange(ord, 'Packed')}
@@ -3084,7 +3104,7 @@ export function SellerHubView({
                       {t('seller.markPacked')}
                     </button>
                   )}
-                  {['Pending', 'Confirmed', 'Packed'].includes(ord.status) && (
+                  {['Pending', 'Confirmed', 'PAID_AND_PROCESSING', 'Packed'].includes(ord.status) && (
                     <button
                       type="button"
                       onClick={() => {
