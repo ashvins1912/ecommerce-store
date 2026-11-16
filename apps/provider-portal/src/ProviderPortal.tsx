@@ -116,13 +116,17 @@ export default function ProviderPortal() {
 
   const role = auth?.role || auth?.user?.role;
   const logout = async () => {
+    if (loggingOut) return;
+    if (!window.confirm('Sign out of your provider account? Your current session will be revoked.')) return;
     setLoggingOut(true);
+    setNotice('');
     try {
-      await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+      await api<{ ok: boolean }>('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+      csrfToken = '';
       setAuth(null);
       window.location.assign('/?loggedOut=1');
     } catch (error) {
-      setNotice((error as Error).message);
+      setNotice((error as Error).message || 'Unable to sign out. Please try again.');
       setLoggingOut(false);
     }
   };
