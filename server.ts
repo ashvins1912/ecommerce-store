@@ -2412,6 +2412,15 @@ async function startServer() {
     catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_WAREHOUSE_SAVE_FAILED' }); }
   });
 
+  app.get('/api/provider/linked-sellers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
+    const sellers = await UserModel.find({ _id: { $in: profile?.linkedSellerIds || [] }, role: 'SELLER' }).select('name sellerProfile.storeName').lean();
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ sellers: sellers.map((seller: any) => ({ id: String(seller._id), name: seller.sellerProfile?.storeName || seller.name })) });
+  });
+
   app.get('/api/provider/fulfillment-delegations', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
@@ -2498,6 +2507,17 @@ async function startServer() {
     ).lean();
     await providerAudit(user!, 'SELLER_APPROVED_PROVIDER_FULFILLMENT', req.params.providerId, String(requested._id), { carrierCodes: parsed.data.carrierCodes, disclosureFields: parsed.data.disclosureFields });
     res.json({ delegation: { providerId: req.params.providerId, status: updated?.status, allowedCarrierCodes: updated?.allowedCarrierCodes, allowedDisclosureFields: updated?.allowedDisclosureFields, expiresAt: updated?.expiresAt } });
+  });
+
+  app.post('/api/seller/providers/fulfillment-delegations/:providerId/reject', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const filter: any = { providerId: req.params.providerId, status: 'REQUESTED' };
+    if (user!.role !== 'ADMIN') filter.sellerId = user!._id;
+    const updated = await ProviderFulfillmentDelegationModel.findOneAndUpdate(filter, { $set: { status: 'REVOKED', revokedAt: new Date() } }, { returnDocument: 'after' }).lean();
+    if (!updated) return res.status(404).json({ error: 'FULFILLMENT_REQUEST_NOT_FOUND' });
+    await providerAudit(user!, 'SELLER_REJECTED_PROVIDER_FULFILLMENT', req.params.providerId, String(updated._id));
+    res.json({ delegation: { providerId: req.params.providerId, status: updated.status } });
   });
 
   app.post('/api/seller/providers/fulfillment-delegations/:providerId/revoke', async (req, res) => {
