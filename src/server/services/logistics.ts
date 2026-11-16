@@ -119,3 +119,16 @@ export async function getCustomerTrackingEvents(orderId:string) {
     .eq('shipment_id',shipment.id).order('event_timestamp',{ascending:false}).limit(1)) as any[];
   return { statusCode:shipment.normalized_status,eta:shipment.estimated_delivery_at,latestCheckpoint:events[0] || null };
 }
+
+export async function getSellerWarehouse(sellerId:string,warehouseId:string) {
+ return unwrap(await db().from('warehouses').select('id,name,postal_code,country_code').eq('seller_id',sellerId).eq('id',warehouseId).single());
+}
+export async function getLogisticsJob(jobId:string) {
+ return unwrap(await db().from('logistics_jobs').select('id,job_type,payload,attempts,max_attempts').eq('id',jobId).single());
+}
+export async function setShipmentStatusForSeller(input:{shipmentId:string;sellerId:string;statusCode:number}) {
+ const configs=unwrap(await db().from('seller_carrier_configs').select('id').eq('seller_id',input.sellerId)) as Array<{id:string}>;
+ const ids=configs.map(x=>x.id);if(!ids.length)return null;
+ return unwrap(await db().from('shipments').update({normalized_status:input.statusCode,updated_at:new Date().toISOString()})
+  .eq('id',input.shipmentId).in('seller_carrier_config_id',ids).select('id,normalized_status').maybeSingle());
+}
