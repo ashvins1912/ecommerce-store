@@ -2388,7 +2388,7 @@ async function startServer() {
         productId: String(item.productId), title: String(item.title), quantity: Number(item.quantity),
       })),
       courierTracking: order.courierTracking || null,
-      manualDispatchAllowed: order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID'),
+      manualDispatchAllowed: (order.items || []).every((item: any) => owned.has(String(item.productId))) && order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID'),
     }));
     res.setHeader('Cache-Control', 'private, no-store');
     res.json({ shipments, total, page, limit, totalPages: Math.ceil(total / limit) });
