@@ -35,6 +35,7 @@ CREATE TABLE shipments (
  warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
  provider_shipment_id VARCHAR(120), awb_number VARCHAR(120),
  booking_status VARCHAR(16) NOT NULL DEFAULT 'PENDING' CHECK(booking_status IN ('PENDING','PROCESSING','BOOKED','FAILED')),
+ last_carrier_poll_at TIMESTAMPTZ,
  normalized_status SMALLINT NOT NULL DEFAULT 10 CHECK(normalized_status IN(10,20,30,40,50,60,70,80,90)),
  label_url TEXT, cod_amount_minor BIGINT NOT NULL DEFAULT 0 CHECK(cod_amount_minor>=0),
  currency CHAR(3) NOT NULL DEFAULT 'INR', estimated_delivery_at TIMESTAMPTZ, last_event_at TIMESTAMPTZ,
@@ -90,8 +91,13 @@ BEGIN
  UPDATE logistics_jobs j SET status='COMPLETED',completed_at=COALESCE(completed_at,now()),locked_at=NULL
  WHERE j.status IN ('PROCESSING','PENDING')
   AND EXISTS(SELECT 1 FROM shipments s WHERE s.id=(j.payload->>'shipmentId')::uuid AND s.booking_status='BOOKED');
- UPDATE logistics_jobs SET status='FAILED',locked_at=NULL,last_error=COALESCE(last_error,'Worker lease expired after maximum attempts')
- WHERE status='PROCESSING' AND locked_at<now()-interval '10 minutes' AND attempts>=max_attempts;
+ WITH failed_jobs AS (
+  UPDATE logistics_jobs SET status='FAILED',locked_at=NULL,last_error=COALESCE(last_error,'Worker lease expired after maximum attempts')
+  WHERE status='PROCESSING' AND locked_at<now()-interval '10 minutes' AND attempts>=max_attempts
+  RETURNING payload
+ )
+ UPDATE shipments s SET booking_status='FAILED',updated_at=now()
+ FROM failed_jobs j WHERE s.id=(j.payload->>'shipmentId')::uuid;
  SELECT * INTO claimed FROM logistics_jobs
  WHERE ((status='PENDING' AND available_at<=now()) OR (status='PROCESSING' AND locked_at<now()-interval '10 minutes')) AND attempts<max_attempts
  ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED;
