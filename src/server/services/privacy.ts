@@ -100,7 +100,7 @@ export function toProviderSafeProductDto(product: Record<string, any>) {
   // contact/address data. Expose only the structured workflow metadata.
   if (Array.isArray(product.negotiationHistory)) {
     dto.negotiationHistory = product.negotiationHistory.map((entry: Record<string, any>) =>
-      pickAllowed(entry, ['sellerId', 'actorId', 'action', 'fields', 'targetPricePaise', 'createdAt']),
+      pickAllowed(entry, ['action', 'fields', 'targetPricePaise', 'createdAt']),
     );
   }
   return dto;
