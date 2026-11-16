@@ -15,7 +15,7 @@
     "dev:provider": "vite --config apps/provider-portal/vite.config.ts",
     "build:provider": "vite build --config apps/provider-portal/vite.config.ts",
     "build:workspace": "npm run build:customer && npm run build:provider",
-    "logistics:worker": "RUN_LOGISTICS_WORKER=1 tsx apps/logistics-worker/src/run.ts",
+    "logistics:worker": "tsx apps/logistics-worker/src/entry.ts",
     "test:logistics": "tsx --test packages/logistics-core/src/index.test.ts packages/adapters/shadowfax/src/index.test.ts packages/adapters/shiprocket/src/index.test.ts",
     "test:hybrid": "tsx --test packages/hybrid-engine/src/index.test.ts",
     "test": "npm run test:logistics && npm run test:hybrid && npm run test:privacy",
