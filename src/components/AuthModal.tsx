@@ -232,6 +232,7 @@ export function AuthModal({
   };
 
   const handleLogout = async () => {
+    if (!window.confirm('Sign out of your account? Your current session will be revoked.')) return;
     setError(null);
     setLoading(true);
     try {
@@ -448,7 +449,7 @@ export function AuthModal({
               disabled={loading}
               className="w-full rounded-md border border-[#D6D3CD] px-4 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
             >
-              {t('auth.signOut')}
+              {loading ? 'Signing out…' : t('auth.signOut')}
             </button>
           </div>
         ) : (
