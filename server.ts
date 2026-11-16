@@ -27,7 +27,8 @@ import {
   syncSupabaseCustomerUser,
   registerCustomerAccount,
   authenticateCustomerAccount,
-  updateUserCheckoutProfile,\n  ensureRootSuperuser, updateRootSuperuserPassword,
+  updateUserCheckoutProfile,
+  ensureRootSuperuser, updateRootSuperuserPassword,
   createSellerInvite,
   listSellerInvites,
   revokeSellerInvite,
@@ -263,7 +264,8 @@ async function saveCartForActor(
 }
 
 async function startServer() {
-  const dbStatus = await initDatabase();\n  await ensureRootSuperuser();
+  const dbStatus = await initDatabase();
+  await ensureRootSuperuser();
   if (dbStatus.mode === 'mongodb') await migrateCommerceDefaults();
   await recalculateTrendingAndBadges();
 
