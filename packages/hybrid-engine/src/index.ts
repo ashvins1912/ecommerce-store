@@ -112,3 +112,22 @@ export async function runSaga<T>(context:T,steps:readonly CheckoutStep<T>[]):Pro
   try{for(const step of steps){await step.run(context);completed.push(step);}}
   catch(error){for(const step of completed.reverse()){try{await step.compensate(context);}catch{/* persist compensation failure to an outbox in the concrete adapter */}}throw error;}
 }
+
+export type InventoryLine = { productId: string; variantSku?: string; quantity: number };
+export type InventoryReservationGroup = { productId: string; quantity: number; variants: Array<{ variantSku: string; quantity: number }> };
+
+/** Coalesces duplicate cart lines so each SKU is conditionally reserved once per checkout. */
+export function aggregateInventoryLines(lines: readonly InventoryLine[]): InventoryReservationGroup[] {
+  const products = new Map<string, { quantity: number; variants: Map<string, number> }>();
+  for (const line of lines) {
+    if (!line.productId || !Number.isSafeInteger(line.quantity) || line.quantity < 1) throw new Error("INVALID_INVENTORY_LINE");
+    const current = products.get(line.productId) || { quantity: 0, variants: new Map<string, number>() };
+    current.quantity += line.quantity;
+    if (line.variantSku) current.variants.set(line.variantSku, (current.variants.get(line.variantSku) || 0) + line.quantity);
+    products.set(line.productId, current);
+  }
+  return [...products.entries()].map(([productId, value]) => ({
+    productId, quantity: value.quantity,
+    variants: [...value.variants.entries()].map(([variantSku, quantity]) => ({ variantSku, quantity })),
+  }));
+}
