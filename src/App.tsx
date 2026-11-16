@@ -832,6 +832,12 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const openCustomerSignup = () => setActivePage('signup');
+    window.addEventListener('commerce:navigate-signup', openCustomerSignup);
+    return () => window.removeEventListener('commerce:navigate-signup', openCustomerSignup);
+  }, []);
+
   const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
     setActivePage('store');
     if (cat) {
