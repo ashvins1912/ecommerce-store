@@ -3203,6 +3203,48 @@ async function startServer() {
     }
   });
 
+  app.post('/api/seller/orders/:id/cancellation-forward-provider', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }), status: 'CANCELLATION_REQUESTED' });
+    if (!order) return res.status(404).json({ error: 'CANCELLATION_REQUEST_NOT_FOUND' });
+    const retailIds = (order.items || []).map((item: any) => String(item.productId));
+    const providerProducts = await ProviderProductModel.find({ retailProductId: { $in: retailIds }, ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) }).select('providerId retailProductId').lean() as any[];
+    const providerIds = [...new Set(providerProducts.map(row => String(row.providerId)))];
+    if (providerIds.length !== 1 || providerProducts.length !== retailIds.length) return res.status(409).json({ error: 'CANCELLATION_ORDER_NOT_EXCLUSIVELY_FROM_ONE_LINKED_PROVIDER' });
+    const profile = await ProviderProfileModel.findOne({ userId: providerIds[0], ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) }).select('userId kycStatus').lean() as any;
+    if (!profile || profile.kycStatus !== 'VERIFIED') return res.status(409).json({ error: 'LINKED_PROVIDER_MUST_BE_KYC_VERIFIED' });
+    order.providerCancellationReview = { providerId: String(profile.userId), status: 'PENDING', note: '', forwardedAt: new Date(), reviewedAt: null };
+    order.statusTimeline.push({ status: 'CANCELLATION_REQUESTED', note: 'Seller forwarded cancellation request to the linked provider for review.', timestamp: new Date() });
+    await order.save();
+    await providerAudit(user, 'SELLER_FORWARDED_CANCELLATION_TO_PROVIDER', String(profile.userId), String(order._id));
+    res.status(202).json({ providerReview: order.providerCancellationReview });
+  });
+
+  app.get('/api/provider/cancellations', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const orders = await OrderModel.find({ 'providerCancellationReview.providerId': user._id, 'providerCancellationReview.status': 'PENDING', status: 'CANCELLATION_REQUESTED' })
+      .select('_id orderNumber items status createdAt providerCancellationReview').sort({ cancellationRequestedAt: -1 }).limit(100).lean();
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ cancellations: orders.map((order: any) => ({ id: String(order._id), orderNumber: order.orderNumber, items: (order.items || []).map((item: any) => ({ title: item.title, quantity: item.quantity })), status: order.status, forwardedAt: order.providerCancellationReview?.forwardedAt })) });
+  });
+
+  app.post('/api/provider/cancellations/:id/review', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({ action: z.enum(['approve', 'reject']), note: z.string().trim().max(1000).optional().default('') }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_CANCELLATION_REVIEW' });
+    const order = await OrderModel.findOne({ _id: req.params.id, status: 'CANCELLATION_REQUESTED', 'providerCancellationReview.providerId': user._id, 'providerCancellationReview.status': 'PENDING' });
+    if (!order) return res.status(404).json({ error: 'PROVIDER_CANCELLATION_REVIEW_NOT_FOUND' });
+    order.providerCancellationReview.status = parsed.data.action === 'approve' ? 'APPROVED' : 'REJECTED';
+    order.providerCancellationReview.note = parsed.data.note;
+    order.providerCancellationReview.reviewedAt = new Date();
+    await order.save();
+    await providerAudit(user, 'PROVIDER_CANCELLATION_REVIEWED', user._id, String(order._id), { action: parsed.data.action });
+    res.json({ review: order.providerCancellationReview });
+  });
+
   app.patch('/api/seller/orders/:id/cancellation-review', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
@@ -3295,6 +3337,116 @@ async function startServer() {
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
     const requests = await ReturnRequestModel.find(user.role === 'ADMIN' ? {} : { sellerId: user._id }).sort({ createdAt: -1 }).limit(100).lean();
     res.json({ returns: requests.map((item: any) => ({ ...item, _id: String(item._id) })) });
+  });
+
+  app.post('/api/seller/returns/:id/forward-provider', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const parsed = z.object({ sharePickupAddress: z.boolean() }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'RETURN_PICKUP_DISCLOSURE_CHOICE_REQUIRED' });
+    const request = await ReturnRequestModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
+    if (!request || request.status !== 'REQUESTED') return res.status(409).json({ error: 'RETURN_NOT_READY_TO_FORWARD' });
+    const providerProduct = await ProviderProductModel.findOne({ retailProductId: request.productId, ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) }).select('providerId').lean() as any;
+    if (!providerProduct) return res.status(409).json({ error: 'RETURN_PRODUCT_NOT_LINKED_TO_PROVIDER' });
+    const profile = await ProviderProfileModel.findOne({ userId: providerProduct.providerId, ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }) }).select('userId kycStatus').lean() as any;
+    if (!profile || profile.kycStatus !== 'VERIFIED') return res.status(409).json({ error: 'LINKED_PROVIDER_MUST_BE_KYC_VERIFIED' });
+    request.providerId = String(profile.userId);
+    request.providerReviewStatus = 'PENDING';
+    request.providerForwardedAt = new Date();
+    request.providerPickupAddressShared = parsed.data.sharePickupAddress;
+    request.providerDecisionNote = '';
+    await request.save();
+    await providerAudit(user, 'SELLER_FORWARDED_RETURN_TO_PROVIDER', String(profile.userId), String(request._id), { sharePickupAddress: parsed.data.sharePickupAddress });
+    res.status(202).json({ returnRequest: { id: String(request._id), providerId: request.providerId, providerReviewStatus: request.providerReviewStatus, providerPickupAddressShared: request.providerPickupAddressShared } });
+  });
+
+  app.get('/api/provider/returns', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const requests = await ReturnRequestModel.find({ providerId: user._id, providerReviewStatus: { $in: ['PENDING', 'APPROVED'] } }).sort({ providerForwardedAt: -1 }).limit(100).lean() as any[];
+    const orderIds = [...new Set(requests.map(row => row.orderId))];
+    const orders = await OrderModel.find({ _id: { $in: orderIds } }).select('_id orderNumber shippingAddress').lean() as any[];
+    const orderById = new Map(orders.map(order => [String(order._id), order]));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ returns: requests.map(row => {
+      const order = orderById.get(String(row.orderId));
+      const address = row.providerPickupAddressShared ? order?.shippingAddress : null;
+      return {
+        id: String(row._id), orderId: row.orderId, productId: row.productId, quantity: row.quantity,
+        reason: row.reason, media: row.media, status: row.status, providerReviewStatus: row.providerReviewStatus,
+        providerDecisionNote: row.providerDecisionNote, providerPickupAddressShared: row.providerPickupAddressShared,
+        pickupAddress: address ? { fullName: address.fullName, phone: address.phone, street: address.street, city: address.city, state: address.state, pincode: address.pincode } : null,
+        providerReturnAddress: row.providerReturnAddress || null,
+        returnPickup: { status: row.returnPickupStatus, carrier: row.returnPickupCarrier, trackingId: row.returnPickupTrackingId, trackingUrl: row.returnPickupTrackingUrl, bookedAt: row.returnPickupBookedAt },
+        forwardedAt: row.providerForwardedAt,
+      };
+    }) });
+  });
+
+  app.post('/api/provider/returns/:id/review', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({
+      action: z.enum(['approve', 'reject']),
+      warehouseId: z.string().uuid().optional(),
+      note: z.string().trim().max(1000).optional().default(''),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_RETURN_REVIEW' });
+    const request = await ReturnRequestModel.findOne({ _id: req.params.id, providerId: user._id, providerReviewStatus: 'PENDING' });
+    if (!request) return res.status(404).json({ error: 'PROVIDER_RETURN_REVIEW_NOT_FOUND' });
+    if (parsed.data.action === 'approve') {
+      if (!parsed.data.warehouseId) return res.status(400).json({ error: 'RETURN_WAREHOUSE_REQUIRED' });
+      const warehouse = await getProviderWarehouse(user._id, parsed.data.warehouseId) as any;
+      request.providerReturnAddress = {
+        warehouseId: String(warehouse.id), name: warehouse.name, contactName: warehouse.contact_name,
+        contactPhone: warehouse.contact_phone, addressLine1: warehouse.address_line1, addressLine2: warehouse.address_line2 || '',
+        city: warehouse.city, state: warehouse.state, postalCode: warehouse.postal_code, countryCode: warehouse.country_code || 'IN',
+      };
+      request.providerReviewStatus = 'APPROVED';
+    } else {
+      request.providerReviewStatus = 'REJECTED';
+    }
+    request.providerDecisionNote = parsed.data.note;
+    request.providerReviewedAt = new Date();
+    await request.save();
+    await providerAudit(user, 'PROVIDER_RETURN_REVIEWED', user._id, String(request._id), { action: parsed.data.action });
+    res.json({ returnRequest: { id: String(request._id), providerReviewStatus: request.providerReviewStatus, providerDecisionNote: request.providerDecisionNote, providerReturnAddress: request.providerReturnAddress } });
+  });
+
+  app.post('/api/provider/returns/:id/pickup', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({ carrierName: z.string().trim().min(2).max(100), trackingId: z.string().trim().min(3).max(120), trackingUrl: z.string().url().max(2048).optional().or(z.literal('')) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_RETURN_PICKUP_DETAILS' });
+    const request = await ReturnRequestModel.findOne({ _id: req.params.id, providerId: user._id, providerReviewStatus: 'APPROVED', providerPickupAddressShared: true });
+    if (!request) return res.status(409).json({ error: 'PROVIDER_RETURN_NOT_APPROVED_OR_PICKUP_ADDRESS_NOT_SHARED' });
+    request.returnPickupStatus = 'BOOKED';
+    request.returnPickupBookedBy = user._id;
+    request.returnPickupCarrier = parsed.data.carrierName;
+    request.returnPickupTrackingId = parsed.data.trackingId;
+    request.returnPickupTrackingUrl = parsed.data.trackingUrl || '';
+    request.returnPickupBookedAt = new Date();
+    await request.save();
+    await providerAudit(user, 'PROVIDER_RECORDED_RETURN_PICKUP', user._id, String(request._id), { carrierName: parsed.data.carrierName });
+    res.json({ returnPickup: { status: request.returnPickupStatus, carrier: request.returnPickupCarrier, trackingId: request.returnPickupTrackingId, trackingUrl: request.returnPickupTrackingUrl } });
+  });
+
+  app.post('/api/seller/returns/:id/pickup', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const parsed = z.object({ carrierName: z.string().trim().min(2).max(100), trackingId: z.string().trim().min(3).max(120), trackingUrl: z.string().url().max(2048).optional().or(z.literal('')) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_RETURN_PICKUP_DETAILS' });
+    const request = await ReturnRequestModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }), providerReviewStatus: 'APPROVED' });
+    if (!request) return res.status(409).json({ error: 'PROVIDER_RETURN_NOT_APPROVED' });
+    request.returnPickupStatus = 'BOOKED';
+    request.returnPickupBookedBy = user._id;
+    request.returnPickupCarrier = parsed.data.carrierName;
+    request.returnPickupTrackingId = parsed.data.trackingId;
+    request.returnPickupTrackingUrl = parsed.data.trackingUrl || '';
+    request.returnPickupBookedAt = new Date();
+    await request.save();
+    await providerAudit(user, 'SELLER_RECORDED_RETURN_PICKUP', request.providerId || '', String(request._id), { carrierName: parsed.data.carrierName });
+    res.json({ returnPickup: { status: request.returnPickupStatus, carrier: request.returnPickupCarrier, trackingId: request.returnPickupTrackingId, trackingUrl: request.returnPickupTrackingUrl } });
   });
 
   app.patch('/api/seller/returns/:id', async (req, res) => {
