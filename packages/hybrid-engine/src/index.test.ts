@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 import { BloomHint, decorrelatedJitter, rankCarriersHybrid, runSaga, SlidingWindowCircuitBreaker } from "./index.js";
 
 test("TOPSIS plus epsilon-greedy ranks serviceable carriers and explores deterministically",()=>{
- const result=rankCarriersHybrid([
+ const candidates=[
   {id:"a",cost:100,transitHours:24,rtoRate:.05,sellerPriority:1,serviceable:true},
   {id:"b",cost:80,transitHours:36,rtoRate:.1,sellerPriority:2,serviceable:true},
   {id:"c",cost:1,transitHours:1,rtoRate:0,sellerPriority:0,serviceable:false},
- ],{cost:.4,transit:.3,rto:.2,sellerPriority:.1},{a:{attempts:10,successful:9,rto:0},b:{attempts:10,successful:5,rto:3}},{epsilon:1,random:()=>0});
- assert.equal(result.length,2); assert.equal(result[0].id,"b"); assert.equal(result[0].explored,true);
+ ];
+ const weights={cost:.4,transit:.3,rto:.2,sellerPriority:.1};
+ const feedback={a:{attempts:10,successful:9,rto:0},b:{attempts:10,successful:5,rto:3}};
+ const baseline=rankCarriersHybrid(candidates,weights,feedback,{epsilon:0,random:()=>0});
+ const result=rankCarriersHybrid(candidates,weights,feedback,{epsilon:1,random:()=>0});
+ assert.equal(result.length,2); assert.equal(result[0].explored,true); assert.notEqual(result[0].id,baseline[0].id);
 });
 test("Bloom hint remembers inserted event IDs",()=>{const b=new BloomHint();b.add("evt-1");assert.equal(b.has("evt-1"),true);});
 test("decorrelated jitter stays within cap",()=>{assert.equal(decorrelatedJitter(1000,100,2000,()=>1),2000);});
