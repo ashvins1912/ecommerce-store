@@ -19,7 +19,8 @@ const ShippingAddressSchema = new Schema(
 
 const UserSchema = new Schema(
   {
-    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], default: 'BUYER', index: true },\n    isRootSuperuser: { type: Boolean, default: false, index: true },
+    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], default: 'BUYER', index: true },
+    isRootSuperuser: { type: Boolean, default: false, index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     avatarUrl: { type: String },
@@ -543,7 +544,11 @@ export const ReviewModel: Model<any> =
   mongoose.models.Review || mongoose.model('Review', ReviewSchema);
 export const OrderModel: Model<any> =
   mongoose.models.Order || mongoose.model('Order', OrderSchema);
-export const RootInviteModel: Model<any> =\n  mongoose.models.RootInvite || mongoose.model('RootInvite', RootInviteSchema);\nexport const RootAccessAuditModel: Model<any> =\n  mongoose.models.RootAccessAudit || mongoose.model('RootAccessAudit', RootAccessAuditSchema);\nexport const SellerInviteModel: Model<any> =
+export const RootInviteModel: Model<any> =
+  mongoose.models.RootInvite || mongoose.model('RootInvite', RootInviteSchema);
+export const RootAccessAuditModel: Model<any> =
+  mongoose.models.RootAccessAudit || mongoose.model('RootAccessAudit', RootAccessAuditSchema);
+export const SellerInviteModel: Model<any> =
   mongoose.models.SellerInvite || mongoose.model('SellerInvite', SellerInviteSchema);
 export const AuthSessionModel: Model<any> =
   mongoose.models.AuthSession || mongoose.model('AuthSession', AuthSessionSchema);
