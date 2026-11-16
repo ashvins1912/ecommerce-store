@@ -1609,7 +1609,6 @@ export default function App() {
         onClose={() => setAuthOpen(false)}
         user={user}
         initialMode={authInitialMode}
-        onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
           setActivePage(payload.user?.role === 'SELLER' || payload.user?.role === 'ADMIN' ? 'seller' : 'store');
