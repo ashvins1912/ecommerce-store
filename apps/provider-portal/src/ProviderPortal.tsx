@@ -69,7 +69,8 @@ export default function ProviderPortal() {
   const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [carrierProviderId, setCarrierProviderId] = useState('');
   const [carrierCredentials, setCarrierCredentials] = useState<Record<string, string>>({});
-  const [carrierWebhookSecret, setCarrierWebhookSecret] = useState('');\n  const [carrierWebhookCode, setCarrierWebhookCode] = useState('');
+  const [carrierWebhookSecret, setCarrierWebhookSecret] = useState('');
+  const [carrierWebhookCode, setCarrierWebhookCode] = useState('');
   const [warehouseForm, setWarehouseForm] = useState({ warehouseCode: 'MAIN', name: 'Main pickup warehouse', contactName: '', contactPhone: '', addressLine1: '', addressLine2: '', city: '', state: '', postalCode: '', countryCode: 'IN', isDefault: true });
   const [delegationSellerId, setDelegationSellerId] = useState('');
   const [delegationCarrierCodes, setDelegationCarrierCodes] = useState<string[]>([]);
@@ -276,7 +277,8 @@ export default function ProviderPortal() {
     setShippingSaving(true);
     try {
       const result = await api<any>('/api/provider/logistics/carriers', { method: 'POST', body: JSON.stringify({ providerId: carrierProviderId, credentials: carrierCredentials, priorityRank: 100 }) });
-      setCarrierWebhookSecret(result.carrier?.webhookSecret || '');\n      setCarrierWebhookCode(shippingProviders.find((provider) => provider.id === carrierProviderId)?.code || '');
+      setCarrierWebhookSecret(result.carrier?.webhookSecret || '');
+      setCarrierWebhookCode(shippingProviders.find((provider) => provider.id === carrierProviderId)?.code || '');
       setCarrierCredentials({});
       setNotice('Courier account validated and encrypted. Copy its webhook secret if provided.');
       await refresh();
