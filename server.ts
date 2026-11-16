@@ -134,7 +134,7 @@ import type {
   User,
 } from './src/shared/types.js';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 const escapeRegex = (value: string) => value.split('').map((character) => '.^$*+?()[]{}|\\'.includes(character) ? '\\' + character : character).join('');
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -317,7 +317,12 @@ async function startServer() {
 
   // --- Health ---
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, dbMode: dbStatus.mode });
+    const ready = process.env.NODE_ENV !== 'production' || dbStatus.mode === 'mongodb';
+    res.status(ready ? 200 : 503).json({
+      ok: ready,
+      status: ready ? 'ready' : 'not_ready',
+      dbMode: dbStatus.mode,
+    });
   });
 
   // --- Logistics: separate PostgreSQL persistence boundary ---
@@ -3974,6 +3979,14 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Kala & Karat server running on http://0.0.0.0:${PORT} (DB mode: ${dbStatus.mode})`);
   });
+
+  // On small single-instance deployments, run the durable logistics queue consumer
+  // in this process. Jobs remain persisted in Supabase and resume after a cold start.
+  if (process.env.RUN_LOGISTICS_WORKER === '1') {
+    void import('./apps/logistics-worker/src/run.js').catch((error) => {
+      console.error('Could not start the co-located logistics worker:', error);
+    });
+  }
 }
 
 startServer();
