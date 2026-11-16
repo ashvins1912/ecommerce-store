@@ -2188,7 +2188,8 @@ async function startServer() {
     const sortField = ({ title: 'title', status: 'status', price: 'basePricePaise', createdAt: 'createdAt', updatedAt: 'updatedAt' } as Record<string, string>)[sortKey] || 'updatedAt';
     const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
     const filter: Record<string, any> = { providerId: user._id };
-    if (query) filter.$or = [{ title: { $regex: query, $options: 'i' } }, { category: { $regex: query, $options: 'i' } }, { brand: { $regex: query, $options: 'i' } }];
+    const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
+    filter.$or = [{ title: { $regex: escapedQuery, $options: 'i' } }, { category: { $regex: escapedQuery, $options: 'i' } }, { brand: { $regex: escapedQuery, $options: 'i' } }];
     if (status && status !== 'ALL') filter.status = status;
     const [total, products] = await Promise.all([
       ProviderProductModel.countDocuments(filter),
@@ -2370,7 +2371,8 @@ async function startServer() {
       status: { $in: ['Packed', 'Shipped', 'Out for Delivery', 'Delivered'] },
     };
     if (status && status !== 'ALL') filter.status = status;
-    if (query) filter.$or = [{ orderNumber: { $regex: query, $options: 'i' } }, { _id: { $regex: query, $options: 'i' } }];
+    const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
+    filter.$or = [{ title: { $regex: escapedQuery, $options: 'i' } }, { category: { $regex: escapedQuery, $options: 'i' } }, { brand: { $regex: escapedQuery, $options: 'i' } }];
     const [total, orders] = await Promise.all([
       OrderModel.countDocuments(filter),
       OrderModel.find(filter).select('_id orderNumber sellerId items status courierTracking createdAt updatedAt paymentMode paymentStatus').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
@@ -2442,7 +2444,8 @@ async function startServer() {
     const sortField = ({ amount: 'amountPaise', status: 'status', createdAt: 'createdAt', orderId: 'orderId', quantity: 'quantity' } as Record<string, string>)[sortKey] || 'createdAt';
     const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
     const filter: Record<string, any> = { providerId: user._id };
-    if (query) filter.$or = [{ orderId: { $regex: query, $options: 'i' } }, { utrReference: { $regex: query, $options: 'i' } }, { status: { $regex: query, $options: 'i' } }];
+    const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
+    filter.$or = [{ title: { $regex: escapedQuery, $options: 'i' } }, { category: { $regex: escapedQuery, $options: 'i' } }, { brand: { $regex: escapedQuery, $options: 'i' } }];
     if (status && status !== 'ALL') filter.status = status;
     const [total, settlements] = await Promise.all([
       ProviderSettlementModel.countDocuments(filter),
