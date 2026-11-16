@@ -1781,6 +1781,8 @@ async function startServer() {
       if ((product.variants || []).length && !variant) throw new Error('PRODUCT_VARIANT_UNAVAILABLE');
       return {
         ...item,
+        // Persist canonical Mongo product IDs; public slugs are lookup aliases only.
+        productId: String(product._id),
         sellerId: String(product.sellerId),
         title: product.title,
         slug: product.slug,
@@ -1814,10 +1816,7 @@ async function startServer() {
       const sellerLines = new Map<string, typeof itemsToOrder>();
       for (const line of itemsToOrder) sellerLines.set(line.sellerId, [...(sellerLines.get(line.sellerId) || []), line]);
       for (const [sellerId, lines] of sellerLines) {
-        const products = lines.map(line => {
-          const lineIndex = submittedItems.findIndex(item => item.productId === line.productId && item.variantSku === line.variantSku);
-          return lineIndex >= 0 ? itemProducts[lineIndex] : null;
-        });
+        const products = lines.map(line => itemProducts.find(product => product && String(product._id) === String(line.productId)) || null);
         const weightGrams = 100 + lines.reduce((sum, line, lineIndex) => {
           const product = products[lineIndex] as any;
           return sum + Math.max(1, Number(product?.shippingWeightGrams) || 500) * line.quantity;
