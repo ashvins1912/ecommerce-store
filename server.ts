@@ -2832,7 +2832,7 @@ async function startServer() {
     const profile = await ProviderProfileModel.findOne({ userId: user._id }).lean();
     if (!profile || !(profile.linkedSellerIds || []).includes(parsed.data.sellerId)) return res.status(403).json({ error: 'SELLER_NOT_LINKED_TO_PROVIDER' });
     const configs = await listProviderCarrierConfigs(user._id);
-    const configuredCodes = new Set(configs.filter((c: any) => c.is_active).map((c: any) => String(c.logistics_providers?.code || '').toLowerCase()));
+    const configuredCodes = new Set((configs || []).filter((c: any) => c.is_active).map((c: any) => String(c.logistics_providers?.code || '').toLowerCase()));
     if (parsed.data.carrierCodes.some(code => !configuredCodes.has(code))) return res.status(409).json({ error: 'REQUESTED_CARRIER_NOT_CONFIGURED_BY_PROVIDER' });
     const existing = await ProviderFulfillmentDelegationModel.findOne({ sellerId: parsed.data.sellerId, providerId: user._id });
     if (existing?.status === 'ACTIVE') return res.status(409).json({ error: 'FULFILLMENT_DELEGATION_ALREADY_ACTIVE' });
