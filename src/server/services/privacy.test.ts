@@ -78,14 +78,15 @@ test('provider product DTO is an allowlist and drops unexpected customer fields'
     title: 'Bracelet', basePricePaise: 1000, status: 'APPROVED',
     customer: { email: 'buyer@example.com' }, recipientPhone: 'secret-phone',
     privateMetadata: 'must-not-leak',
-    negotiationHistory: [{ sellerId: 'seller-secret', actorId: 'actor-secret', comment: 'buyer phone +919999999999', action: 'NEGOTIATION', fields: ['basePricePaise'], targetPricePaise: 900 }],
-    negotiationHistory: [{ action: 'COUNTER', comment: 'buyer@example.com +919999999999', targetPricePaise: 900 }],
+    negotiationHistory: [{ sellerId: 'seller-secret', actorId: 'actor-secret', comment: 'buyer@example.com +919999999999', action: 'COUNTER', fields: ['basePricePaise'], targetPricePaise: 900 }],
   });
   assert.equal(dto.title, 'Bracelet');
   assert.equal('customer' in dto, false);
   assert.equal('recipientPhone' in dto, false);
   assert.equal('privateMetadata' in dto, false);
   assert.equal(JSON.stringify(dto).includes('buyer@example.com'), false);
+  assert.equal(JSON.stringify(dto).includes('seller-secret'), false);
+  assert.equal(JSON.stringify(dto).includes('actor-secret'), false);
   assert.equal((dto.negotiationHistory as any[])[0].comment, undefined);
 });
 
