@@ -1054,6 +1054,7 @@ export async function updateProductDiscountOrStock(
     salePrice?: number;
     basePrice?: number;
     totalStock?: number;
+    shippingWeightGrams?: number;
     title?: string;
     occasions?: OccasionType[];
     seasons?: SeasonType[];
@@ -1107,6 +1108,7 @@ export async function updateProductDiscountOrStock(
     ...(typeof updates.totalStock === 'number'
       ? { totalStock: updates.totalStock, variants: nextVariants }
       : {}),
+    ...(typeof updates.shippingWeightGrams === 'number' ? { shippingWeightGrams: updates.shippingWeightGrams } : {}),
     basePrice,
     discountPercent,
     salePrice,
