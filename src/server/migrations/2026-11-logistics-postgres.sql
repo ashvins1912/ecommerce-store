@@ -86,6 +86,10 @@ CREATE OR REPLACE FUNCTION claim_logistics_job()
 RETURNS SETOF logistics_jobs LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $logistics$
 DECLARE claimed logistics_jobs;
 BEGIN
+ -- Reconcile a carrier booking committed before the worker crashed while acknowledging the job.
+ UPDATE logistics_jobs j SET status='COMPLETED',completed_at=COALESCE(completed_at,now()),locked_at=NULL
+ WHERE j.status IN ('PROCESSING','PENDING')
+  AND EXISTS(SELECT 1 FROM shipments s WHERE s.id=(j.payload->>'shipmentId')::uuid AND s.booking_status='BOOKED');
  UPDATE logistics_jobs SET status='FAILED',locked_at=NULL,last_error=COALESCE(last_error,'Worker lease expired after maximum attempts')
  WHERE status='PROCESSING' AND locked_at<now()-interval '10 minutes' AND attempts>=max_attempts;
  SELECT * INTO claimed FROM logistics_jobs
