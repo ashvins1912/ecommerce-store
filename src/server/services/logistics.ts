@@ -54,35 +54,35 @@ export async function createSellerWarehouse(input: {
   sellerId:string;warehouseCode:string;name:string;contactName:string;contactPhone:string;
   addressLine1:string;addressLine2?:string;locality?:string;city:string;state:string;postalCode:string;countryCode:string;isDefault:boolean;
 }) {
-  if (input.isDefault) await db().from('warehouses').update({ is_default: false }).eq('seller_id', input.sellerId);
-  return unwrap(await db().from('warehouses').insert({
-    seller_id:input.sellerId,warehouse_code:input.warehouseCode,name:input.name,contact_name:input.contactName,
-    contact_phone:input.contactPhone,address_line1:input.addressLine1,address_line2:input.addressLine2 || null,
-    locality:input.locality || null,city:input.city,state:input.state,postal_code:input.postalCode,
-    country_code:input.countryCode || 'IN',is_default:input.isDefault,
-  }).select('id,warehouse_code,name,contact_name,contact_phone,address_line1,address_line2,locality,city,state,postal_code,country_code,is_default,is_active').single());
+ const rows=unwrap(await db().rpc('create_seller_warehouse',{
+  p_seller_id:input.sellerId,
+  p_warehouse:{warehouse_code:input.warehouseCode,name:input.name,contact_name:input.contactName,contact_phone:input.contactPhone,
+   address_line1:input.addressLine1,address_line2:input.addressLine2||null,locality:input.locality||null,
+   city:input.city,state:input.state,postal_code:input.postalCode,country_code:input.countryCode||'IN',is_default:input.isDefault},
+ })) as any[];
+ return rows[0];
 }
 export async function createShipmentIntent(input: {
-  orderId:string; sellerId:string; carrierConfigId:string; warehouseId:string; codAmountMinor:number; currency:string;
-  weightGrams:number; destinationPostalCode:string; destinationCountryCode:string; declaredValueMinor:number; serviceCode?:string;
+ orderId:string;sellerId:string;carrierConfigId:string;warehouseId:string;codAmountMinor:number;currency:string;
+ weightGrams:number;destinationPostalCode:string;destinationCountryCode:string;declaredValueMinor:number;serviceCode?:string;
+ recipientName:string;recipientPhone:string;recipientEmail?:string;destinationAddressLine1:string;destinationAddressLine2?:string;
+ destinationCity:string;destinationState:string;orderDate:string;
+ items:Array<{name:string;sku:string;quantity:number;unitPrice:number}>;
 }) {
-  const config = unwrap(await db().from('seller_carrier_configs').select('id,provider_id,priority_rank,logistics_providers(code,name,type)')
-    .eq('id',input.carrierConfigId).eq('seller_id',input.sellerId).eq('is_active',true).single()) as any;
-  const warehouse = unwrap(await db().from('warehouses').select('id').eq('id',input.warehouseId).eq('seller_id',input.sellerId).eq('is_active',true).single());
-  const shipment = unwrap(await db().from('shipments').insert({
-    order_id:input.orderId,seller_carrier_config_id:config.id,warehouse_id:(warehouse as any).id,
-    normalized_status:10,cod_amount_minor:input.codAmountMinor,currency:input.currency,
-  }).select('id,order_id,seller_carrier_config_id,warehouse_id,normalized_status,cod_amount_minor,currency,created_at').single()) as any;
-  const job = unwrap(await db().from('logistics_jobs').insert({
-    job_type:'CREATE_SHIPMENT',payload:{
-      shipmentId:shipment.id,carrierConfigId:config.id,providerCode:config.logistics_providers.code,
-      orderId:input.orderId,sellerId:input.sellerId,warehouseId:input.warehouseId,
-      weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,
-      destinationCountryCode:input.destinationCountryCode,declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,
-      codAmountMinor:input.codAmountMinor,currency:input.currency,
-    },status:'PENDING',attempts:0,max_attempts:5,
-  }).select('id').single()) as any;
-  return { shipment, jobId:job.id };
+ const result=unwrap(await db().rpc('create_shipment_intent',{
+  p_order_id:input.orderId,p_seller_id:input.sellerId,p_carrier_config_id:input.carrierConfigId,p_warehouse_id:input.warehouseId,
+  p_cod_amount_minor:input.codAmountMinor,p_currency:input.currency,
+  p_payload:{
+   orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,warehouseId:input.warehouseId,
+   weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,destinationCountryCode:input.destinationCountryCode,
+   declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
+   recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',
+   destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',
+   destinationCity:input.destinationCity,destinationState:input.destinationState,orderDate:input.orderDate,items:input.items,
+  },
+ })) as any[];
+ const row=result[0];
+ return {shipmentId:row.shipment_id,jobId:row.job_id,duplicate:!row.created};
 }
 export async function listSellerShipments(sellerId:string) {
   const configs = unwrap(await db().from('seller_carrier_configs').select('id').eq('seller_id',sellerId)) as Array<{id:string}>;
