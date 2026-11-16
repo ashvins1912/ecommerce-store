@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, feat/seller-route-auth-redesign, feat/commerce-complete-workflows]
   push:
-    branches: [feat/end-to-end-hybrid-optimization, feat/commerce-complete-workflows, feat/provider-supply-settlement-workflows, feat/unified-role-dashboards-tailwind]
+    branches: [feat/end-to-end-hybrid-optimization, feat/commerce-complete-workflows, feat/provider-supply-settlement-workflows, feat/unified-role-dashboards-tailwind, deployment-free-tier-blueprint]
 
 jobs:
   typecheck-and-build:
