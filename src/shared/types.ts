@@ -439,6 +439,7 @@ export interface ProductListResponse {
   totalPages: number;
   didYouMean?: string | null;
   categoryTop10Thresholds?: Record<string, number>;
+  nextCursor?: string | null;
 }
 
 export interface OrderListResponse {
