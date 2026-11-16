@@ -78,12 +78,19 @@ export class ShiprocketAdapter implements ICarrierProvider {
    awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
    if(!awb)throw new Error('SHIPROCKET_AWB_ASSIGN_FAILED:'+String(assigned.message||assigned.response?.message||'AWB missing'));
   }
+  const pickup=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/pickup',{method:'POST',headers,body:{shipment_id:shipmentId}});
+  if(pickup.status===false||pickup.pickup_status===0||Number(pickup.status_code)>=400)throw new Error('SHIPROCKET_PICKUP_SCHEDULE_FAILED:'+String(pickup.message||pickup.response||'pickup rejected'));
+  let manifestUrl:string|undefined;
+  try{
+   const manifest=await this.http.request<any>(this.baseUrl+'/v1/external/manifests/generate',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
+   manifestUrl=manifest.manifest_url||manifest.url||manifest.response?.manifest_url||manifest.data?.manifest_url;
+  }catch{/* Manifest can be generated from the Shiprocket panel after pickup is accepted. */}
   let labelUrl:string|undefined;
   try{
    const label=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/label',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
    labelUrl=label.label_url||label.response?.label_url||label.data?.label_url;
   }catch{/* Label can be generated later from the Shiprocket panel. */}
-  return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,estimatedDeliveryAt:new Date(Date.now()+r.quote.estimatedTransitHours*3600000).toISOString(),status:'CREATED'};
+  return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,manifestUrl,pickupScheduled:true,estimatedDeliveryAt:new Date(Date.now()+r.quote.estimatedTransitHours*3600000).toISOString(),status:'CREATED'};
  }
  async getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>{
   const x=await this.http.request<any>(this.baseUrl+'/v1/external/courier/track/awb/'+encodeURIComponent(awb),{method:'GET',headers:await this.headers(c)});
