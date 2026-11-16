@@ -31,11 +31,12 @@ export async function saveSellerCarrierConfig(input: { sellerId: string; provide
   const encryptedCredentials = encryptField(JSON.stringify(credentials));
   const webhookSecretPlain = crypto.randomBytes(32).toString('hex');
   const webhookSecret = encryptField(webhookSecretPlain);
-  return unwrap(await db().from('seller_carrier_configs').upsert({
+  const carrier = unwrap(await db().from('seller_carrier_configs').upsert({
     seller_id: input.sellerId, provider_id: input.providerId,
     encrypted_credentials: encryptedCredentials, webhook_secret: webhookSecret,
     priority_rank: input.priorityRank, is_active: true,
-  }, { onConflict: 'seller_id,provider_id' }).select('id,provider_id,priority_rank,is_active').single()).then((carrier:any) => ({ ...carrier, webhookSecret: webhookSecretPlain }));
+  }, { onConflict: 'seller_id,provider_id' }).select('id,provider_id,priority_rank,is_active').single());
+  return { ...(carrier as any), webhookSecret: webhookSecretPlain };
 }
 export async function setSellerCarrierActive(sellerId: string, configId: string, isActive: boolean) {
   return unwrap(await db().from('seller_carrier_configs').update({ is_active: isActive, updated_at: new Date().toISOString() })
