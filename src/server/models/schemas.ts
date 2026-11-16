@@ -459,7 +459,11 @@ const PaymentEventSchema = new Schema({
   provider: { type: String, enum: ['razorpay', 'stripe'], required: true },
   eventId: { type: String, required: true },
   orderId: { type: String, required: true, index: true },
-  processedAt: Date,
+  status: { type: String, enum: ['PROCESSING', 'PROCESSED', 'FAILED'], default: 'PROCESSING', index: true },
+  processingLeaseUntil: { type: Date, default: null, index: true },
+  attempts: { type: Number, default: 1, min: 1 },
+  lastError: { type: String, default: null },
+  processedAt: { type: Date, default: null },
   payloadHash: { type: String, required: true },
 }, { timestamps: true });
 PaymentEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
