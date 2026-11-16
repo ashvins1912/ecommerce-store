@@ -63,7 +63,8 @@ import { apiFetch, compressAndUploadImage, formatINR, setClientSessionTokens } f
 import { useI18n } from '../lib/i18n';
 import { CustomerSearchModal, type AssignableCustomer } from './CustomerSearchModal';
 import { ProviderManagementPanel } from './ProviderManagementPanel';
-import { LogisticsManagementPanel } from './LogisticsManagementPanel';\nimport { RootSuperuserPanel } from './RootSuperuserPanel';
+import { LogisticsManagementPanel } from './LogisticsManagementPanel';
+import { RootSuperuserPanel } from './RootSuperuserPanel';
 
 const OCCASIONS: OccasionType[] = [
   'Wedding',
@@ -945,7 +946,16 @@ export function SellerHubView({
       `Invitation to join Kala & Karat as a Seller${inv.storeName ? ` — ${inv.storeName}` : ''}`
     );
     const body = encodeURIComponent(
-      `Hello,\n\nYou have been invited by ${inv.invitedByName} (Kala & Karat Admin) to onboard your atelier${inv.storeName ? ` (${inv.storeName})` : ''} on Kala & Karat.\n\nOpen your private onboarding link:\n${inv.inviteUrl}\n\n${inv.note ? `Admin note: ${inv.note}\n\n` : ''}Expires: ${new Date(inv.expiresAt).toLocaleDateString('en-IN')}`
+      `Hello,
+
+You have been invited by ${inv.invitedByName} (Kala & Karat Admin) to onboard your atelier${inv.storeName ? ` (${inv.storeName})` : ''} on Kala & Karat.
+
+Open your private onboarding link:
+${inv.inviteUrl}
+
+${inv.note ? `Admin note: ${inv.note}
+
+` : ''}Expires: ${new Date(inv.expiresAt).toLocaleDateString('en-IN')}`
     );
     return `mailto:${encodeURIComponent(inv.email || '')}?subject=${subject}&body=${body}`;
   };
@@ -1433,7 +1443,8 @@ export function SellerHubView({
   ];
 
   return (
-    <main className="mx-auto max-w-[1320px] px-4 sm:px-6 lg:px-8 py-10 space-y-8">\n      {user?.isRootSuperuser === true && <RootSuperuserPanel />}
+    <main className="mx-auto max-w-[1320px] px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+      {user?.isRootSuperuser === true && <RootSuperuserPanel />}
       {/* Top Seller / Admin Breadcrumb & Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E8E6E1] pb-6">
         <div>
