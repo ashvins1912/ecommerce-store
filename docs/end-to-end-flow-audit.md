@@ -178,3 +178,8 @@ The CI workflow now runs the existing logistics tests and the new hybrid-engine 
 - Added bounded LRU-K L1 cache and integrated it with the existing Redis L2 logistics cache.
 - Added process-local single-flight coalescing around carrier quote cache misses; negative quote results receive a short cache lifetime.
 - Added deterministic Merkle snapshot and added/updated/deleted diff primitives with unit coverage. They are ready for a future catalog synchronization endpoint but are not yet wired to a client sync API.
+
+
+### Additional reliability and query boundaries
+- Seller WhatsApp order notification now uses a per-order lease and a sent timestamp, allowing an idempotent checkout retry to finish a notification after a process interruption. The external WhatsApp send + Mongo acknowledgement remains at-least-once across a crash in that narrow boundary.
+- Catalog keyset sort indexes were added for trend, newest, sales and price feeds. Production deployments with Mongoose auto-indexing disabled must create these indexes through their normal database migration process.
