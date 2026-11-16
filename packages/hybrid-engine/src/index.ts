@@ -201,16 +201,18 @@ export class SingleFlight {
 export type MerkleRecord = { id: string; value: unknown };
 export type MerkleSnapshot = { root: string; leaves: Record<string, string> };
 function stableJson(value: unknown): string {
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     return `{${Object.keys(obj).sort().map(key => `${JSON.stringify(key)}:${stableJson(obj[key])}`).join(',')}}`;
   }
-  return JSON.stringify(value);
+  const encoded = JSON.stringify(value);
+  return encoded === undefined ? 'null' : encoded;
 }
 const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
 export function buildMerkleSnapshot(records: readonly MerkleRecord[]): MerkleSnapshot {
-  const leaves: Record<string, string> = {};
+  const leaves: Record<string, string> = Object.create(null);
   for (const record of [...records].sort((a,b)=>a.id.localeCompare(b.id))) {
     if (!record.id || Object.prototype.hasOwnProperty.call(leaves,record.id)) throw new Error("DUPLICATE_MERKLE_RECORD_ID");
     leaves[record.id] = sha256(stableJson(record.value));
