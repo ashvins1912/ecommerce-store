@@ -62,7 +62,7 @@ function status(v:string):ShipmentResult['status']{
   assigned_for_delivery:'OUT_FOR_DELIVERY',ofd:'OUT_FOR_DELIVERY',delivered:'DELIVERED',partially_delivered:'DELIVERED',
   nc:'NDR',na:'NDR',on_hold:'NDR',seller_not_contactable:'NDR',pickup_not_attempted:'NDR',reopen_ndr:'NDR',
   rts:'RTO_INITIATED',rts_in_process:'RTO_INITIATED',rto:'RTO_INITIATED',rts_d:'RTO_DELIVERED',rto_d:'RTO_DELIVERED',
-  cancelled:'CANCELLED',cancelled_by_customer:'CANCELLED',lost:'NDR',
+  cancelled:'CANCELLED',cancelled_by_customer:'CANCELLED',cancelled_by_client:'CANCELLED',lost:'NDR',
  };
  if(!m[k])throw new Error('UNKNOWN_SHADOWFAX_STATUS:'+v);return m[k];
 }
