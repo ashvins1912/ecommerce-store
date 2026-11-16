@@ -214,8 +214,8 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
 
  const regionCode=input.destinationPostalCode.slice(0,3)||'GLOBAL';
  let feedbackRows:any[]=[];
+ const feedbackCacheKey=`carrier-feedback:${input.sellerId}:${regionCode}`;
  try{
-  const feedbackCacheKey=`carrier-feedback:${input.sellerId}:${regionCode}`;
   const cachedFeedback=await getLogisticsRateCache<any[]>(feedbackCacheKey);
   if(cachedFeedback)feedbackRows=cachedFeedback;
   else{
@@ -228,6 +228,7 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
   // Backward-compatible rollout: until the SQL migration is applied, use a neutral prior.
   console.warn('Adaptive carrier feedback unavailable; using neutral prior:',(error as Error).message);
   feedbackRows=[];
+  await setLogisticsRateCache(feedbackCacheKey,[],30);
  }
  const feedbackByService=new Map<string,any>();
  for(const row of feedbackRows)feedbackByService.set(`${row.provider_code}:${row.service_code}`,row);
@@ -258,14 +259,14 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
  const ranked=rankCarriersHybrid(candidates.map(candidate=>{
   const row=feedbackByService.get(`${candidate.providerCode}:${candidate.quote.serviceCode}`);
   const attempts=Number(row?.attempts||0),delivered=Number(row?.delivered_count||0),rto=Number(row?.rto_count||0);
-  banditFeedback[candidate.id]={attempts,successful:delivered,rto};
+  banditFeedback[candidate.id]={attempts:attempts>=5?attempts:0,successful:attempts>=5?delivered:0,rto:attempts>=5?rto:0};
   return {
    id:candidate.id,cost:candidate.quote.amountMinor,transitHours:candidate.quote.estimatedTransitHours,
    rtoRate:attempts>=5?rto/attempts:0.15,sellerPriority:Number(candidate.priorityRank||100),
    serviceable:candidate.quote.serviceable,
   };
  }),{cost:0.4,transit:0.3,rto:0.2,sellerPriority:0.1},banditFeedback,{
-  epsilon:Math.max(0,Math.min(0.25,Number(process.env.CARRIER_EPSILON||0.08))),
+  epsilon:(()=>{const raw=Number(process.env.CARRIER_EPSILON||0.08);return Number.isFinite(raw)?Math.max(0,Math.min(0.25,raw)):0.08;})(),
  });
  const result=ranked.map(score=>{
   const match=candidates.find(candidate=>candidate.id===score.id);
