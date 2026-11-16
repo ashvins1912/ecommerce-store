@@ -263,7 +263,10 @@ function saveLocalStore(state: StoreState) {
 const localState: StoreState = loadLocalStore();
 
 export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI?.trim();
+  if (process.env.NODE_ENV === 'production' && !uri) {
+    throw new Error('MONGODB_URI_REQUIRED_IN_PRODUCTION: configure a persistent MongoDB database before starting.');
+  }
   if (uri) {
     try {
       await mongoose.connect(uri);
@@ -427,8 +430,12 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
       }
       return { mode: 'mongodb' };
     } catch (err) {
-      console.warn('MongoDB Atlas connection failed, running persistent local store:', err);
       mongoConnected = false;
+      if (process.env.NODE_ENV === 'production') {
+        console.error('Production MongoDB connection failed; refusing to start with local JSON storage.', err);
+        throw new Error('PRODUCTION_DATABASE_CONNECTION_FAILED');
+      }
+      console.warn('MongoDB connection failed, using the local development store:', err);
     }
   }
   return { mode: 'local' };
