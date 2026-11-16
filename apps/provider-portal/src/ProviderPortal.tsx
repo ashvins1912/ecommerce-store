@@ -336,6 +336,17 @@ export default function ProviderPortal() {
     finally { setShippingSaving(false); }
   };
 
+  const refreshProviderTracking = async (shipment: Shipment) => {
+    if (!shipment.appShipment?.shipmentId) return;
+    setShippingSaving(true);
+    try {
+      await api('/api/provider/shipments/' + shipment.appShipment.shipmentId + '/refresh-tracking', { method: 'POST', body: JSON.stringify({}) });
+      await refresh();
+      setNotice('Carrier tracking refreshed.');
+    } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
   const retryProviderShipment = async (shipment: Shipment) => {
     if (!shipment.appShipment?.shipmentId) return;
     setShippingSaving(true);
@@ -629,7 +640,7 @@ export default function ProviderPortal() {
                       {shipment.appShipment && <div className="mt-2 space-y-1 rounded-lg bg-sky-50 p-3 text-xs text-sky-950">
                         <p className="font-semibold">{shipment.appShipment.carrierName || 'App-booked carrier'} · {shipment.appShipment.bookingStatus} · AWB {shipment.appShipment.awbNumber || 'Pending'}</p>
                         <p>Tracking status: {({10:'Created',20:'Manifested',30:'In transit',40:'Out for delivery',50:'Delivered',60:'NDR',70:'RTO initiated',80:'RTO delivered',90:'Cancelled'} as Record<number,string>)[shipment.appShipment.statusCode] || 'Pending'}{shipment.appShipment.pickupScheduled ? ' · Pickup scheduled' : ''}{shipment.appShipment.estimatedDeliveryAt ? ' · ETA ' + new Date(shipment.appShipment.estimatedDeliveryAt).toLocaleDateString() : ''}</p>
-                        <div className="flex flex-wrap gap-3">{shipment.appShipment.labelUrl && <a className="font-semibold underline" href={shipment.appShipment.labelUrl} target="_blank" rel="noreferrer">Download label</a>}{shipment.appShipment.manifestUrl && <a className="font-semibold underline" href={shipment.appShipment.manifestUrl} target="_blank" rel="noreferrer">Manifest</a>}</div>
+                        <div className="flex flex-wrap items-center gap-3">{shipment.appShipment.labelUrl && <a className="font-semibold underline" href={shipment.appShipment.labelUrl} target="_blank" rel="noreferrer">Download label</a>}{shipment.appShipment.manifestUrl && <a className="font-semibold underline" href={shipment.appShipment.manifestUrl} target="_blank" rel="noreferrer">Manifest</a>}<button type="button" disabled={shippingSaving} onClick={() => void refreshProviderTracking(shipment)} className="font-semibold underline disabled:opacity-40">Refresh tracking</button></div>
                         {!!shipment.appShipment.trackingEvents?.length && <ol className="mt-2 space-y-1 border-l border-sky-200 pl-3">{shipment.appShipment.trackingEvents.slice(0,5).map((event,index)=><li key={event.statusCode+'-'+event.occurredAt+'-'+index}>{({10:'Created',20:'Manifested',30:'In transit',40:'Out for delivery',50:'Delivered',60:'NDR',70:'RTO initiated',80:'RTO delivered',90:'Cancelled'} as Record<number,string>)[event.statusCode] || 'Tracking update'}{event.location?' · '+event.location:''} · {new Date(event.occurredAt).toLocaleString()}</li>)}</ol>}
                         {shipment.appShipment.bookingStatus === 'FAILED' && !shipment.appShipment.awbNumber && <button type="button" onClick={() => void retryProviderShipment(shipment)} className="mt-1 rounded-md border border-sky-300 px-3 py-1.5 font-semibold">Retry booking</button>}
                       </div>}
