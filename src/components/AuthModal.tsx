@@ -12,6 +12,7 @@ import type { AuthSessionSummary, CartItem, User } from '../shared/types';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onLogout?: () => Promise<void>;
   user: User | null;
   initialMode?: 'signin' | 'signup';
   onAuthChanged: (payload: {
@@ -24,6 +25,7 @@ interface AuthModalProps {
 export function AuthModal({
   isOpen,
   onClose,
+  onLogout,
   user,
   initialMode = 'signin',
   onAuthChanged,
@@ -230,17 +232,25 @@ export function AuthModal({
   };
 
   const handleLogout = async () => {
+    if (!window.confirm('Sign out of your account? Your current session will be revoked.')) return;
+    setError(null);
     setLoading(true);
     try {
-      await apiFetch('/api/auth/logout', { method: 'POST' });
-      clearClientSessionTokens();
-      const me = await apiFetch<{
-        user: User | null;
-        likedProductIds: string[];
-        cart: CartItem[];
-      }>('/api/auth/me');
-      onAuthChanged(me);
-      onClose();
+      if (onLogout) {
+        await onLogout();
+      } else {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+        clearClientSessionTokens();
+        const me = await apiFetch<{
+          user: User | null;
+          likedProductIds: string[];
+          cart: CartItem[];
+        }>('/api/auth/me');
+        onAuthChanged(me);
+        onClose();
+      }
+    } catch (err) {
+      setError((err as Error).message || 'Unable to sign out. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -439,7 +449,7 @@ export function AuthModal({
               disabled={loading}
               className="w-full rounded-md border border-[#D6D3CD] px-4 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
             >
-              {t('auth.signOut')}
+              {loading ? 'Signing out…' : t('auth.signOut')}
             </button>
           </div>
         ) : (

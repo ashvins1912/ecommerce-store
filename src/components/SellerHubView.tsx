@@ -23,6 +23,7 @@ import {
   Image as ImageIcon,
   Link2,
   Lock,
+  LogOut,
   Mail,
   Package,
   PackageX,
@@ -126,6 +127,7 @@ interface SellerHubViewProps {
   inviteToken?: string | null;
   onInviteConsumed?: () => void;
   onReturnToStore?: () => void;
+  onLogout: () => Promise<void>;
 }
 
 function CatalogThumb({ src, alt }: { src?: string; alt: string }) {
@@ -157,9 +159,11 @@ export function SellerHubView({
   inviteToken,
   onInviteConsumed,
   onReturnToStore,
+  onLogout,
 }: SellerHubViewProps) {
   const { t, tc, to, tseason, tr, ts, totab, locale } = useI18n();
   const isAdmin = user?.role === 'ADMIN';
+  const [loggingOut, setLoggingOut] = useState(false);
   const [sellerTab, setSellerTab] = useState<SellerTab>(isAdmin ? 'invites' : 'analytics');
 
   useEffect(() => {
@@ -1449,7 +1453,7 @@ ${inv.note ? `Admin note: ${inv.note}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E8E6E1] pb-6">
         <div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6A65]">
-            <span>Seller dashboard</span>
+            <span>{user?.isRootSuperuser === true ? 'Root Super Admin · Level 0' : isAdmin ? 'Platform Administrator · Level 1' : 'Seller workspace'}</span>
             <span>/</span>
             <span className="font-medium text-[#141413]">
               {user.sellerProfile?.storeName || user.name}
@@ -1470,6 +1474,22 @@ ${inv.note ? `Admin note: ${inv.note}
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (loggingOut) return;
+              if (window.confirm('Sign out of your account? Your current session will be revoked.')) {
+                setLoggingOut(true);
+                void onLogout().catch(() => setLoggingOut(false));
+              }
+            }}
+            disabled={loggingOut}
+            aria-label={loggingOut ? 'Signing out' : 'Sign out'}
+            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs font-semibold text-[#57534E] hover:border-red-300 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#881337] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span>{loggingOut ? 'Signing out…' : 'Sign out'}</span>
+          </button>
           <div className="inline-flex max-w-full overflow-x-auto items-center gap-1 rounded-lg bg-[#F0EEE9] p-1">
             {user?.role === 'SELLER' && onReturnToStore && (
               <button
