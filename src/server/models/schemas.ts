@@ -205,6 +205,7 @@ const OrderSchema = new Schema(
     orderNumber: { type: String, required: true, unique: true, index: true },
     buyerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     checkoutIdempotencyKey: { type: String, default: undefined, immutable: true },
+    checkoutPayloadHash: { type: String, default: undefined, immutable: true },
     sellerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     items: [
       {
