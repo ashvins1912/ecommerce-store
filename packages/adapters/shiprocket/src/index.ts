@@ -110,7 +110,6 @@ export class ShiprocketAdapter implements ICarrierProvider {
   const selected=couriers.sort((a:any,b:any)=>Number(a.rate)-Number(b.rate))[0];
   if(!selected)throw new Error('SHIPROCKET_RETURN_PICKUP_NOT_SERVICEABLE');
   const orderId=r.orderId.slice(0,50);
-  const [firstName,...lastParts]=drop.name.trim().split(/\\s+/);
   const created=await this.http.request<any>(this.baseUrl+'/v1/external/orders/create/return',{method:'POST',headers,body:{
    order_id:orderId,order_date:(r.orderDate||new Date().toISOString()).slice(0,10),payment_method:'Prepaid',sub_total:Math.round(r.declaredValueMinor/100),
    pickup_customer_name:pickup.name,pickup_address:pickup.addressLine1,pickup_address_2:pickup.addressLine2||'',pickup_city:pickup.city,pickup_state:pickup.state,pickup_country:'India',pickup_pincode:Number(pickup.postalCode),pickup_email:pickup.email||r.email||'',pickup_phone:Number(pickupPhone),
