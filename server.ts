@@ -339,7 +339,7 @@ async function startServer() {
         quantitiesByCanonicalId.set(canonicalId, (quantitiesByCanonicalId.get(canonicalId) || 0) + quantity);
       }
       if ([...quantitiesByCanonicalId.values()].some(quantity => quantity > 50)) return res.status(400).json({ error: 'INVALID_ITEM_QUANTITY' });
-      if (products.length !== productIds.length) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
+      if (products.length !== requestedProductKeys.length) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
       const bySeller = new Map<string, { weightGrams: number; declaredValueMinor: number; codAmountMinor: number; prepaidRequired: boolean }>();
       for (const product of products) {
         const sellerId = String(product.sellerId);
