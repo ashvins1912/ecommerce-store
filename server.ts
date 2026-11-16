@@ -491,6 +491,7 @@ async function startServer() {
         codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
         declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
         recipientName: disclosure.policy.recipientName ? String(address.fullName) : '', recipientPhone: disclosure.policy.recipientPhone ? String(address.phone) : '', recipientEmail: disclosure.policy.recipientEmail ? (buyer?.email || '') : '',
+        disclosureAuthorizedAt: new Date().toISOString(), disclosureFields: disclosure.fields,
         destinationAddressLine1: disclosure.policy.recipientAddress ? String(address.street) : '', destinationCity: disclosure.policy.recipientAddress ? String(address.city) : '', destinationState: disclosure.policy.recipientAddress ? String(address.state) : '',
         orderDate: new Date(order.createdAt || Date.now()).toISOString(),
         items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
