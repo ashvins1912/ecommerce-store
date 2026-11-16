@@ -158,3 +158,9 @@ The CI workflow now runs the existing logistics tests and the new hybrid-engine 
 - The logistics service reads feedback with a short Redis cache, uses TOPSIS + epsilon-greedy ranking, and preserves the existing rate quote response fields for current UI clients.
 - Accepted DELIVERED/RTO_DELIVERED tracking events are fed to a SQL function that verifies the event exists in the append-only tracking log and deduplicates outcome increments by shipment/event hash.
 - Until the new SQL migration is applied, the service logs feedback unavailability and uses a neutral historical RTO prior; apply the migration before enabling the adaptive algorithm in production.
+
+
+### Provider settlement batching (P1)
+- Seller/Admin settlement batch marking now runs in one MongoDB transaction.
+- Every row is conditionally transitioned from READY_FOR_SETTLEMENT to SETTLED; if any requested row is missing, outside the seller scope or no longer payable, the entire batch aborts.
+- Audit writes happen after commit and are best-effort; the settlement state remains authoritative if audit delivery fails.
