@@ -4,7 +4,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { timingSafeEqual } from 'node:crypto';
-import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
+import { UserModel, ProductModel, OrderModel, ReturnRequestModel, RootInviteModel, RootAccessAuditModel } from './src/server/models/schemas.js';
 import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from './src/server/models/schemas.js';
 import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeProfileDto, toSellerSafeProviderProfileDto, toProviderSafeProductDto, toProviderSafeSettlementDto } from './src/server/services/privacy.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel, ProviderFulfillmentDelegationModel } from './src/server/models/providerSchemas.js';
@@ -962,6 +962,225 @@ async function startServer() {
       phone: parsed.data.mobileNumber,
     });
     res.json({ user: updated });
+  });
+
+
+  // Root superuser is a separate, immutable-at-the-application-layer break-glass identity.
+  // It is read-only across business records; only root invitations and own credential rotation mutate state.
+  const requireRootSuperuser = async (req: Request, res: Response) => {
+    const actor = await resolveActor(req, res);
+    if (!actor.user || actor.user.role !== 'ADMIN' || actor.user.isRootSuperuser !== true) {
+      res.status(403).json({ error: 'ROOT_SUPERUSER_ACCESS_REQUIRED' });
+      return null;
+    }
+    return actor.user;
+  };
+  const auditRootAccess = async (actor: User, req: Request, action: string, targetType = '', targetId = '', query = '') => {
+    await RootAccessAuditModel.create({
+      actorId: actor._id, action, targetType, targetId,
+      query: query ? crypto.createHash('sha256').update(query).digest('hex') : '',
+      ip: req.ip || '',
+    });
+  };
+
+  app.get('/api/root/overview', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    const [users, admins, sellers, providers, customers, products, orders, returns, providerProducts, settlements, pendingInvites] = await Promise.all([
+      UserModel.countDocuments(), UserModel.countDocuments({ role: 'ADMIN', isRootSuperuser: { $ne: true } }),
+      UserModel.countDocuments({ role: 'SELLER' }), UserModel.countDocuments({ role: 'PROVIDER' }),
+      UserModel.countDocuments({ role: 'BUYER' }), ProductModel.countDocuments(),
+      OrderModel.countDocuments(), ReturnRequestModel.countDocuments(), ProviderProductModel.countDocuments(),
+      ProviderSettlementModel.countDocuments(), RootInviteModel.countDocuments({ status: 'PENDING', expiresAt: { $gt: new Date() } }),
+    ]);
+    await auditRootAccess(root, req, 'ROOT_OVERVIEW_READ', 'dashboard');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ counts: { users, admins, sellers, providers, customers, products, orders, returns, providerProducts, settlements, pendingInvites } });
+  });
+
+  app.get('/api/root/users', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(50, Math.max(5, Number.parseInt(String(req.query.limit || '20'), 10) || 20));
+    const query = String(req.query.q || '').trim().slice(0, 100);
+    const role = String(req.query.role || 'ALL').toUpperCase();
+    const sortKey = String(req.query.sort || 'createdAt');
+    const sortField = ({ name: 'name', email: 'email', role: 'role', createdAt: 'createdAt', updatedAt: 'updatedAt' } as Record<string, string>)[sortKey] || 'createdAt';
+    const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
+    const filter: Record<string, any> = {};
+    if (role !== 'ALL' && ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'].includes(role)) filter.role = role;
+    if (query) {
+      const safe = escapeRegex(query);
+      filter.$or = [{ name: { $regex: safe, $options: 'i' } }, { email: { $regex: safe, $options: 'i' } }, { mobileNumber: { $regex: safe, $options: 'i' } }, { _id: { $regex: safe, $options: 'i' } }];
+    }
+    const [total, users] = await Promise.all([
+      UserModel.countDocuments(filter),
+      UserModel.find(filter).select('_id name email role isRootSuperuser mobileNumber whatsappNumber isWhatsappVerified sellerProfile createdAt updatedAt').sort({ [sortField]: direction, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    ]);
+    await auditRootAccess(root, req, 'ROOT_USER_SEARCH', 'users', '', query);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ users: users.map((user: any) => ({ ...user, _id: String(user._id) })), total, page, limit, totalPages: Math.ceil(total / limit) });
+  });
+
+  app.get('/api/root/users/:id', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'INVALID_USER_ID' });
+    const user = await UserModel.findById(req.params.id).select('-passwordHash -supabaseUid -oauthAccounts').lean() as any;
+    if (!user) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+    const [orders, products, providerProfile, providerProducts, settlements] = await Promise.all([
+      OrderModel.find({ $or: [{ buyerId: user._id }, { sellerId: user._id }] }).sort({ createdAt: -1 }).limit(50).lean(),
+      ProductModel.find({ sellerId: user._id }).sort({ updatedAt: -1 }).limit(50).lean(),
+      ProviderProfileModel.findOne({ userId: String(user._id) }).select('-encryptedTaxId -encryptedSettlementDetails').lean(),
+      ProviderProductModel.find({ providerId: String(user._id) }).sort({ updatedAt: -1 }).limit(50).lean(),
+      ProviderSettlementModel.find({ providerId: String(user._id) }).select('-encryptedReceipt').sort({ createdAt: -1 }).limit(50).lean(),
+    ]);
+    await auditRootAccess(root, req, 'ROOT_USER_DETAIL_READ', 'user', String(user._id));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ user: { ...user, _id: String(user._id) }, records: { orders, products, providerProfile, providerProducts, settlements } });
+  });
+
+  app.get('/api/root/records', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    const type = String(req.query.type || '');
+    const allowed = ['products', 'orders', 'returns', 'providers', 'providerProducts', 'settlements'];
+    if (!allowed.includes(type)) return res.status(400).json({ error: 'UNSUPPORTED_RECORD_TYPE', allowed });
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(50, Math.max(5, Number.parseInt(String(req.query.limit || '20'), 10) || 20));
+    const query = String(req.query.q || '').trim().slice(0, 100);
+    const filter: Record<string, any> = {};
+    if (query) {
+      const safe = escapeRegex(query);
+      const searchFields: Record<string, string[]> = {
+        products: ['title', 'sku', 'category'], orders: ['orderNumber', 'status'],
+        returns: ['orderId', 'productId', 'status', 'reason'], providers: ['businessName', 'contactPerson', 'mobile'],
+        providerProducts: ['title', 'category', 'brand', 'status'], settlements: ['orderId', 'utrReference', 'status'],
+      };
+      filter.$or = (searchFields[type] || []).map(field => ({ [field]: { $regex: safe, $options: 'i' } }));
+    }
+    const sort = { createdAt: -1, _id: -1 } as any;
+    let model: any;
+    if (type === 'products') model = ProductModel;
+    else if (type === 'orders') model = OrderModel;
+    else if (type === 'returns') model = ReturnRequestModel;
+    else if (type === 'providers') model = ProviderProfileModel;
+    else if (type === 'providerProducts') model = ProviderProductModel;
+    else model = ProviderSettlementModel;
+    const [total, rows] = await Promise.all([
+      model.countDocuments(filter),
+      model.find(filter).select(type === 'providers' ? '-encryptedTaxId -encryptedSettlementDetails' : type === 'settlements' ? '-encryptedReceipt' : type === 'orders' ? '-paymentTransactionId -paymentReference' : undefined).sort(sort).skip((page - 1) * limit).limit(limit).lean(),
+    ]);
+    await auditRootAccess(root, req, 'ROOT_RECORD_SEARCH', type, '', query);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ type, rows, total, page, limit, totalPages: Math.ceil(total / limit) });
+  });
+
+  app.get('/api/root/audit', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const rows = await RootAccessAuditModel.find().sort({ createdAt: -1 }).skip((page - 1) * 50).limit(50).lean();
+    await auditRootAccess(root, req, 'ROOT_AUDIT_LOG_READ', 'audit');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ rows, page, limit: 50 });
+  });
+
+  app.post('/api/root/password', async (req, res) => {
+    const { user, session } = await resolveActor(req, res);
+    if (!user || user.role !== 'ADMIN' || user.isRootSuperuser !== true || !session) return res.status(403).json({ error: 'ROOT_SUPERUSER_ACCESS_REQUIRED' });
+    const parsed = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(16).max(128) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'ROOT_PASSWORD_MUST_BE_AT_LEAST_16_CHARACTERS' });
+    const changed = await updateRootSuperuserPassword(user._id, parsed.data.currentPassword, parsed.data.newPassword);
+    if (!changed) return res.status(400).json({ error: 'CURRENT_PASSWORD_INVALID' });
+    await auditRootAccess(user, req, 'ROOT_PASSWORD_ROTATED', 'user', user._id);
+    res.json({ ok: true });
+  });
+
+  app.get('/api/root/invites', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    const invites = await RootInviteModel.find({ invitedByRootId: root._id }).select('-tokenHash').sort({ createdAt: -1 }).limit(100).lean();
+    await auditRootAccess(root, req, 'ROOT_INVITES_READ', 'invites');
+    res.json({ invites });
+  });
+
+  app.post('/api/root/invites', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    const parsed = z.object({ email: z.string().trim().email().max(254), role: z.enum(['ADMIN', 'SELLER', 'PROVIDER']), expiresInDays: z.number().int().min(1).max(30).default(7), note: z.string().trim().max(300).optional().default('') }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'VALID_EMAIL_ROLE_AND_EXPIRY_REQUIRED' });
+    const email = parsed.data.email.toLowerCase();
+    const existingUser = await UserModel.findOne({ email }).select('_id role isRootSuperuser').lean() as any;
+    if (existingUser?.isRootSuperuser) return res.status(409).json({ error: 'ROOT_ACCOUNT_CANNOT_BE_INVITED_OR_REASSIGNED' });
+    const pending = await RootInviteModel.findOne({ email, role: parsed.data.role, status: 'PENDING', expiresAt: { $gt: new Date() } }).lean();
+    if (pending) return res.status(409).json({ error: 'ACTIVE_INVITATION_ALREADY_EXISTS' });
+    const token = crypto.randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + parsed.data.expiresInDays * 86400000);
+    const invite = await RootInviteModel.create({ tokenHash: crypto.createHash('sha256').update(token).digest('hex'), email, role: parsed.data.role, invitedByRootId: root._id, expiresAt });
+    const inviteUrl = getAppBaseUrl(req) + '/?rootInvite=' + encodeURIComponent(token);
+    await auditRootAccess(root, req, 'ROOT_INVITE_CREATED', parsed.data.role, String(invite._id), email);
+    res.status(201).json({ invite: { id: String(invite._id), email, role: invite.role, status: invite.status, expiresAt }, inviteUrl, note: parsed.data.note });
+  });
+
+  app.post('/api/root/invites/:id/revoke', async (req, res) => {
+    const root = await requireRootSuperuser(req, res);
+    if (!root) return;
+    const invite = await RootInviteModel.findOneAndUpdate({ _id: req.params.id, invitedByRootId: root._id, status: 'PENDING' }, { $set: { status: 'REVOKED' } }, { returnDocument: 'after' }).select('-tokenHash').lean();
+    if (!invite) return res.status(404).json({ error: 'PENDING_ROOT_INVITE_NOT_FOUND' });
+    await auditRootAccess(root, req, 'ROOT_INVITE_REVOKED', invite.role, String(invite._id));
+    res.json({ invite });
+  });
+
+  app.post('/api/root/invites/accept', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user) return res.status(401).json({ error: 'SIGN_IN_REQUIRED' });
+    const parsed = z.object({
+      token: z.string().min(32).max(128),
+      storeName: z.string().trim().min(2).max(120).optional(),
+      description: z.string().trim().max(1000).optional().default(''),
+      whatsappNumber: z.string().trim().max(24).optional().default(''),
+      businessName: z.string().trim().min(2).max(180).optional(),
+      contactPerson: z.string().trim().min(2).max(120).optional(),
+      mobile: z.string().trim().min(8).max(20).optional(),
+      whatsapp: z.string().trim().max(20).optional().default(''),
+      warehouseAddress: z.string().trim().min(8).max(1000).optional(),
+      taxId: z.string().trim().min(4).max(80).optional(),
+      settlementDetails: z.string().trim().min(6).max(1000).optional(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_ROOT_INVITE_ACCEPTANCE_DETAILS' });
+    const tokenHash = crypto.createHash('sha256').update(parsed.data.token).digest('hex');
+    const pending = await RootInviteModel.findOne({ tokenHash, status: 'PENDING', expiresAt: { $gt: new Date() } }).lean() as any;
+    if (!pending) return res.status(410).json({ error: 'ROOT_INVITE_EXPIRED_OR_USED' });
+    if (pending.email !== user.email.toLowerCase()) return res.status(403).json({ error: 'ROOT_INVITE_EMAIL_MISMATCH' });
+    if (user.isRootSuperuser || (user.role !== 'BUYER' && user.role !== pending.role)) return res.status(409).json({ error: 'ACCOUNT_ALREADY_HAS_A_DIFFERENT_ROLE' });
+    if (pending.role === 'SELLER' && (!parsed.data.storeName || parsed.data.storeName.length < 2)) return res.status(400).json({ error: 'SELLER_STORE_NAME_REQUIRED' });
+    if (pending.role === 'PROVIDER' && (!parsed.data.businessName || !parsed.data.contactPerson || !parsed.data.mobile || !parsed.data.warehouseAddress || !parsed.data.taxId || !parsed.data.settlementDetails)) return res.status(400).json({ error: 'COMPLETE_PROVIDER_ONBOARDING_FIELDS_REQUIRED' });
+    if (pending.role === 'PROVIDER' && !process.env.ENCRYPTION_MASTER_KEY) return res.status(503).json({ error: 'PROVIDER_ENCRYPTION_NOT_CONFIGURED' });
+    const consumed = await RootInviteModel.findOneAndUpdate({ _id: pending._id, status: 'PENDING', expiresAt: { $gt: new Date() } }, { $set: { status: 'ACCEPTED', acceptedUserId: user._id, acceptedAt: new Date() } }, { returnDocument: 'after' }).lean();
+    if (!consumed) return res.status(409).json({ error: 'ROOT_INVITE_ALREADY_CONSUMED' });
+    try {
+      if (pending.role === 'PROVIDER') {
+        await ProviderProfileModel.findOneAndUpdate({ userId: user._id }, { $set: {
+          businessName: parsed.data.businessName, contactPerson: parsed.data.contactPerson, mobile: parsed.data.mobile,
+          whatsapp: parsed.data.whatsapp, warehouseAddress: parsed.data.warehouseAddress,
+          encryptedTaxId: encryptField(parsed.data.taxId!), encryptedSettlementDetails: encryptField(parsed.data.settlementDetails!),
+          settlementDetailsLast4: parsed.data.settlementDetails!.slice(-4), kycStatus: 'PENDING',
+        }, $setOnInsert: { userId: user._id, linkedSellerIds: [] } }, { upsert: true, returnDocument: 'after', runValidators: true });
+      }
+      const update: Record<string, any> = { role: pending.role, authProvider: 'invite' };
+      if (pending.role === 'SELLER') update.sellerProfile = { storeName: parsed.data.storeName, description: parsed.data.description || '', trustScore: 4.8, isTrustedSeller: false, totalOrders: 0, cancelledOrders: 0 };
+      if (pending.role === 'SELLER' && parsed.data.whatsappNumber) update.whatsappNumber = parsed.data.whatsappNumber;
+      await UserModel.updateOne({ _id: user._id, role: user.role }, { $set: update });
+      const updatedUser = await findUserById(user._id);
+      if (updatedUser) await issueUserSession(req, res, updatedUser, 'invite');
+      await RootAccessAuditModel.create({ actorId: pending.invitedByRootId, action: 'ROOT_INVITE_ACCEPTED', targetType: pending.role, targetId: String(pending._id), ip: req.ip || '' });
+      return res.json({ ok: true, user: updatedUser });
+    } catch (error) {
+      await RootInviteModel.updateOne({ _id: pending._id, acceptedUserId: user._id, status: 'ACCEPTED' }, { $set: { status: 'PENDING', acceptedUserId: null, acceptedAt: null } });
+      throw error;
+    }
   });
 
   // --- Admin-Only Seller Invites & Invite-Gated Seller Onboarding ---
