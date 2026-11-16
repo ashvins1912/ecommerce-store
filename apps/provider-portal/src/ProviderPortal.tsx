@@ -388,7 +388,7 @@ export default function ProviderPortal() {
                     <input aria-label="Search catalogue and negotiations" className={inputClass + ' pl-9'} placeholder="Search products, brand or category" value={productQuery} onChange={(event) => { setProductQuery(event.target.value); setProductPage(1); }} />
                   </label>
                   <select aria-label="Filter catalogue status" className={inputClass} value={productStatus} onChange={(event) => { setProductStatus(event.target.value); setProductPage(1); }}>
-                    <option value="ALL">All statuses</option><option value="DRAFT">Draft</option><option value="PENDING_REVIEW">Pending review</option><option value="NEGOTIATION_REQUESTED">Negotiation requested</option><option value="RESUBMITTED">Resubmitted</option><option value="APPROVED">Approved</option>
+                    <option value="ALL">All statuses</option><option value="DRAFT">Draft</option><option value="PENDING_REVIEW">Pending review</option><option value="NEGOTIATION_REQUESTED">Negotiation requested</option><option value="RESUBMITTED">Resubmitted</option><option value="APPROVED_AND_PUBLISHED">Approved & published</option>
                   </select>
                   <select aria-label="Sort catalogue" className={inputClass} value={productSort} onChange={(event) => { setProductSort(event.target.value); setProductPage(1); }}>
                     <option value="updatedAt">Recently updated</option><option value="createdAt">Date created</option><option value="title">Product name</option><option value="price">Provider price</option><option value="status">Status</option>
