@@ -1526,7 +1526,7 @@ export default function App() {
         onSelectProduct={handleSelectProduct}
         onQuickBuy={handleQuickBuy}
         onShareWhatsApp={handleShareWhatsApp}
-        onOpenAuth={() => setAuthOpen(true)}
+        onOpenAuth={() => { setActivePage('signup'); setAuthOpen(false); }}
         compareIds={compareIds}
         onToggleCompare={handleToggleCompare}
         categoryTop10Thresholds={catalog.categoryTop10Thresholds}
