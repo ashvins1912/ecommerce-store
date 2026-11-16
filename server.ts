@@ -309,7 +309,8 @@ async function startServer() {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'BUYER') return res.status(401).json({ error: 'BUYER_AUTH_REQUIRED' });
     const rateLimit = await checkRateLimit('logistics-rates:' + user._id, 12, 60);
-    if (!rateLimit.allowed) return res.status(429).json({ error: 'LOGISTICS_RATE_LIMITED' });
+    const ipRateLimit = await checkRateLimit('logistics-rates-ip:' + req.ip, 30, 60);
+    if (!rateLimit.allowed || !ipRateLimit.allowed) return res.status(429).json({ error: 'LOGISTICS_RATE_LIMITED' });
     const parsed = z.object({
       items: z.array(z.object({ productId: z.string().min(1), quantity: z.coerce.number().int().min(1).max(50) })).min(1).max(50),
     }).safeParse(req.body);
@@ -326,17 +327,19 @@ async function startServer() {
         $or: [{ visibility: { $ne: 'ASSIGNED' } }, { assignedCustomerIds: user._id }],
       }).select('sellerId shippingWeightGrams salePrice onlinePaymentRequired codAllowed').lean() as any[];
       if (products.length !== productIds.length) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
-      const bySeller = new Map<string, { weightGrams: number; declaredValueMinor: number; codAmountMinor: number }>();
+      const bySeller = new Map<string, { weightGrams: number; declaredValueMinor: number; codAmountMinor: number; prepaidRequired: boolean }>();
       for (const product of products) {
         const sellerId = String(product.sellerId);
         const quantity = quantities.get(String(product._id)) || 0;
-        const current = bySeller.get(sellerId) || { weightGrams: 100, declaredValueMinor: 0, codAmountMinor: 0 };
+        const current = bySeller.get(sellerId) || { weightGrams: 100, declaredValueMinor: 0, codAmountMinor: 0, prepaidRequired: false };
         current.weightGrams += Math.max(1, Number(product.shippingWeightGrams) || 500) * quantity;
         current.declaredValueMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
-        if (product.codAllowed !== false && product.onlinePaymentRequired !== true) current.codAmountMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
+        if (product.codAllowed === false || product.onlinePaymentRequired === true) current.prepaidRequired = true;
+        else current.codAmountMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
         bySeller.set(sellerId, current);
       }
       const groups = await Promise.all([...bySeller.entries()].map(async ([sellerId, parcel]) => {
+        if (parcel.prepaidRequired) parcel.codAmountMinor = 0;
         const quotes = await getSellerRateQuotes({ sellerId, destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
           weightGrams: parcel.weightGrams, codAmountMinor: parcel.codAmountMinor,
           declaredValueMinor: parcel.declaredValueMinor, currency: 'INR' });
