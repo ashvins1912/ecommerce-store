@@ -609,6 +609,12 @@ export function AuthModal({
               </form>
             )}
 
+            <div className="mt-4 border-t border-[#F0EEE9] pt-3 text-center text-xs text-[#57534E]">
+              {mode === 'signin' ? "New customer?" : "Already have an account?"}{' '}
+              <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setVerificationNotice(null); }} className="font-semibold text-[#881337] hover:underline cursor-pointer">
+                {mode === 'signin' ? "Create customer account" : "Sign in"}
+              </button>
+            </div>
 
           </div>
         )}
