@@ -269,7 +269,17 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
  });
  const result=ranked.map(score=>{
   const match=candidates.find(candidate=>candidate.id===score.id);
-  return {...score,score:score.selectionScore,carrierConfigId:match?.configId,quote:match?.quote};
+  return {
+   ...score,
+   providerCode:match?.quote.providerCode,
+   serviceCode:match?.quote.serviceCode,
+   costMinor:match?.quote.amountMinor,
+   estimatedTransitHours:match?.quote.estimatedTransitHours,
+   currency:match?.quote.currency,
+   score:score.selectionScore,
+   carrierConfigId:match?.configId,
+   quote:match?.quote,
+  };
  });
  const earliestExpiry=result.reduce((min,x)=>Math.min(min,Date.parse(x.quote?.expiresAt||new Date(Date.now()+60000).toISOString())),Date.now()+86400000);
  await setLogisticsRateCache(cacheKey,result,Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))));
