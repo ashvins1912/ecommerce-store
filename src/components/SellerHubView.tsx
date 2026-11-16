@@ -396,7 +396,7 @@ export function SellerHubView({
     });
     const res = await apiFetch<{ products: Product[] }>(`/api/seller/products?${params}`);
     setSellerProducts(res.products);
-    const edits: Record<string, { discount: number; stock: number }> = {};
+    const edits: Record<string, { discount: number; stock: number; shippingWeightGrams: number }> = {};
     for (const p of res.products) {
       edits[p._id] = { discount: p.discountPercent, stock: p.totalStock, shippingWeightGrams: p.shippingWeightGrams || 500 };
     }
