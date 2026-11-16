@@ -1569,6 +1569,59 @@ export async function findUserById(id: string): Promise<User | null> {
   return found ? sanitizeUser(found) : null;
 }
 
+export async function ensureRootSuperuser(): Promise<void> {
+  const email = (process.env.ROOT_SUPERUSER_EMAIL || 'ashvinsingh25@gmail.com').trim().toLowerCase();
+  const initialPassword = process.env.ROOT_SUPERUSER_INITIAL_PASSWORD || '';
+  if (!initialPassword || initialPassword.length < 14) {
+    throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must be configured with at least 14 characters; refusing to start without secure root provisioning.');
+  }
+  if (mongoConnected) {
+    const existing = await UserModel.findOne({ email }).select('+passwordHash');
+    if (!existing) {
+      await UserModel.create({
+        role: 'ADMIN', isRootSuperuser: true, name: 'Root Superuser', email,
+        passwordHash: hashPassword(initialPassword), authProvider: 'invite', oauthAccounts: [],
+        isWhatsappVerified: false, shippingAddresses: [],
+      });
+    } else {
+      existing.role = 'ADMIN';
+      existing.isRootSuperuser = true;
+      if (!(existing as any).passwordHash) (existing as any).passwordHash = hashPassword(initialPassword);
+      await existing.save();
+    }
+    return;
+  }
+  const existing = localState.users.find((user) => user.email.toLowerCase() === email) as (User & { passwordHash?: string; isRootSuperuser?: boolean }) | undefined;
+  if (!existing) {
+    const now = new Date().toISOString();
+    localState.users.push({
+      _id: 'root_' + crypto.randomBytes(12).toString('hex'), role: 'ADMIN', isRootSuperuser: true,
+      name: 'Root Superuser', email, passwordHash: hashPassword(initialPassword), authProvider: 'invite',
+      oauthAccounts: [], isWhatsappVerified: false, shippingAddresses: [], createdAt: now, updatedAt: now,
+    } as any);
+  } else {
+    existing.role = 'ADMIN';
+    existing.isRootSuperuser = true;
+    if (!existing.passwordHash) existing.passwordHash = hashPassword(initialPassword);
+  }
+  saveLocalStore(localState);
+}
+
+export async function updateRootSuperuserPassword(userId: string, currentPassword: string, nextPassword: string): Promise<boolean> {
+  if (mongoConnected && mongoose.isValidObjectId(userId)) {
+    const doc = await UserModel.findOne({ _id: userId, isRootSuperuser: true }).select('+passwordHash');
+    if (!doc || !verifyPassword(currentPassword, (doc as any).passwordHash)) return false;
+    (doc as any).passwordHash = hashPassword(nextPassword);
+    await doc.save();
+    return true;
+  }
+  const user = localState.users.find((item) => item._id === userId && (item as any).isRootSuperuser) as (User & { passwordHash?: string }) | undefined;
+  if (!user || !verifyPassword(currentPassword, user.passwordHash)) return false;
+  user.passwordHash = hashPassword(nextPassword);
+  saveLocalStore(localState);
+  return true;
+}
+
 export async function findUserByEmail(email: string): Promise<User | null> {
   const emailLower = email.trim().toLowerCase();
   if (mongoConnected) {
