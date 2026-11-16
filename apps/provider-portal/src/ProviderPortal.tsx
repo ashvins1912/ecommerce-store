@@ -64,7 +64,10 @@ export default function ProviderPortal() {
   const [invite, setInvite] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
-  const [shipments, setShipments] = useState<Shipment[]>([]);\n  const [providerReturns, setProviderReturns] = useState<ProviderReturn[]>([]);\n  const [providerCancellations, setProviderCancellations] = useState<ProviderCancellation[]>([]);\n  const [returnPickupDrafts, setReturnPickupDrafts] = useState<Record<string,{carrierName:string;trackingId:string;trackingUrl:string}>>({});
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [providerReturns, setProviderReturns] = useState<ProviderReturn[]>([]);
+  const [providerCancellations, setProviderCancellations] = useState<ProviderCancellation[]>([]);
+  const [returnPickupDrafts, setReturnPickupDrafts] = useState<Record<string,{carrierName:string;trackingId:string;trackingUrl:string}>>({});
   const [shippingProviders, setShippingProviders] = useState<LogisticsProvider[]>([]);
   const [providerCarriers, setProviderCarriers] = useState<ProviderCarrier[]>([]);
   const [providerWarehouses, setProviderWarehouses] = useState<ProviderWarehouse[]>([]);
@@ -143,7 +146,9 @@ export default function ProviderPortal() {
       setProducts(productResult.products || []);
       setProductTotal(Number(productResult.total || 0));
       setSettlements(settlementResult.settlements || []);
-      setShipments(shipmentResult.shipments || []);\n      setProviderReturns(returnResult.returns || []);\n      setProviderCancellations(cancellationResult.cancellations || []);
+      setShipments(shipmentResult.shipments || []);
+      setProviderReturns(returnResult.returns || []);
+      setProviderCancellations(cancellationResult.cancellations || []);
       setShippingProviders(carrierResult.providers || []);
       setProviderCarriers(carrierResult.carriers || []);
       setProviderWarehouses(warehouseResult.warehouses || []);
