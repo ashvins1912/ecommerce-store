@@ -35,3 +35,15 @@ export function toProviderSafeOrderDto(order: any) {
     // Deliberately excludes buyer identity, contact details, shipping/billing address and payment identifiers.
   };
 }
+
+const PROVIDER_FORBIDDEN_KEYS = /^(buyer|buyerId|customer|customerId|customerName|customerEmail|customerPhone|shippingAddress|billingAddress|recipient|recipientName|recipientPhone|recipientEmail|deliveryAddress|deliveryInstructions)$/i;
+export function toProviderSafeDto<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => toProviderSafeDto(item)) as T;
+  if (!value || typeof value !== 'object' || value instanceof Date) return value;
+  const output: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (PROVIDER_FORBIDDEN_KEYS.test(key)) continue;
+    output[key] = toProviderSafeDto(nested);
+  }
+  return output as T;
+}
