@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
 import { getSupabaseBrowserClient } from '../lib/supabase';
 import {
   apiFetch,
@@ -14,7 +14,6 @@ interface AuthModalProps {
   onClose: () => void;
   user: User | null;
   initialMode?: 'signin' | 'signup';
-  onOpenSignUpPage?: () => void;
   onAuthChanged: (payload: {
     user: User | null;
     likedProductIds?: string[];
@@ -27,7 +26,6 @@ export function AuthModal({
   onClose,
   user,
   initialMode = 'signin',
-  onOpenSignUpPage,
   onAuthChanged,
 }: AuthModalProps) {
   const { t, locale } = useI18n();
@@ -610,24 +608,7 @@ export function AuthModal({
               </form>
             )}
 
-            {onOpenSignUpPage && (
-              <div className="flex items-center justify-between gap-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] px-3 py-2 text-xs">
-                <span className="text-[#57534E]">
-                  {mode === 'signin' ? t('auth.noAccountYet') : t('auth.signUpTitle')}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onOpenSignUpPage();
-                  }}
-                  className="inline-flex items-center gap-1 font-semibold text-[#881337] hover:underline cursor-pointer"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  <span>{t('auth.openSignUpPage')}</span>
-                </button>
-              </div>
-            )}
+
           </div>
         )}
 
