@@ -53,7 +53,9 @@ interface ProductDetailModalProps {
   }) => void;
   onOpenAuth: () => void;
   compareIds?: Set<string>;
+  compareCount?: number;
   onToggleCompare?: (product: Product) => void;
+  onOpenCompare?: () => void;
   categoryTop10Thresholds?: Record<string, number>;
   onProductLoaded?: (product: Product) => void;
   onApplyCoupon?: (code: string) => void;
@@ -72,7 +74,9 @@ export function ProductDetailModal({
   onShareWhatsApp,
   onOpenAuth,
   compareIds,
+  compareCount = 0,
   onToggleCompare,
+  onOpenCompare,
   categoryTop10Thresholds,
   onProductLoaded,
   onApplyCoupon,
@@ -192,6 +196,17 @@ export function ProductDetailModal({
       emblaApi.off('select', onSelect);
     };
   }, [emblaApi]);
+
+  useEffect(() => {
+    if (!productIdOrSlug || sizeGuideOpen || lightboxOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [productIdOrSlug, sizeGuideOpen, lightboxOpen, onClose]);
 
   const openZoomViewer = (idx: number, initialZoomLevel = 1) => {
     setHoverZoom(null);
@@ -622,11 +637,11 @@ export function ProductDetailModal({
                       <span className="text-xs font-medium text-[#141413]">
                         {t('detail.sizeLabel')}
                       </span>
-                      {product.category === 'Clothing' && (
+                      {(product.category === 'Clothing' || Boolean(product.clothingSpecs)) && (
                         <button
                           type="button"
                           onClick={() => setSizeGuideOpen(true)}
-                          className="inline-flex min-h-[44px] items-center gap-1 text-xs font-medium text-[#881337] hover:underline cursor-pointer"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 px-2 text-xs font-medium text-[#881337] hover:underline cursor-pointer"
                         >
                           <Ruler className="h-3.5 w-3.5" />
                           <span>{t('detail.sizeGuide')}</span>
@@ -716,22 +731,34 @@ export function ProductDetailModal({
                 </div>
 
                 {product.category === 'Artificial Jewellery' && onToggleCompare && (
-                  <button
-                    type="button"
-                    onClick={() => onToggleCompare(product)}
-                    className={`w-full inline-flex items-center justify-center gap-2 rounded-md border px-4 py-2 text-xs font-medium transition-colors cursor-pointer ${
-                      compareIds?.has(product._id)
-                        ? 'border-[#141413] bg-[#141413] text-white'
-                        : 'border-[#D6D3CD] bg-white text-[#141413] hover:border-[#141413]'
-                    }`}
-                  >
-                    <GitCompare className="h-3.5 w-3.5" />
-                    <span>
-                      {compareIds?.has(product._id)
-                        ? t('detail.compareSelected')
-                        : t('detail.compareCta')}
-                    </span>
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onToggleCompare(product)}
+                      className={`flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 rounded-md border px-4 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                        compareIds?.has(product._id)
+                          ? 'border-[#141413] bg-[#141413] text-white'
+                          : 'border-[#D6D3CD] bg-white text-[#141413] hover:border-[#141413]'
+                      }`}
+                    >
+                      <GitCompare className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {compareIds?.has(product._id)
+                          ? t('detail.compareSelected')
+                          : t('detail.compareCta')}
+                      </span>
+                    </button>
+                    {compareCount > 0 && onOpenCompare && (
+                      <button
+                        type="button"
+                        onClick={onOpenCompare}
+                        className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-md border border-[#881337] bg-[#881337]/5 px-4 py-2 text-xs font-semibold text-[#881337] hover:bg-[#881337] hover:text-white transition-colors whitespace-nowrap cursor-pointer"
+                      >
+                        <GitCompare className="h-3.5 w-3.5 shrink-0" />
+                        <span>{t('detail.openCompare', { count: compareCount })}</span>
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 <p className="text-xs leading-relaxed text-[#57534E]">{product.description}</p>
@@ -740,9 +767,21 @@ export function ProductDetailModal({
 
             {/* Category Specifications */}
             <section className="border-t border-[#E8E6E1] pt-8">
-              <h2 className="font-display text-2xl font-semibold text-[#141413]">
-                {t('detail.specsTitle')}
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-display text-2xl font-semibold text-[#141413]">
+                  {t('detail.specsTitle')}
+                </h2>
+                {(product.category === 'Clothing' || Boolean(product.clothingSpecs)) && (
+                  <button
+                    type="button"
+                    onClick={() => setSizeGuideOpen(true)}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-[#E8E6E1] bg-white px-3.5 py-2 text-xs font-medium text-[#881337] hover:border-[#881337] cursor-pointer"
+                  >
+                    <Ruler className="h-3.5 w-3.5" />
+                    <span>{t('detail.sizeGuide')}</span>
+                  </button>
+                )}
+              </div>
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 bg-white border border-[#E8E6E1] rounded-lg p-6 text-xs">
                 {product.jewellerySpecs && (
                   <>
@@ -1035,7 +1074,7 @@ export function ProductDetailModal({
       )}
 
       {/* Dynamic Clothing Size Guide Modal */}
-      {product && product.category === 'Clothing' && (
+      {product && (product.category === 'Clothing' || Boolean(product.clothingSpecs)) && (
         <SizeGuideModal
           isOpen={sizeGuideOpen}
           onClose={() => setSizeGuideOpen(false)}
@@ -1044,6 +1083,15 @@ export function ProductDetailModal({
           clothingSpecs={product.clothingSpecs}
           availableSizes={availableSizes}
           selectedSize={selectedVariant?.size}
+          onSelectSize={(size) => {
+            const matched =
+              product.variants.find(
+                (x) =>
+                  x.size.toUpperCase() === size.toUpperCase() &&
+                  x.colorName === (selectedVariant?.colorName || x.colorName)
+              ) || product.variants.find((x) => x.size.toUpperCase() === size.toUpperCase());
+            if (matched) setSelectedVariant(matched);
+          }}
         />
       )}
     </div>

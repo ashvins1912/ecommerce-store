@@ -1427,7 +1427,9 @@ export default function App() {
         onShareWhatsApp={handleShareWhatsApp}
         onOpenAuth={() => { setActivePage('signup'); setAuthOpen(false); }}
         compareIds={compareIds}
+        compareCount={compareItems.length}
         onToggleCompare={handleToggleCompare}
+        onOpenCompare={() => setCompareOpen(true)}
         categoryTop10Thresholds={catalog.categoryTop10Thresholds}
         onProductLoaded={handleProductLoaded}
         onApplyCoupon={(code) => {
@@ -1442,6 +1444,14 @@ export default function App() {
         isOpen={compareOpen}
         onClose={() => setCompareOpen(false)}
         items={compareItems}
+        availableJewellery={Array.from(
+          new Map(
+            [...catalog.products, ...recentlyViewed]
+              .filter((p) => p.category === 'Artificial Jewellery')
+              .map((p) => [p._id, p])
+          ).values()
+        )}
+        onAddItem={handleToggleCompare}
         onRemoveItem={(id) =>
           setCompareItems((prev) => prev.filter((item) => item._id !== id))
         }
@@ -1501,10 +1511,23 @@ export default function App() {
 
       {/* Floating Artificial Jewellery Comparison Bar */}
       {compareItems.length > 0 && !compareOpen && (
-        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex flex-wrap items-center justify-between gap-2 sm:gap-3 rounded-lg border border-[#141413] bg-[#141413] px-3.5 py-2.5 text-xs text-white shadow-xl w-[calc(100vw-1.5rem)] sm:w-auto max-w-xl">
-          <span className="font-medium whitespace-nowrap tabular-nums">
-            {t('compare.barLabel', { count: compareItems.length })}
-          </span>
+        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex flex-wrap items-center justify-between gap-2 sm:gap-3 rounded-lg border border-[#141413] bg-[#141413] px-3.5 py-2 text-xs text-white shadow-xl w-[calc(100vw-1.5rem)] sm:w-auto max-w-2xl">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="hidden sm:flex items-center -space-x-1.5 shrink-0">
+              {compareItems.slice(0, 4).map((item) => (
+                <img
+                  key={item._id}
+                  src={item.images[0]?.thumbUrl || item.images[0]?.url}
+                  alt={item.title}
+                  referrerPolicy="no-referrer"
+                  className="h-7 w-7 rounded object-cover border border-[#141413] bg-[#292524]"
+                />
+              ))}
+            </div>
+            <span className="font-medium whitespace-nowrap tabular-nums">
+              {t('compare.barLabel', { count: compareItems.length })}
+            </span>
+          </div>
           <div className="flex items-center gap-1.5 ml-auto">
             <button
               type="button"
