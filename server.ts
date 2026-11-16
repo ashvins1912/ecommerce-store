@@ -2235,17 +2235,45 @@ async function startServer() {
     const parsed = z.object({ settlementIds: z.array(z.string().min(1)).min(1).max(100), utrReference: z.string().trim().min(4).max(120) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_SETTLEMENT_BATCH' });
     const filter = { _id: { $in: parsed.data.settlementIds }, status: 'READY_FOR_SETTLEMENT', ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) };
-    const records = await ProviderSettlementModel.find(filter);
-    if (records.length !== parsed.data.settlementIds.length) return res.status(409).json({ error: 'ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE' });
     const settledAt = new Date();
-    for (const record of records) {
-      const receipt = JSON.stringify({ settlementId: String(record._id), orderId: record.orderId, sellerId: record.sellerId, providerId: record.providerId, amountPaise: record.amountPaise, utrReference: parsed.data.utrReference, settledAt: settledAt.toISOString() });
-      record.status = 'SETTLED'; record.utrReference = parsed.data.utrReference; record.settledAt = settledAt;
-      record.encryptedReceipt = encryptField(receipt);
-      await record.save();
-      await providerAudit(user, 'PROVIDER_SETTLEMENT_MARKED_SETTLED', record.providerId, String(record._id), { amountPaise: record.amountPaise });
+    const session = await mongoose.startSession();
+    const settledRecords: any[] = [];
+    try {
+      await session.withTransaction(async () => {
+        const records = await ProviderSettlementModel.find(filter).session(session);
+        if (records.length !== parsed.data.settlementIds.length) throw new Error('ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE');
+        for (const record of records) {
+          const receipt = JSON.stringify({
+            settlementId: String(record._id), orderId: record.orderId, sellerId: record.sellerId,
+            providerId: record.providerId, amountPaise: record.amountPaise,
+            utrReference: parsed.data.utrReference, settledAt: settledAt.toISOString(),
+          });
+          const updated = await ProviderSettlementModel.updateOne(
+            { _id: record._id, status: 'READY_FOR_SETTLEMENT', ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) },
+            { $set: {
+              status: 'SETTLED', utrReference: parsed.data.utrReference, settledAt,
+              encryptedReceipt: encryptField(receipt),
+            } },
+            { session }
+          );
+          if (updated.modifiedCount !== 1) throw new Error('ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE');
+          settledRecords.push({ ...record.toObject(), status: 'SETTLED' });
+        }
+      });
+    } catch (err) {
+      const code = (err as Error).message;
+      return res.status(code === 'ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE' ? 409 : 503).json({ error: code, retryable: code !== 'ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE' });
+    } finally {
+      await session.endSession();
     }
-    res.json({ settledCount: records.length, utrReference: parsed.data.utrReference });
+    for (const record of settledRecords) {
+      try {
+        await providerAudit(user, 'PROVIDER_SETTLEMENT_MARKED_SETTLED', record.providerId, String(record._id), { amountPaise: record.amountPaise });
+      } catch (error) {
+        console.warn('Settlement committed but audit event could not be written:', (error as Error).message);
+      }
+    }
+    res.json({ settledCount: settledRecords.length, utrReference: parsed.data.utrReference });
   });
 
   app.get('/api/seller/provider-settlements/:id/receipt', async (req, res) => {
