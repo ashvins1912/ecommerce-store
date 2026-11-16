@@ -105,7 +105,7 @@ async function processJob(job:any){
  );
  return {shipmentId:p.shipmentId,providerCode:provider.code,awbNumber:result.awbNumber,labelUrl:result.labelUrl,manifestUrl:result.manifestUrl,pickupScheduled:result.pickupScheduled,estimatedDeliveryAt:result.estimatedDeliveryAt};
 }
-export export async function runLogisticsWorker(){
+export async function runLogisticsWorker(){
  const pollMs=Math.max(500,Number(process.env.LOGISTICS_WORKER_POLL_MS||1500));
  console.log('Logistics worker started; polling PostgreSQL job queue.');
  for(;;){
