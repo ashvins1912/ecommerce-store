@@ -79,6 +79,14 @@ export function toProviderSafeProfileDto(profile: Record<string, any>) {
   return dto;
 }
 
+/** Seller read-only view of a linked provider; never exposes the provider's other seller links. */
+export function toSellerSafeProviderProfileDto(profile: Record<string, any>) {
+  return pickAllowed(profile, [
+    '_id', 'userId', 'businessName', 'contactPerson', 'mobile', 'whatsapp',
+    'warehouseAddress', 'settlementDetailsLast4', 'kycStatus', 'createdAt', 'updatedAt',
+  ]);
+}
+
 /** Explicit provider-owned catalogue projection. */
 export function toProviderSafeProductDto(product: Record<string, any>) {
   const dto = pickAllowed(product, [
