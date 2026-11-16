@@ -872,6 +872,11 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   const disabledSet = new Set(
     allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase())
   );
+  // Cursor tokens are only supported on the indexed browse sorts below; reject rather than silently ignore.
+  if (filters.cursor && (filters.q?.trim() || filters.color?.trim() || filters.campaignId ||
+      ['special_offers', 'occasion_favorites', 'highest_rated'].includes(filters.sort || 'most_demanding'))) {
+    throw new Error('CURSOR_UNSUPPORTED_FOR_FILTER');
+  }
   // Fast database path for browse/filter feeds; semantic search retains the established ranking pipeline.
   if (mongoConnected && !filters.q?.trim() && !filters.color?.trim() && !filters.campaignId &&
       !['special_offers', 'occasion_favorites', 'highest_rated'].includes(filters.sort || 'most_demanding')) {
