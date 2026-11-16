@@ -304,6 +304,13 @@ export interface Order {
     discountAmount: number;
   };
   status: OrderStatus;
+  providerCancellationReview?: {
+    providerId: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'NOT_FORWARDED';
+    note?: string;
+    forwardedAt?: string | Date | null;
+    reviewedAt?: string | Date | null;
+  };
   shippingAddress: Omit<ShippingAddress, 'label' | 'isDefault' | '_id'>;
   courierTracking?: CourierTracking;
   statusTimeline: StatusTimelineEntry[];
