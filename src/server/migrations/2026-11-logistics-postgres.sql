@@ -82,7 +82,7 @@ CREATE INDEX logistics_jobs_claim_idx ON logistics_jobs(status,available_at,crea
 
 -- Atomic queue claim. SKIP LOCKED allows multiple worker replicas without duplicate claims.
 CREATE OR REPLACE FUNCTION claim_logistics_job()
-RETURNS SETOF logistics_jobs LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+RETURNS SETOF logistics_jobs LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $logistics$
 DECLARE claimed logistics_jobs;
 BEGIN
  UPDATE logistics_jobs SET status='FAILED',locked_at=NULL,last_error=COALESCE(last_error,'Worker lease expired after maximum attempts')
@@ -93,13 +93,13 @@ BEGIN
  IF NOT FOUND THEN RETURN; END IF;
  UPDATE logistics_jobs SET status='PROCESSING',locked_at=now(),attempts=attempts+1 WHERE id=claimed.id RETURNING * INTO claimed;
  RETURN NEXT claimed;
-END; $;
+END; $logistics$;
 
 -- Atomic webhook update: idempotency, timestamp monotonicity, DAG edge, event append and shipment mutation.
 CREATE OR REPLACE FUNCTION apply_logistics_webhook(
  p_shipment_id UUID,p_event_hash CHAR(64),p_status_code SMALLINT,p_location_code VARCHAR,
  p_event_timestamp TIMESTAMPTZ,p_expected_status SMALLINT,p_expected_last_event_at TIMESTAMPTZ DEFAULT NULL
-) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $logistics$
 DECLARE current_row shipments; valid_edge BOOLEAN := FALSE;
 BEGIN
  SELECT * INTO current_row FROM shipments WHERE id=p_shipment_id FOR UPDATE;
@@ -122,12 +122,12 @@ BEGIN
  VALUES(p_shipment_id,p_event_hash,p_status_code,p_location_code,p_event_timestamp);
  UPDATE shipments SET normalized_status=p_status_code,last_event_at=p_event_timestamp,updated_at=now() WHERE id=p_shipment_id;
  RETURN TRUE;
-END; $;
+END; $logistics$;
 
 
 -- A default-warehouse change and insert are one transaction, protected by the partial unique index.
 CREATE OR REPLACE FUNCTION create_seller_warehouse(p_seller_id TEXT,p_warehouse JSONB)
-RETURNS SETOF warehouses LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+RETURNS SETOF warehouses LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $logistics$
 DECLARE created warehouses;
 BEGIN
  IF COALESCE((p_warehouse->>'is_default')::boolean,FALSE) THEN
@@ -140,14 +140,14 @@ BEGIN
   COALESCE((p_warehouse->>'is_default')::boolean,FALSE))
  RETURNING * INTO created;
  RETURN NEXT created;
-END; $;
+END; $logistics$;
 
 
 CREATE OR REPLACE FUNCTION create_shipment_intent(
  p_order_id TEXT,p_seller_id TEXT,p_carrier_config_id UUID,p_warehouse_id UUID,
  p_cod_amount_minor BIGINT,p_currency CHAR(3),p_payload JSONB
 ) RETURNS TABLE(shipment_id UUID,job_id UUID,created BOOLEAN)
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $logistics$
 DECLARE v_shipment_id UUID; v_job_id UUID;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM seller_carrier_configs WHERE id=p_carrier_config_id AND seller_id=p_seller_id AND is_active) THEN
@@ -168,7 +168,7 @@ BEGIN
  VALUES('CREATE_SHIPMENT',p_payload||jsonb_build_object('shipmentId',v_shipment_id), 'PENDING',0,5)
  RETURNING id INTO v_job_id;
  RETURN QUERY SELECT v_shipment_id,v_job_id,TRUE;
-END; $;
+END; $logistics$;
 
 -- Service-role-only access. The application never exposes the service-role key to browsers.
 ALTER TABLE logistics_providers ENABLE ROW LEVEL SECURITY;
