@@ -7,7 +7,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
-import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -2398,7 +2398,12 @@ async function startServer() {
       return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
     }
     const claimed = await claimPaymentEvent('razorpay', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
-    if (!claimed) return res.json({ received: true, duplicate: true });
+    if (!claimed) {
+      const state = await getPaymentEventState('razorpay', eventId);
+      return state === 'PROCESSED'
+        ? res.json({ received: true, duplicate: true })
+        : res.status(503).json({ error: 'WEBHOOK_PROCESSING_RETRY', retryable: true });
+    }
     if (isCapture) {
       if (order.paymentStatus !== 'PAID') {
         order.paymentTransactionId = String(payment.id);
@@ -2446,7 +2451,12 @@ async function startServer() {
       return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
     }
     const claimed = await claimPaymentEvent('stripe', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
-    if (!claimed) return res.json({ received: true, duplicate: true });
+    if (!claimed) {
+      const state = await getPaymentEventState('stripe', eventId);
+      return state === 'PROCESSED'
+        ? res.json({ received: true, duplicate: true })
+        : res.status(503).json({ error: 'WEBHOOK_PROCESSING_RETRY', retryable: true });
+    }
     if (isCheckoutComplete) {
       if (order.paymentStatus !== 'PAID') {
         order.paymentTransactionId = String(object.payment_intent);
