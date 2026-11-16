@@ -20,7 +20,8 @@
     "logistics:worker": "RUN_LOGISTICS_WORKER=1 tsx apps/logistics-worker/src/run.ts",
     "test:logistics": "tsx --test packages/logistics-core/src/index.test.ts packages/adapters/shadowfax/src/index.test.ts packages/adapters/shiprocket/src/index.test.ts",
     "test:hybrid": "tsx --test packages/hybrid-engine/src/index.test.ts",
-    "test": "npm run test:logistics && npm run test:hybrid"
+    "test": "npm run test:logistics && npm run test:hybrid",
+    "dev:all": "bash scripts/dev-all.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
