@@ -183,3 +183,8 @@ The CI workflow now runs the existing logistics tests and the new hybrid-engine 
 ### Additional reliability and query boundaries
 - Seller WhatsApp order notification now uses a per-order lease and a sent timestamp, allowing an idempotent checkout retry to finish a notification after a process interruption. The external WhatsApp send + Mongo acknowledgement remains at-least-once across a crash in that narrow boundary.
 - Catalog keyset sort indexes were added for trend, newest, sales and price feeds. Production deployments with Mongoose auto-indexing disabled must create these indexes through their normal database migration process.
+
+
+### API admission control
+- The shared Redis-backed rate-limit helper now uses the atomic Lua token-bucket primitive, with the existing bounded process-local limiter retained as an outage fallback.
+- Inventory oversell prevention remains the MongoDB conditional transaction; the Redis inventory lease Lua script is currently a reusable primitive and is not yet a production stock authority.
