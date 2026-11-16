@@ -254,7 +254,9 @@ export async function updateShipmentFromCarrier(input:{shipmentId:string;provide
   }).eq('id',input.shipmentId));
 }
 export async function getCustomerTrackingEvents(orderId:string) {
-  const shipment = await getShipmentForCustomer(orderId) as any;
+  // Customer tracking reads only shipment state; it must not decrypt carrier credentials.
+  const shipment = unwrap(await db().from('shipments').select('id,normalized_status,estimated_delivery_at')
+    .eq('order_id',orderId).order('created_at',{ascending:false}).limit(1).maybeSingle()) as any;
   if (!shipment) return null;
   const events = unwrap(await db().from('shipment_tracking_events').select('status_code,location_code,event_timestamp')
     .eq('shipment_id',shipment.id).order('event_timestamp',{ascending:false}).limit(1)) as any[];
