@@ -53,7 +53,7 @@ export function CustomerSearchModal({ open, selected, onClose, onChange }: Custo
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Assign customers">
-      <div className="w-full max-w-xl rounded-xl bg-white p-5 shadow-xl space-y-4">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-xl space-y-4 overflow-y-auto overscroll-contain rounded-xl bg-white p-4 sm:p-5 shadow-xl">
         <div className="flex items-center justify-between">
           <div><h3 className="text-lg font-semibold">Assign specific customers</h3><p className="text-xs text-[#78716C]">Search by name, PUID, email or mobile number.</p></div>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-2 hover:bg-[#F5F5F4]"><X className="h-4 w-4"/></button>

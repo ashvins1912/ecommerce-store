@@ -16,7 +16,9 @@
     "build:seller": "vite build --config apps/seller-hub/vite.config.ts",
     "dev:provider": "vite --config apps/provider-portal/vite.config.ts",
     "build:provider": "vite build --config apps/provider-portal/vite.config.ts",
-    "build:workspace": "npm run build:customer && npm run build:seller && npm run build:provider"
+    "build:workspace": "npm run build:customer && npm run build:seller && npm run build:provider",
+    "logistics:worker": "RUN_LOGISTICS_WORKER=1 tsx apps/logistics-worker/src/run.ts",
+    "test:logistics": "tsx --test packages/logistics-core/src/index.test.ts packages/adapters/shadowfax/src/index.test.ts packages/adapters/shiprocket/src/index.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
@@ -66,6 +68,10 @@
     "apps/provider-portal",
     "packages/shared-types",
     "packages/shared-utils",
-    "packages/shared-ui"
+    "packages/shared-ui",
+    "packages/logistics-core",
+    "packages/adapters/shadowfax",
+    "packages/adapters/shiprocket",
+    "apps/logistics-worker"
   ]
 }

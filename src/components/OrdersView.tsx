@@ -68,6 +68,18 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
   const [returnTrackingUrl, setReturnTrackingUrl] = useState('');
   const [walletAmounts, setWalletAmounts] = useState<Record<string, string>>({});
   const [walletBusyOrderId, setWalletBusyOrderId] = useState<string | null>(null);
+  const [logisticsTracking, setLogisticsTracking] = useState<Record<string, {status:string;eta:string|null;latestCheckpoint:any}>>({});
+  const [trackingLoadingId, setTrackingLoadingId] = useState<string | null>(null);
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+
+  const loadLogisticsTracking = async (orderId: string) => {
+    setTrackingLoadingId(orderId); setTrackingError(null);
+    try {
+      const tracking = await apiFetch<{status:string;eta:string|null;latestCheckpoint:{status:string;location?:string;timestamp:string}|null}>('/api/logistics/orders/'+encodeURIComponent(orderId)+'/tracking');
+      setLogisticsTracking(prev => ({...prev,[orderId]:tracking}));
+    } catch (error) { setTrackingError((error as Error).message); }
+    finally { setTrackingLoadingId(null); }
+  };
 
   const fetchOrders = useCallback(
     async (tab: OrderTab, skipVal: number, append: boolean) => {
@@ -339,6 +351,9 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                   </div>
 
                   <div className="flex items-center gap-4">
+                    <button type="button" onClick={() => void loadLogisticsTracking(order._id)} disabled={trackingLoadingId===order._id} className="inline-flex items-center gap-1.5 rounded-md border border-[#D6D3CD] px-3 py-1.5 text-xs font-medium disabled:opacity-50">
+                      <Truck className="h-3.5 w-3.5"/>{trackingLoadingId===order._id?'Loading…':'Live tracking'}
+                    </button>
                     {order.courierTracking && (
                       <a
                         href={order.courierTracking.trackingUrl}
@@ -361,6 +376,13 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                   </div>
                 </div>
 
+                {trackingError && <p role="alert" className="text-xs text-red-700">{trackingError}</p>}
+                {logisticsTracking[order._id] && (
+                  <div className="rounded-md border border-[#E8E6E1] bg-[#FAF9F6] p-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{logisticsTracking[order._id].status.replaceAll('_',' ')}</span>{logisticsTracking[order._id].eta&&<span>ETA: {new Date(logisticsTracking[order._id].eta!).toLocaleDateString(locale)}</span>}</div>
+                    {logisticsTracking[order._id].latestCheckpoint&&<p className="mt-1 text-[#78716C]">Latest checkpoint: {logisticsTracking[order._id].latestCheckpoint.status.replaceAll('_',' ')} · {logisticsTracking[order._id].latestCheckpoint.location||'Location unavailable'} · {new Date(logisticsTracking[order._id].latestCheckpoint.timestamp).toLocaleString(locale)}</p>}
+                  </div>
+                )}
                 {/* Order Items */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {order.items.map((item, idx) => (

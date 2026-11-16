@@ -188,9 +188,7 @@ export function ProductCard({
                 {t('card.quickLook')}
               </span>
               <span className="tabular-nums text-white/80">
-                {product.totalStock > 0
-                  ? t('card.inStock', { count: product.totalStock })
-                  : t('card.soldOut')}
+                {product.totalStock > 0 ? t('card.inStock') : t('card.soldOut')}
               </span>
             </div>
             <div className="text-[11px] font-medium text-[#FDE68A] truncate">{quickSpecLine}</div>

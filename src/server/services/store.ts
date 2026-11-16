@@ -56,12 +56,19 @@ import {
   CategoryControlModel,
   ShareEventModel,
 } from '../models/schemas.js';
+import { ProviderProfileModel, ProviderProductModel } from '../models/providerSchemas.js';
+import { encryptField } from './fieldEncryption.js';
 import type { AuthSessionRecord } from './session.js';
 import { deleteStoredImageAssets } from './storage.js';
 import { purgeProductFromCartCaches } from './redis.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
+
+// Provider demo identities are excluded from every production seed path.
+const ACTIVE_SEED_USERS = process.env.NODE_ENV === 'production'
+  ? SEED_USERS.filter((user) => user.role !== 'PROVIDER')
+  : SEED_USERS;
 
 interface StoreState {
   users: User[];
@@ -147,6 +154,13 @@ function loadLocalStore(): StoreState {
           parsed.users = [];
           dirty = true;
         }
+        if (process.env.NODE_ENV === 'production') {
+          const safeUsers = parsed.users.filter((user) => user.role !== 'PROVIDER');
+          if (safeUsers.length !== parsed.users.length) {
+            parsed.users = safeUsers;
+            dirty = true;
+          }
+        }
         if (!Array.isArray(parsed.sessions)) {
           parsed.sessions = [];
           dirty = true;
@@ -202,7 +216,7 @@ function loadLocalStore(): StoreState {
             dirty = true;
           }
         }
-        for (const seedUser of SEED_USERS) {
+        for (const seedUser of ACTIVE_SEED_USERS) {
           const exists = parsed.users.some(
             (u) => u._id === seedUser._id || u.email.toLowerCase() === seedUser.email.toLowerCase()
           );
@@ -221,7 +235,7 @@ function loadLocalStore(): StoreState {
     }
   }
   const initial: StoreState = {
-    users: structuredClone(SEED_USERS),
+    users: structuredClone(ACTIVE_SEED_USERS),
     products: structuredClone(SEED_PRODUCTS).map((p) => ({ ...p, sharesCount: p.sharesCount ?? 0 })),
     likes: [],
     reviews: structuredClone(SEED_REVIEWS),
@@ -263,7 +277,7 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
       const productCount = await ProductModel.countDocuments();
       if (productCount === 0) {
         const idMap = new Map<string, mongoose.Types.ObjectId>();
-        for (const u of SEED_USERS) {
+        for (const u of ACTIVE_SEED_USERS) {
           const oid = new mongoose.Types.ObjectId();
           idMap.set(u._id, oid);
           await UserModel.create({ ...u, _id: oid });
@@ -279,13 +293,120 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
         }
       } else {
         // Ensure dummy test users (Buyer, Seller, Admin) always exist for testing
-        for (const u of SEED_USERS) {
+        for (const u of ACTIVE_SEED_USERS) {
           const existing = await UserModel.findOne({ email: u.email.toLowerCase() }).lean();
           if (!existing) {
             await UserModel.create({ ...u, _id: new mongoose.Types.ObjectId() });
           }
         }
       }
+      // Ensure development provider demo identities exist even when this database was
+      // populated before provider demos were added. Keep synthetic users out of production.
+      if (process.env.NODE_ENV !== 'production') {
+        for (const provider of [
+          { _id: 'usr_provider_1', name: 'Aarav Artisan Supply', email: 'provider.aarav@example.com', mobileNumber: '+919876540001' },
+          { _id: 'usr_provider_2', name: 'Nisha Craft Works', email: 'provider.nisha@example.com', mobileNumber: '+919876540002' },
+        ]) {
+          const existingProvider = await UserModel.findOne({ email: provider.email }).lean();
+          if (!existingProvider) {
+            await UserModel.create({
+              ...provider,
+              role: 'PROVIDER',
+              authProvider: 'demo',
+              oauthAccounts: [],
+              isWhatsappVerified: false,
+              shippingAddresses: [],
+            });
+          }
+        }
+      }
+
+      // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
+      if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
+        for (const demo of [
+          { email: 'provider.aarav@example.com', businessName: 'Aarav Artisan Supply', sellerEmail: 'meera@zaveriatelier.in', mobile: '+919876540001' },
+          { email: 'provider.nisha@example.com', businessName: 'Nisha Craft Works', sellerEmail: 'raghav@jaipurloom.in', mobile: '+919876540002' },
+        ]) {
+          const providerUser = await UserModel.findOne({ email: demo.email }).lean();
+          const linkedSeller = await UserModel.findOne({ email: demo.sellerEmail }).lean();
+          if (providerUser && linkedSeller) {
+            await ProviderProfileModel.updateOne(
+              { userId: String(providerUser._id) },
+              { $setOnInsert: {
+                userId: String(providerUser._id),
+                linkedSellerIds: [String(linkedSeller._id)],
+                businessName: demo.businessName,
+                contactPerson: demo.businessName,
+                mobile: demo.mobile,
+                whatsapp: demo.mobile,
+                warehouseAddress: 'Demo Warehouse, Jaipur, Rajasthan, India',
+                encryptedTaxId: encryptField('DEMO-GST-TEST-0001'),
+                encryptedSettlementDetails: encryptField('DEMO-ACCOUNT-000000000001'),
+                settlementDetailsLast4: '0001',
+                kycStatus: 'PENDING',
+              } },
+              { upsert: true }
+            );
+          }
+        }
+
+        // Seed realistic image-backed catalog rows for the demo provider workspaces.
+        // These use existing repository assets and are isolated by providerId.
+        const demoCatalog = [
+          {
+            email: 'provider.aarav@example.com',
+            sellerEmail: 'meera@zaveriatelier.in',
+            title: 'Demo Kundan Bridal Choker',
+            category: 'Artificial Jewellery',
+            subCategory: 'Choker Necklaces',
+            description: 'Demo provider listing with a local product image for testing the full catalog-to-review mapping.',
+            brand: 'Aarav Artisan',
+            manufacturerName: 'Aarav Artisan Supply',
+            basePricePaise: 185000,
+            imageUrls: ['/src/assets/images/jewellery_kundan_choker_1794740131002.jpg', '/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg'],
+          },
+          {
+            email: 'provider.nisha@example.com',
+            sellerEmail: 'raghav@jaipurloom.in',
+            title: 'Demo Chanderi Anarkali Set',
+            category: 'Clothing',
+            subCategory: 'Kurta Sets',
+            description: 'Demo provider listing with a local apparel image for validating provider catalog and seller review screens.',
+            brand: 'Nisha Craft',
+            manufacturerName: 'Nisha Craft Works',
+            basePricePaise: 245000,
+            imageUrls: ['/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg', '/src/assets/images/clothing_linen_co_ord_1794740132428.jpg'],
+          },
+        ];
+        for (const demo of demoCatalog) {
+          const providerUser = await UserModel.findOne({ email: demo.email }).lean();
+          const linkedSeller = await UserModel.findOne({ email: demo.sellerEmail }).lean();
+          if (!providerUser || !linkedSeller) continue;
+          await ProviderProductModel.updateOne(
+            { providerId: String(providerUser._id), title: demo.title },
+            { $setOnInsert: {
+              providerId: String(providerUser._id),
+              linkedSellerIds: [String(linkedSeller._id)],
+              title: demo.title,
+              category: demo.category,
+              subCategory: demo.subCategory,
+              description: demo.description,
+              brand: demo.brand,
+              manufacturerName: demo.manufacturerName,
+              sizeVariants: ['Free Size'],
+              colorVariants: ['Demo Gold'],
+              imageUrls: demo.imageUrls,
+              basePricePaise: demo.basePricePaise,
+              returnable: true,
+              returnWindowDays: 7,
+              damageReplacementPolicy: 'Demo-only replacement policy.',
+              status: 'PENDING_REVIEW',
+            } },
+            { upsert: true }
+          );
+        }
+      }
+
       const catCount = await CategoryControlModel.countDocuments();
       if (catCount === 0) {
         for (const cat of buildDefaultCategories()) {
@@ -933,6 +1054,7 @@ export async function updateProductDiscountOrStock(
     salePrice?: number;
     basePrice?: number;
     totalStock?: number;
+    shippingWeightGrams?: number;
     title?: string;
     occasions?: OccasionType[];
     seasons?: SeasonType[];
@@ -986,6 +1108,7 @@ export async function updateProductDiscountOrStock(
     ...(typeof updates.totalStock === 'number'
       ? { totalStock: updates.totalStock, variants: nextVariants }
       : {}),
+    ...(typeof updates.shippingWeightGrams === 'number' ? { shippingWeightGrams: updates.shippingWeightGrams } : {}),
     basePrice,
     discountPercent,
     salePrice,

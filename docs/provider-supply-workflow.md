@@ -92,3 +92,21 @@ MongoDB must be configured for production persistence. The current provider sett
 - Settlement availability is released on the next provider/seller ledger read after the 24-hour clearance time. A scheduled release worker would be preferable at scale.
 - Return adjustment only applies while a provider settlement is unsettled. A return approved after payout requires a separate provider debit/credit adjustment workflow.
 - Live deployment, Supabase role-transition testing, multi-seller invite testing, Mongo replica-set migration rehearsal and end-to-end sandbox tests are required before production launch.
+
+
+## Provider demo test accounts
+
+The local / non-production seed includes two synthetic provider accounts for exercising the Provider Portal:
+
+| Demo account | Email | Demo user ID | Linked seller |
+|---|---|---|---|
+| Aarav Artisan Supply | `provider.aarav@example.com` | `usr_provider_1` | Meera Zaveri |
+| Nisha Craft Works | `provider.nisha@example.com` | `usr_provider_2` | Raghavendra Rathore |
+
+These are role-switch demo accounts, not email/password credentials. Sign in through the app's demo-account switcher, or call `POST /api/auth/signin` with a JSON body such as:
+
+```json
+{ "quickDemoUserId": "usr_provider_1", "email": "provider.aarav@example.com" }
+```
+
+Use `usr_provider_2` and `provider.nisha@example.com` for the second account. The email fallback also supports MongoDB-seeded records whose database IDs are generated at startup. Provider profiles and image-backed sample products are seeded only in non-production MongoDB environments when `ENCRYPTION_MASTER_KEY` is configured; they use synthetic tax / settlement values and remain in `PENDING` KYC state. The sample product images reuse checked-in files under `src/assets/images`. The Provider Portal and seller review queue render image URLs returned by the provider APIs. In local development, the Provider Vite server proxies `/src/assets` to the Express backend; deployments on separate frontend domains must also reverse-proxy `/src/assets` to the backend (alongside `/api` and `/uploads`). Demo role switching and provider demo identities are disabled/excluded when `NODE_ENV=production`. Real provider accounts load profile, catalog and settlement records from the authenticated API; no demo catalog fallback is applied. Never use these accounts or fixture values for real transactions or KYC.

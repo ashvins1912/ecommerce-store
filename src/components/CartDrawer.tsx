@@ -42,6 +42,22 @@ export function CartDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmedOrders, setConfirmedOrders] = useState<Order[] | null>(null);
+  const [rateGroups,setRateGroups]=useState<Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
+  const [rateLoading,setRateLoading]=useState(false);
+  const [rateError,setRateError]=useState<string|null>(null);
+
+  const checkDeliveryRates=async()=>{
+    const destinationPostalCode=user?.shippingAddresses?.find(address=>address.isDefault)?.pincode||user?.shippingAddresses?.[0]?.pincode;
+    if(!destinationPostalCode){setRateError('Add a delivery address with pincode to check courier rates.');return;}
+    setRateLoading(true);setRateError(null);
+    try{
+      const result=await apiFetch<{groups:Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number;expiresAt?:string}>}>}>('/api/logistics/rates',{
+        method:'POST',body:JSON.stringify({items:cart.map(item=>({productId:item.productId,quantity:item.quantity}))})
+      });
+      setRateGroups(result.groups);
+      if(!result.groups.some(group=>group.quotes.length))setRateError('No configured carrier rates are available for this delivery address yet.');
+    }catch(error){setRateError((error as Error).message);}finally{setRateLoading(false);}
+  };
 
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
@@ -434,6 +450,11 @@ export function CartDrawer({
                 <span>{formatINR(finalTotal)}</span>
               </div>
             </div>
+            <div className="space-y-2">
+              <button type="button" disabled={rateLoading||cart.length===0} onClick={()=>void checkDeliveryRates()} className="w-full rounded-md border border-[#D6D3CD] bg-white px-4 py-2.5 text-xs font-semibold text-[#44403C] disabled:opacity-50">{rateLoading?'Checking courier rates…':'Check delivery rates & ETA'}</button>
+              {rateError&&<p role="status" className="text-[11px] text-amber-800">{rateError}</p>}
+              {rateGroups.length>0&&<p className="text-[10px] text-[#78716C]">Estimates use each product’s configured shipping weight (500g default per item, plus a 100g parcel buffer). Final courier charges are confirmed when the seller books the parcel.</p>}{rateGroups.map(group=><div key={group.sellerId} className="rounded-md border border-[#E8E6E1] bg-white p-2.5 space-y-1"><p className="text-[10px] font-semibold text-[#78716C]">Seller delivery options · indicative estimate</p>{group.quotes.map(quote=><div key={quote.providerCode+quote.serviceCode} className="flex flex-wrap justify-between gap-2 text-[11px]"><span>{quote.providerCode} · {quote.estimatedTransitHours}h · {quote.serviceCode}</span><span className="font-semibold">{formatINR(quote.costMinor/100)}</span></div>)}</div>)}
+            </div>
 
             <button
               type="button"
@@ -450,7 +471,7 @@ export function CartDrawer({
       {/* Mandatory Checkout Profile Gate Modal */}
       {showGateModal && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/55 p-4">
-          <div className="w-full max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 shadow-2xl">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 shadow-2xl">
             <div className="flex items-start justify-between border-b border-[#F0EEE9] pb-3">
               <div>
                 <h3 className="font-display text-2xl font-semibold text-[#141413]">

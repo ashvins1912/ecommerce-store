@@ -101,6 +101,14 @@ import {
 import { processAndStoreImage, getUploadDir } from './src/server/services/storage.js';
 import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerce-defaults.js';
 import {
+  listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
+  listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
+  getCustomerTrackingEvents, refreshCarrierTrackingForOrder, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
+} from './src/server/services/logistics.js';
+import { STATUS_CODE, verifyHmacSha256 } from './packages/logistics-core/src/index.js';
+import { ShadowfaxAdapter } from './packages/adapters/shadowfax/src/index.js';
+import { ShiprocketAdapter } from './packages/adapters/shiprocket/src/index.js';
+import {
   isValidE164,
   checkWhatsAppNumberExists,
   sendWhatsAppMessage,
@@ -257,7 +265,7 @@ async function startServer() {
   const configuredOrigins = originConfig
     .split(',').map((origin) => origin.trim()).filter(Boolean).map((origin) => new URL(origin).origin);
   app.use(async (req, res, next) => {
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/')) return next();
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/') || req.path.startsWith('/api/logistics/webhooks/')) return next();
     let suppliedOrigin = String(req.headers.origin || '');
     if (!suppliedOrigin && req.headers.referer) { try { suppliedOrigin = new URL(String(req.headers.referer)).origin; } catch { return res.status(403).json({ error: 'INVALID_REFERER' }); } }
     if (suppliedOrigin) {
@@ -287,6 +295,223 @@ async function startServer() {
   // --- Health ---
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, dbMode: dbStatus.mode });
+  });
+
+  // --- Logistics: separate PostgreSQL persistence boundary ---
+  const requireLogisticsSeller = (user: User | null) => Boolean(user && (user.role === 'SELLER' || user.role === 'ADMIN'));
+
+  app.get('/api/logistics/providers', async (_req, res) => {
+    try { res.json({ providers: await listLogisticsProviders() }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.post('/api/logistics/rates', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(401).json({ error: 'BUYER_AUTH_REQUIRED' });
+    const rateLimit = await checkRateLimit('logistics-rates:' + user._id, 12, 60);
+    const ipRateLimit = await checkRateLimit('logistics-rates-ip:' + req.ip, 30, 60);
+    if (!rateLimit.allowed || !ipRateLimit.allowed) return res.status(429).json({ error: 'LOGISTICS_RATE_LIMITED' });
+    const parsed = z.object({
+      items: z.array(z.object({ productId: z.string().min(1), quantity: z.coerce.number().int().min(1).max(50) })).min(1).max(50),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_RATE_REQUEST' });
+    const quantities = new Map<string, number>();
+    for (const item of parsed.data.items) quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
+    if ([...quantities.values()].some(quantity => quantity > 50)) return res.status(400).json({ error: 'INVALID_ITEM_QUANTITY' });
+    const productIds = [...quantities.keys()];
+    if (productIds.some(id => !mongoose.isValidObjectId(id))) return res.status(400).json({ error: 'INVALID_PRODUCT_ID' });
+    try {
+      const products = await ProductModel.find({
+        _id: { $in: productIds }, isDeleted: { $ne: true }, isActive: true, isPublished: { $ne: false },
+        listingStatus: { $nin: ['unpublished', 'discontinued'] },
+        $or: [{ visibility: { $ne: 'ASSIGNED' } }, { assignedCustomerIds: user._id }],
+      }).select('sellerId shippingWeightGrams salePrice onlinePaymentRequired codAllowed').lean() as any[];
+      if (products.length !== productIds.length) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
+      const bySeller = new Map<string, { weightGrams: number; declaredValueMinor: number; codAmountMinor: number; prepaidRequired: boolean }>();
+      for (const product of products) {
+        const sellerId = String(product.sellerId);
+        const quantity = quantities.get(String(product._id)) || 0;
+        const current = bySeller.get(sellerId) || { weightGrams: 100, declaredValueMinor: 0, codAmountMinor: 0, prepaidRequired: false };
+        current.weightGrams += Math.max(1, Number(product.shippingWeightGrams) || 500) * quantity;
+        current.declaredValueMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
+        if (product.codAllowed === false || product.onlinePaymentRequired === true) current.prepaidRequired = true;
+        else current.codAmountMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
+        bySeller.set(sellerId, current);
+      }
+      const groups = await Promise.all([...bySeller.entries()].map(async ([sellerId, parcel]) => {
+        if (parcel.prepaidRequired) parcel.codAmountMinor = 0;
+        const quotes = await getSellerRateQuotes({ sellerId, destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
+          weightGrams: parcel.weightGrams, codAmountMinor: parcel.codAmountMinor,
+          declaredValueMinor: parcel.declaredValueMinor, currency: 'INR' });
+        return { sellerId, quotes: quotes.map(({ providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score, quote }) => ({
+          providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score, expiresAt: quote?.expiresAt,
+        })) };
+      }));
+      const projection = { groups, partial: groups.some(group => group.quotes.length === 0), estimateBasis: 'CATALOG_SHIPPING_WEIGHT' };
+      const etag = '"' + crypto.createHash('sha256').update(JSON.stringify(projection)).digest('hex') + '"';
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'private, no-cache');
+      if (req.headers['if-none-match'] === etag) return res.status(304).end();
+      res.json(projection);
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'RATE_LOOKUP_FAILED' }); }
+  });
+
+  app.get('/api/seller/logistics/carriers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    try { res.json({ carriers: await listSellerCarrierConfigs(user!._id) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.post('/api/seller/logistics/carriers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({
+      providerId: z.string().uuid(),
+      credentials: z.record(z.string(), z.string()),
+      priorityRank: z.coerce.number().int().min(0).max(10000).default(100),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_CARRIER_CONFIG' });
+    try {
+      const saved = await saveSellerCarrierConfig({ sellerId: user!._id, ...parsed.data });
+      res.status(201).json({ carrier: saved, message: 'Credentials encrypted and saved. Verify against the carrier sandbox before using live shipments.' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'CARRIER_CONFIG_SAVE_FAILED' }); }
+  });
+
+  app.patch('/api/seller/logistics/carriers/:id/active', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({ isActive: z.boolean() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_ACTIVE_FLAG' });
+    try {
+      const updated = await setSellerCarrierActive(user!._id, req.params.id, parsed.data.isActive);
+      if (!updated) return res.status(404).json({ error: 'CARRIER_CONFIG_NOT_FOUND' });
+      res.json({ carrier: updated });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'CARRIER_UPDATE_FAILED' }); }
+  });
+
+  app.get('/api/seller/logistics/warehouses', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    try { res.json({ warehouses: await listSellerWarehouses(user!._id) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.post('/api/seller/logistics/warehouses', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({
+      warehouseCode: z.string().trim().min(2).max(64), name: z.string().trim().min(2).max(120),
+      contactName: z.string().trim().min(2).max(120), contactPhone: z.string().trim().min(8).max(24),
+      addressLine1: z.string().trim().min(3).max(180), addressLine2: z.string().max(180).optional(),
+      locality: z.string().max(120).optional(), city: z.string().trim().min(2).max(100),
+      state: z.string().trim().min(2).max(100), postalCode: z.string().trim().min(4).max(12),
+      countryCode: z.string().length(2).default('IN'), isDefault: z.boolean().default(false),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_WAREHOUSE' });
+    try { res.status(201).json({ warehouse: await createSellerWarehouse({ sellerId: user!._id, ...parsed.data }) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'WAREHOUSE_CREATE_FAILED' }); }
+  });
+
+  app.get('/api/seller/logistics/shipments', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    try { res.json({ shipments: await listSellerShipments(user!._id) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.post('/api/seller/logistics/shipments', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({
+      orderId: z.string().min(1), carrierConfigId: z.string().uuid(), warehouseId: z.string().uuid(),
+      weightGrams: z.coerce.number().int().min(1).max(100000),
+      serviceCode: z.string().trim().min(1).max(100).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_SHIPMENT_REQUEST' });
+    if (!mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_ORDER_ID' });
+    try {
+      const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
+      if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+      if (String(order.sellerId) !== user!._id) return res.status(403).json({ error: 'ORDER_NOT_OWNED_BY_SELLER' });
+      if (['Cancelled', 'CANCELLED'].includes(order.status)) return res.status(409).json({ error: 'CANCELLED_ORDER_CANNOT_SHIP' });
+      if (order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_SHIPMENT' });
+      if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
+      const address = order.shippingAddress || {};
+      const pin = String(address.pincode || '').trim();
+      if (!pin || !address.street || !address.city || !address.state || !address.fullName || !address.phone) return res.status(422).json({ error: 'ORDER_SHIPPING_ADDRESS_INCOMPLETE' });
+      const buyer = await findUserById(String(order.buyerId));
+      const sellerCarriers = await listSellerCarrierConfigs(String(order.sellerId));
+      const selectedCarrier = sellerCarriers.find((carrier: any) => String(carrier.id) === parsed.data.carrierConfigId);
+      if (!selectedCarrier) return res.status(422).json({ error: 'SELLER_CARRIER_CONFIGURATION_NOT_FOUND' });
+      if (String(selectedCarrier.logistics_providers?.code || '').toLowerCase() === 'shiprocket' && !buyer?.email) return res.status(422).json({ error: 'SHIPROCKET_CUSTOMER_EMAIL_REQUIRED' });
+      const result = await createShipmentIntent({
+        orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
+        warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
+        destinationPostalCode: pin, destinationCountryCode: 'IN',
+        codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
+        declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
+        recipientName: String(address.fullName), recipientPhone: String(address.phone), recipientEmail: buyer?.email || '',
+        destinationAddressLine1: String(address.street), destinationCity: String(address.city), destinationState: String(address.state),
+        orderDate: new Date(order.createdAt || Date.now()).toISOString(),
+        items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
+      });
+      res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
+  });
+
+  app.post('/api/seller/logistics/shipments/:id/retry', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: 'INVALID_SHIPMENT_ID' });
+    try {
+      const jobId = await retrySellerShipment(user!._id, req.params.id);
+      res.status(202).json({ jobId, status: 'QUEUED', message: 'Shipment booking retry queued.' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 409).json({ error: e.message || 'SHIPMENT_NOT_RETRYABLE' }); }
+  });
+
+  app.post('/api/logistics/webhooks/:providerCode', async (req, res) => {
+    try {
+      const providerCode = String(req.params.providerCode || '').toLowerCase();
+      const raw = (req as any).rawBody as Buffer | undefined;
+      const signature = String(req.headers['x-api-key'] || req.headers['x-logistics-signature'] || req.headers['x-signature'] || '');
+      if (!raw || !signature) return res.status(400).json({ error: 'WEBHOOK_RAW_BODY_OR_SIGNATURE_MISSING' });
+      let adapter: any;
+      const noHttp = { request: async () => { throw new Error('HTTP_NOT_AVAILABLE_IN_WEBHOOK_PARSER'); } };
+      if (providerCode === 'shadowfax') adapter = new ShadowfaxAdapter(noHttp, process.env.SHADOWFAX_API_BASE_URL || 'https://invalid.local');
+      else if (providerCode === 'shiprocket') adapter = new ShiprocketAdapter(noHttp, process.env.SHIPROCKET_API_BASE_URL || 'https://invalid.local');
+      else return res.status(404).json({ error: 'UNKNOWN_LOGISTICS_PROVIDER' });
+      const event = adapter.parseWebhook(JSON.parse(raw.toString('utf8')));
+      const shipment = await findShipmentForWebhook(providerCode, event.awbNumber);
+      if (!shipment) return res.status(202).json({ accepted: true, applied: false, reason: 'SHIPMENT_NOT_FOUND' });
+      if (!adapter.verifyWebhook(raw, signature, shipment.webhookSecret)) return res.status(401).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
+      const applied = await applyLogisticsWebhook({
+        shipmentId: shipment.shipmentId, eventHash: event.eventHash, statusCode: STATUS_CODE[event.status],
+        locationCode: event.locationCode, eventTimestamp: event.occurredAt,
+        expectedStatusCode: shipment.currentStatusCode, expectedLastEventAt: shipment.lastEventAt,
+      });
+      res.status(200).json({ accepted: true, applied: Boolean(applied), reason: applied ? undefined : 'DUPLICATE_STALE_OR_INVALID_TRANSITION' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 400).json({ error: e.message || 'WEBHOOK_PROCESSING_FAILED' }); }
+  });
+
+  app.get('/api/logistics/orders/:orderId/tracking', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user) return res.status(401).json({ error: 'AUTH_REQUIRED' });
+    if (!mongoose.isValidObjectId(req.params.orderId)) return res.status(400).json({ error: 'INVALID_ORDER_ID' });
+    try {
+      const order = await OrderModel.findById(req.params.orderId).select('buyerId').lean() as any;
+      if (!order || String(order.buyerId) !== user._id) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+      const trackingLimit = await checkRateLimit('logistics-tracking:' + user._id, 12, 60);
+      if (!trackingLimit.allowed) return res.status(429).json({ error: 'TRACKING_RATE_LIMITED' });
+      const tracking = await refreshCarrierTrackingForOrder(req.params.orderId) as any;
+      if (!tracking) return res.status(404).json({ error: 'TRACKING_NOT_AVAILABLE' });
+      const names: Record<number,string> = {10:'CREATED',20:'MANIFESTED',30:'IN_TRANSIT',40:'OUT_FOR_DELIVERY',50:'DELIVERED',60:'NDR',70:'RTO_INITIATED',80:'RTO_DELIVERED',90:'CANCELLED'};
+      const projection = { status: names[tracking.statusCode] || 'CREATED', eta: tracking.eta, latestCheckpoint: tracking.latestCheckpoint ? { status: names[tracking.latestCheckpoint.status_code] || 'UNKNOWN', location: tracking.latestCheckpoint.location_code, timestamp: tracking.latestCheckpoint.event_timestamp } : null };
+      const etag = '"'+crypto.createHash('sha256').update(JSON.stringify(projection)).digest('hex')+'"';
+      res.setHeader('ETag', etag);
+      if (req.headers['if-none-match'] === etag) return res.status(304).end();
+      res.json(projection);
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'TRACKING_LOOKUP_FAILED' }); }
   });
 
   // --- Auth & Guest Session ---
@@ -484,9 +709,18 @@ async function startServer() {
       let sessionProvider: 'supabase' | 'demo' = 'supabase';
 
       if ('quickDemoUserId' in parsed.data) {
-        user = await findUserById(parsed.data.quickDemoUserId);
-        if (!user && parsed.data.email) {
-          user = await findUserByEmail(parsed.data.email);
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(404).json({ error: 'Test accounts are disabled in production.' });
+        }
+        // Prefer the demo email because MongoDB seed records receive generated ObjectIds;
+        // the stable demo IDs are used by the local JSON store and UI only.
+        user = parsed.data.email ? await findUserByEmail(parsed.data.email) : null;
+        if (!user) {
+          try {
+            user = await findUserById(parsed.data.quickDemoUserId);
+          } catch {
+            user = null;
+          }
         }
         if (!user) {
           return res.status(404).json({ error: 'Test account not found.' });
@@ -1036,6 +1270,7 @@ async function startServer() {
       salePrice: z.number().positive().optional(),
       basePrice: z.number().positive().optional(),
       totalStock: z.number().int().min(0).optional(),
+      shippingWeightGrams: z.number().int().min(1).max(100000).optional(),
       title: z.string().min(3).optional(),
       seasons: z
         .array(z.enum(['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer']))
