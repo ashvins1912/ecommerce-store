@@ -425,6 +425,19 @@ async function startServer() {
     } catch { res.status(503).json({ error: 'SELLER_PRIVACY_SETTINGS_SAVE_FAILED' }); }
   });
 
+  app.get('/api/seller/privacy-disclosures', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
+    const filter = user!.role === 'ADMIN' ? {} : { sellerId: user!._id };
+    const disclosures = await PrivacyDisclosureAuditModel.find(filter)
+      .sort({ authorizedAt: -1 }).limit(100)
+      .select('sellerId orderId carrierConfigId carrierCode fieldsAuthorized actorId authorizedAt purpose')
+      .lean();
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ disclosures });
+  });
+
   app.get('/api/seller/logistics/warehouses', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
