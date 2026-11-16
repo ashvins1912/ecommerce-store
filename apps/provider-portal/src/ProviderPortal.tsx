@@ -538,6 +538,77 @@ export default function ProviderPortal() {
               </section>
             </div>
 
+            <section className="grid min-w-0 gap-5 xl:grid-cols-2">
+              <form onSubmit={saveProviderCarrier} className="min-w-0 space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-sky-50 text-sky-800"><Truck className="h-5 w-5" /></div><div><h2 className="font-semibold">Shipping vendors</h2><p className="text-xs text-stone-500">Connect your own courier or aggregator account</p></div></div>
+                <label className={labelClass}>Courier / aggregator
+                  <select className={inputClass} value={carrierProviderId} onChange={(event) => { setCarrierProviderId(event.target.value); setCarrierCredentials({}); }}>
+                    <option value="">Select shipping vendor</option>
+                    {shippingProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.type}</option>)}
+                  </select>
+                </label>
+                {(shippingProviders.find((provider) => provider.id === carrierProviderId)?.auth_schema_json?.fields || []).map((field) => (
+                  <label key={field.name} className={labelClass}>{field.label}
+                    <input className={inputClass} type={field.type || 'password'} autoComplete="off" value={carrierCredentials[field.name] || ''} onChange={(event) => setCarrierCredentials((value) => ({ ...value, [field.name]: event.target.value }))} />
+                  </label>
+                ))}
+                <button className={buttonClass} disabled={shippingSaving || !carrierProviderId}> {shippingSaving ? 'Saving…' : 'Validate & save encrypted credentials'}</button>
+                <div className="space-y-2 border-t border-stone-100 pt-3">
+                  {providerCarriers.map((carrier) => <div key={carrier.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span>{carrier.logistics_providers?.name || carrier.provider_id} · {carrier.is_active ? 'Active' : 'Disabled'}</span>
+                    <button type="button" onClick={async () => { try { await api('/api/provider/logistics/carriers/' + carrier.id + '/active', { method: 'PATCH', body: JSON.stringify({ isActive: !carrier.is_active }) }); await refresh(); } catch (error) { setNotice((error as Error).message); } }} className="rounded-lg border border-stone-300 px-3 py-1.5">{carrier.is_active ? 'Disable' : 'Enable'}</button>
+                  </div>)}
+                  {!providerCarriers.length && <p className="text-xs text-stone-500">No shipping accounts configured yet.</p>}
+                </div>
+                {carrierWebhookSecret && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  <p className="font-semibold">Webhook secret — shown once</p><p className="mt-1 break-all font-mono">{carrierWebhookSecret}</p>
+                  <button type="button" onClick={() => void navigator.clipboard?.writeText(carrierWebhookSecret)} className="mt-2 rounded border border-amber-300 px-2 py-1">Copy secret</button>
+                </div>}
+              </form>
+
+              <form onSubmit={saveProviderWarehouse} className="min-w-0 space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-amber-50 text-amber-900"><Building2 className="h-5 w-5" /></div><div><h2 className="font-semibold">Provider pickup location</h2><p className="text-xs text-stone-500">Your own dispatch and return address</p></div></div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([['warehouseCode','Warehouse code'],['name','Location name'],['contactName','Contact name'],['contactPhone','Contact phone'],['addressLine1','Address'],['addressLine2','Address line 2'],['city','City'],['state','State'],['postalCode','Pincode']] as const).map(([key,label]) => <label key={key} className={labelClass}>{label}<input className={inputClass} required={!['addressLine2'].includes(key)} value={warehouseForm[key]} onChange={(event) => setWarehouseForm((value) => ({ ...value, [key]: event.target.value }))} /></label>)}
+                </div>
+                <label className="flex items-center gap-2 text-xs text-stone-700"><input type="checkbox" checked={warehouseForm.isDefault} onChange={(event) => setWarehouseForm((value) => ({ ...value, isDefault: event.target.checked }))} /> Default pickup location</label>
+                <button className={buttonClass} disabled={shippingSaving}>{shippingSaving ? 'Saving…' : 'Save pickup location'}</button>
+                <div className="border-t border-stone-100 pt-3">{providerWarehouses.map((warehouse) => <p key={warehouse.id} className="py-1 text-xs text-stone-600">{warehouse.name} · {warehouse.city}, {warehouse.postal_code}{warehouse.is_default ? ' · Default' : ''}</p>)}</div>
+              </form>
+            </section>
+
+            <section className="grid min-w-0 gap-5 xl:grid-cols-2">
+              <form onSubmit={requestFulfillmentDelegation} className="min-w-0 space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
+                <div><h2 className="font-semibold">Seller fulfilment authorization</h2><p className="mt-1 text-xs leading-5 text-stone-500">Request explicit seller approval before handling orders or sharing delivery data with a carrier.</p></div>
+                <label className={labelClass}>Linked seller
+                  <select className={inputClass} required value={delegationSellerId} onChange={(event) => setDelegationSellerId(event.target.value)}>
+                    <option value="">Choose linked seller</option>{linkedSellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.name}</option>)}
+                  </select>
+                </label>
+                <div className="space-y-2"><p className="text-xs font-semibold text-stone-700">Carriers to authorize</p>
+                  {providerCarriers.filter((carrier) => carrier.is_active).map((carrier) => <label key={carrier.id} className="flex items-center gap-2 text-xs text-stone-700"><input type="checkbox" checked={delegationCarrierCodes.includes(carrier.logistics_providers?.code || '')} onChange={(event) => setDelegationCarrierCodes((values) => event.target.checked ? [...values, carrier.logistics_providers?.code || ''].filter(Boolean) : values.filter((value) => value !== carrier.logistics_providers?.code))} />{carrier.logistics_providers?.name || carrier.provider_id}</label>)}
+                </div>
+                <div className="space-y-2"><p className="text-xs font-semibold text-stone-700">Requested delivery-data permissions</p>
+                  {([['recipientName','Recipient name'],['recipientPhone','Recipient phone'],['recipientAddress','Delivery address'],['recipientEmail','Customer email (required by some carriers)']] as const).map(([key,label]) => <label key={key} className="flex items-center gap-2 text-xs text-stone-700"><input type="checkbox" checked={delegationFields.includes(key)} onChange={(event) => setDelegationFields((values) => event.target.checked ? [...values,key] : values.filter((value) => value !== key))} />{label}</label>)}
+                </div>
+                <button className={buttonClass} disabled={shippingSaving || !delegationSellerId || !delegationCarrierCodes.length}>Send authorization request</button>
+                <div className="border-t border-stone-100 pt-3">{delegations.map((delegation) => <p key={delegation.sellerId} className="py-1 text-xs text-stone-600">Seller {linkedSellers.find((seller) => seller.id === delegation.sellerId)?.name || delegation.sellerId} · <strong>{delegation.status}</strong> · {(delegation.allowedCarrierCodes || []).join(', ') || 'Awaiting approval'}</p>)}</div>
+              </form>
+              <div className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
+                <h2 className="font-semibold">Booking defaults</h2><p className="mt-1 text-xs text-stone-500">Select your account and pickup point before requesting live service rates.</p>
+                <label className={labelClass + ' mt-4'}>Carrier account
+                  <select className={inputClass} value={bookingCarrierId} onChange={(event) => setBookingCarrierId(event.target.value)}><option value="">Select carrier account</option>{providerCarriers.filter((carrier) => carrier.is_active).map((carrier) => <option key={carrier.id} value={carrier.id}>{carrier.logistics_providers?.name || carrier.id}</option>)}</select>
+                </label>
+                <label className={labelClass + ' mt-3'}>Pickup location
+                  <select className={inputClass} value={bookingWarehouseId} onChange={(event) => setBookingWarehouseId(event.target.value)}><option value="">Select pickup location</option>{providerWarehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name} · {warehouse.postal_code}</option>)}</select>
+                </label>
+                <label className={labelClass + ' mt-3'}>Parcel weight (grams)
+                  <input className={inputClass} type="number" min="1" max="100000" value={bookingWeight} onChange={(event) => setBookingWeight(event.target.value)} />
+                </label>
+                <p className="mt-3 rounded-lg bg-stone-50 p-3 text-xs leading-5 text-stone-600">Only active seller-approved delegations are eligible. The seller can revoke access at any time; the worker rechecks authorization immediately before dispatch.</p>
+              </div>
+            </section>
+
             <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-sky-50 text-sky-800"><Package className="h-5 w-5" /></div><div><h2 className="font-semibold">Provider shipments</h2><p className="text-xs text-stone-500">Orders containing only your published products · no buyer address or contact details</p></div></div>
