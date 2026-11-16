@@ -61,6 +61,7 @@ import { encryptField } from './fieldEncryption.js';
 import type { AuthSessionRecord } from './session.js';
 import { deleteStoredImageAssets } from './storage.js';
 import { purgeProductFromCartCaches } from './redis.js';
+import { aggregateInventoryLines } from '../../../packages/hybrid-engine/src/index.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
@@ -2147,43 +2148,66 @@ export async function createOrder(input: {
   buyer: User;
   items: CartItem[];
   couponCode?: string;
-}): Promise<Order[]> {
+  idempotencyKey?: string;
+}): Promise<Order[] & { replayed?: boolean }> {
   if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) {
     throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
   }
-  const addr =
-    input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
+  if (!input.items.length) throw new Error('EMPTY_CART');
+  const idempotencyKey = input.idempotencyKey?.trim();
+  if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 120)) {
+    throw new Error('INVALID_CHECKOUT_IDEMPOTENCY_KEY');
+  }
 
-  // Validate product availability & stock (reject unpublished, unlisted, discontinued, removed, or 0-stock items)
-  for (const item of input.items) {
-    const prod = await getProductByIdOrSlug(item.productId, { includeControlled: true });
+  const buyerObjectId = mongoose.isValidObjectId(input.buyer._id)
+    ? new mongoose.Types.ObjectId(input.buyer._id)
+    : null;
+  if (mongoConnected && buyerObjectId && idempotencyKey) {
+    const previous = await OrderModel.find({ buyerId: buyerObjectId, checkoutIdempotencyKey: idempotencyKey })
+      .sort({ createdAt: 1 }).lean();
+    if (previous.length) {
+      const replay = previous.map((doc: any) => ({
+        ...doc, _id: String(doc._id), buyerId: String(doc.buyerId), sellerId: String(doc.sellerId),
+      })) as Order[] & { replayed?: boolean };
+      replay.replayed = true;
+      return replay;
+    }
+  }
+
+  const addr = input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
+  const products = await Promise.all(input.items.map((item) =>
+    getProductByIdOrSlug(item.productId, { includeControlled: true })
+  ));
+  for (let i = 0; i < input.items.length; i++) {
+    const item = input.items[i];
+    const prod = products[i];
     if (!prod || !isProductPubliclyVisible(prod)) {
       throw new Error(`"${item.title}" is no longer available for purchase.`);
     }
-    if (prod.totalStock < item.quantity) {
+    if (String(prod.sellerId) !== String(item.sellerId)) throw new Error('CART_SELLER_MISMATCH');
+    if (!Number.isSafeInteger(item.quantity) || item.quantity < 1) throw new Error('INVALID_CART_QUANTITY');
+    const variant = (prod.variants || []).find((v) => v.variantSku === item.variantSku);
+    if ((prod.variants || []).length && !variant) throw new Error('PRODUCT_VARIANT_UNAVAILABLE');
+    if (prod.totalStock < item.quantity || (variant && variant.stock < item.quantity)) {
       throw new Error(`"${item.title}" is currently out of stock or has insufficient units.`);
     }
+    const authoritativePrice = variant?.priceOverride ?? prod.salePrice;
+    if (Number(item.unitPrice) !== Number(authoritativePrice)) throw new Error('CART_PRICE_CHANGED');
   }
 
   let appliedCouponRecord: Coupon | null = null;
   let totalCouponDiscount = 0;
   let eligibleTotalBasis = 0;
-
   if (input.couponCode && input.couponCode.trim()) {
     const validation = await validateCouponForCart({
-      code: input.couponCode.trim(),
-      user: input.buyer,
-      items: input.items,
+      code: input.couponCode.trim(), user: input.buyer, items: input.items,
     });
-    if (!validation.valid || !validation.coupon) {
-      throw new Error(validation.reason || 'INVALID_COUPON');
-    }
+    if (!validation.valid || !validation.coupon) throw new Error(validation.reason || 'INVALID_COUPON');
     appliedCouponRecord = validation.coupon;
     totalCouponDiscount = validation.discountAmount;
     eligibleTotalBasis = validation.eligibleSubtotal || 1;
   }
 
-  // Group cart items by sellerId
   const bySeller = new Map<string, CartItem[]>();
   for (const item of input.items) {
     const list = bySeller.get(item.sellerId) || [];
@@ -2191,122 +2215,154 @@ export async function createOrder(input: {
     bySeller.set(item.sellerId, list);
   }
 
-  const createdOrders: Order[] = [];
   const nowIso = new Date().toISOString();
   let remainingDiscount = totalCouponDiscount;
   const sellerEntries = Array.from(bySeller.entries());
-
+  const orders: Order[] = [];
   for (let idx = 0; idx < sellerEntries.length; idx++) {
     const [sellerId, sellerItems] = sellerEntries[idx];
-    const orderNumber = `ORD-2026-${Math.floor(10000 + Math.random() * 89999)}`;
-    const subtotal = sellerItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-
+    const subtotal = sellerItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
     let sellerCouponDiscount = 0;
     if (appliedCouponRecord && remainingDiscount > 0) {
-      const sellerEligibleSubtotal = sellerItems
+      const eligibleSubtotal = sellerItems
         .filter((item) => isCouponEligibleForProduct(appliedCouponRecord!, item.productId, item.sellerId))
-        .reduce((s, i) => s + i.unitPrice * i.quantity, 0);
-
-      if (sellerEligibleSubtotal > 0) {
-        if (idx === sellerEntries.length - 1) {
-          sellerCouponDiscount = Math.min(subtotal, remainingDiscount);
-        } else {
-          sellerCouponDiscount = Math.min(
-            subtotal,
-            Math.round((sellerEligibleSubtotal / Math.max(1, eligibleTotalBasis)) * totalCouponDiscount)
-          );
-        }
+        .reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+      if (eligibleSubtotal > 0) {
+        sellerCouponDiscount = idx === sellerEntries.length - 1
+          ? Math.min(subtotal, remainingDiscount)
+          : Math.min(subtotal, Math.round((eligibleSubtotal / Math.max(1, eligibleTotalBasis)) * totalCouponDiscount));
         remainingDiscount = Math.max(0, remainingDiscount - sellerCouponDiscount);
       }
     }
-
-    const totalAmount = Math.max(1, subtotal - sellerCouponDiscount);
-
     const order: Order = {
-      _id: `ord_${crypto.randomBytes(5).toString('hex')}`,
-      orderNumber,
-      buyerId: input.buyer._id,
-      buyerName: input.buyer.name,
-      sellerId,
-      items: sellerItems.map((i) => ({
-        productId: i.productId,
-        variantSku: i.variantSku,
-        title: i.title,
-        size: i.size,
-        colorName: i.colorName,
-        imageUrl: i.imageUrl,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
+      _id: `ord_${crypto.randomBytes(8).toString('hex')}`,
+      orderNumber: `ORD-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+      buyerId: input.buyer._id, buyerName: input.buyer.name, sellerId,
+      items: sellerItems.map((item) => ({
+        productId: item.productId, variantSku: item.variantSku, title: item.title,
+        size: item.size, colorName: item.colorName, imageUrl: item.imageUrl,
+        quantity: item.quantity, unitPrice: item.unitPrice,
       })),
-      totalAmount,
-      ...(appliedCouponRecord && sellerCouponDiscount > 0
-        ? {
-            appliedCoupon: {
-              couponId: appliedCouponRecord._id,
-              code: appliedCouponRecord.code,
-              discountAmount: sellerCouponDiscount,
-            },
-          }
-        : {}),
+      totalAmount: Math.max(1, subtotal - sellerCouponDiscount),
+      ...(appliedCouponRecord && sellerCouponDiscount > 0 ? {
+        appliedCoupon: { couponId: appliedCouponRecord._id, code: appliedCouponRecord.code, discountAmount: sellerCouponDiscount },
+      } : {}),
       status: 'Pending',
       shippingAddress: {
-        fullName: addr.fullName,
-        phone: addr.phone,
-        street: addr.street,
-        city: addr.city,
-        state: addr.state,
-        pincode: addr.pincode,
+        fullName: addr.fullName, phone: addr.phone, street: addr.street,
+        city: addr.city, state: addr.state, pincode: addr.pincode,
       },
-      statusTimeline: [
-        {
-          status: 'Pending',
-          note: appliedCouponRecord && sellerCouponDiscount > 0
-            ? `Order placed via Kala & Karat (Coupon ${appliedCouponRecord.code} saved ₹${sellerCouponDiscount})`
-            : 'Order placed via Kala & Karat',
-          timestamp: nowIso,
-        },
-      ],
-      createdAt: nowIso,
-      updatedAt: nowIso,
+      statusTimeline: [{
+        status: 'Pending',
+        note: appliedCouponRecord && sellerCouponDiscount > 0
+          ? `Order placed via Kala & Karat (Coupon ${appliedCouponRecord.code} saved ₹${sellerCouponDiscount})`
+          : 'Order placed via Kala & Karat',
+        timestamp: nowIso,
+      }],
+      createdAt: nowIso, updatedAt: nowIso,
     };
+    orders.push(order);
+  }
 
-    if (mongoConnected && mongoose.isValidObjectId(input.buyer._id)) {
-      const doc = await OrderModel.create({
-        ...order,
-        _id: new mongoose.Types.ObjectId(),
-        buyerId: new mongoose.Types.ObjectId(input.buyer._id),
-        sellerId: new mongoose.Types.ObjectId(sellerId),
-      });
-      order._id = String(doc._id);
-      for (const item of sellerItems) {
-        if (mongoose.isValidObjectId(item.productId)) {
-          await ProductModel.updateOne(
-            { _id: item.productId },
-            { $inc: { salesCount: item.quantity, totalStock: -item.quantity, trendScore: item.quantity * 5 } }
+  if (mongoConnected && buyerObjectId) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        // Deterministic ordering reduces write-conflict churn when carts overlap.
+        const reservations = aggregateInventoryLines(input.items)
+          .sort((a, b) => a.productId.localeCompare(b.productId));
+        for (const reservation of reservations) {
+          if (!mongoose.isValidObjectId(reservation.productId)) throw new Error('INVALID_PRODUCT_ID');
+          const firstLine = input.items.find((line) => line.productId === reservation.productId)!;
+          const sellerId = new mongoose.Types.ObjectId(firstLine.sellerId);
+          const filter: Record<string, any> = {
+            _id: new mongoose.Types.ObjectId(reservation.productId),
+            sellerId,
+            isDeleted: { $ne: true }, isActive: true, isPublished: true,
+            isUnlisted: { $ne: true }, isDiscontinued: { $ne: true },
+            totalStock: { $gte: reservation.quantity },
+          };
+          const arrayFilters: Record<string, any>[] = [];
+          const inc: Record<string, number> = {
+            totalStock: -reservation.quantity,
+            salesCount: reservation.quantity,
+            trendScore: reservation.quantity * 5,
+          };
+          const and: Record<string, any>[] = [];
+          reservation.variants.forEach((variant, index) => {
+            const identifier = `variant${index}`;
+            and.push({ variants: { $elemMatch: { variantSku: variant.variantSku, stock: { $gte: variant.quantity } } } });
+            inc[`variants.$[${identifier}].stock`] = -variant.quantity;
+            arrayFilters.push({ [`${identifier}.variantSku`]: variant.variantSku, [`${identifier}.stock`]: { $gte: variant.quantity } });
+          });
+          if (and.length) filter.$and = and;
+          const result = await ProductModel.updateOne(
+            filter, { $inc: inc }, { session, ...(arrayFilters.length ? { arrayFilters } : {}) }
           );
+          if (result.modifiedCount !== 1) throw new Error('INVENTORY_RESERVATION_CONFLICT');
+        }
+
+        const docs = orders.map((order) => ({
+          ...order,
+          _id: new mongoose.Types.ObjectId(),
+          buyerId: buyerObjectId,
+          sellerId: new mongoose.Types.ObjectId(order.sellerId),
+          ...(idempotencyKey ? { checkoutIdempotencyKey: idempotencyKey } : {}),
+        }));
+        const inserted = await OrderModel.insertMany(docs, { session, ordered: true });
+        inserted.forEach((doc: any, index: number) => { orders[index]._id = String(doc._id); });
+
+        if (appliedCouponRecord && totalCouponDiscount > 0) {
+          const couponFilter: Record<string, any> = {
+            _id: appliedCouponRecord._id, isActive: true, expiresAt: { $gt: new Date() },
+            $or: [
+              { usageLimit: { $exists: false } },
+              { usageLimit: null },
+              { $expr: { $lt: ['$usedCount', '$usageLimit'] } },
+            ],
+          };
+          const couponUpdate = await CouponModel.updateOne(couponFilter, { $inc: { usedCount: 1 } }, { session });
+          if (couponUpdate.modifiedCount !== 1) throw new Error('COUPON_USAGE_LIMIT_REACHED');
+        }
+      });
+      return orders;
+    } catch (error) {
+      const code = (error as { code?: number }).code;
+      if (idempotencyKey && code === 11000) {
+        const previous = await OrderModel.find({ buyerId: buyerObjectId, checkoutIdempotencyKey: idempotencyKey })
+          .sort({ createdAt: 1 }).lean();
+        if (previous.length) {
+          const replay = previous.map((doc: any) => ({
+            ...doc, _id: String(doc._id), buyerId: String(doc.buyerId), sellerId: String(doc.sellerId),
+          })) as Order[] & { replayed?: boolean };
+          replay.replayed = true;
+          return replay;
         }
       }
-    } else {
-      localState.orders.unshift(order);
-      for (const item of sellerItems) {
-        const prod = localState.products.find((p) => p._id === item.productId);
-        if (prod) {
-          prod.salesCount += item.quantity;
-          prod.totalStock = Math.max(0, prod.totalStock - item.quantity);
-          prod.trendScore = prod.likesCount + prod.cartAddsCount * 3 + prod.salesCount * 5;
-        }
-      }
-      saveLocalStore(localState);
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    createdOrders.push(order);
   }
 
-  if (appliedCouponRecord && totalCouponDiscount > 0) {
-    await incrementCouponUsage(appliedCouponRecord._id);
+  // Local JSON persistence is a single-process development fallback only; production must use Mongo transactions.
+  if (process.env.NODE_ENV === 'production') throw new Error('MONGODB_TRANSACTIONAL_CHECKOUT_REQUIRED');
+  for (const order of orders) {
+    localState.orders.unshift(order);
+    for (const item of order.items) {
+      const prod = localState.products.find((p) => p._id === item.productId);
+      if (prod) {
+        prod.salesCount += item.quantity;
+        prod.totalStock -= item.quantity;
+        const variant = (prod.variants || []).find((v) => v.variantSku === item.variantSku);
+        if (variant) variant.stock -= item.quantity;
+        prod.trendScore = prod.likesCount + prod.cartAddsCount * 3 + prod.salesCount * 5;
+      }
+    }
   }
-
-  return createdOrders;
+  saveLocalStore(localState);
+  if (appliedCouponRecord && totalCouponDiscount > 0) await incrementCouponUsage(appliedCouponRecord._id);
+  return orders;
 }
 
 export async function updateOrderStatusOrTracking(
