@@ -78,6 +78,7 @@ test('provider product DTO is an allowlist and drops unexpected customer fields'
     title: 'Bracelet', basePricePaise: 1000, status: 'APPROVED',
     customer: { email: 'buyer@example.com' }, recipientPhone: 'secret-phone',
     privateMetadata: 'must-not-leak',
+    negotiationHistory: [{ sellerId: 'seller-secret', actorId: 'actor-secret', comment: 'buyer phone +919999999999', action: 'NEGOTIATION', fields: ['basePricePaise'], targetPricePaise: 900 }],
     negotiationHistory: [{ action: 'COUNTER', comment: 'buyer@example.com +919999999999', targetPricePaise: 900 }],
   });
   assert.equal(dto.title, 'Bracelet');
