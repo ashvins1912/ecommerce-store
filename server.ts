@@ -306,6 +306,29 @@ async function startServer() {
     next();
   });
 
+  // Root is a break-glass, read-only observer across the platform. Only its own
+  // credential/session controls and root invitation lifecycle may change state.
+  app.use(async (req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    try {
+      const { user } = await resolveActor(req, res);
+      if (!user?.isRootSuperuser) return next();
+      const path = req.path;
+      const allowed =
+        path === '/api/auth/logout' ||
+        path === '/api/auth/sessions/rotate' ||
+        path === '/api/auth/sessions/revoke-others' ||
+        path.startsWith('/api/auth/sessions/') && req.method === 'DELETE' ||
+        path === '/api/root/password' ||
+        path === '/api/root/invites' && req.method === 'POST' ||
+        /^\\/api\\/root\\/invites\\/[^/]+\\/revoke$/.test(path) && req.method === 'POST';
+      if (!allowed) return res.status(403).json({ error: 'ROOT_READ_ONLY_RESTRICTION', message: 'Root accounts can inspect platform data and manage invitations, but cannot change business records.' });
+      return next();
+    } catch {
+      return res.status(401).json({ error: 'ROOT_SESSION_VALIDATION_FAILED' });
+    }
+  });
+
   // Static serving for generated images & Sharp WebP uploads
   app.use('/uploads', express.static(getUploadDir()));
   app.use('/src/assets', express.static(path.resolve(process.cwd(), 'src/assets')));
