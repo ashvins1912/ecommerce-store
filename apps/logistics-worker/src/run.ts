@@ -69,7 +69,7 @@ async function processJob(job:any){
  if(!p.disclosureAuditId)throw new Error('CARRIER_DISCLOSURE_AUDIT_REFERENCE_MISSING');
  // If the audit store cannot be updated, do not send customer data to the carrier.
  const auditStart=await PrivacyDisclosureAuditModel.updateOne(
-  {_id:p.disclosureAuditId,dispatchStatus:'AUTHORIZED'},
+  {_id:p.disclosureAuditId,dispatchStatus:{$in:['AUTHORIZED','FAILED']}},
   {$set:{dispatchStatus:'DISPATCHING',jobId:String(job.id),dispatchErrorCode:null}},
  );
  if(auditStart.matchedCount!==1)throw new Error('CARRIER_DISCLOSURE_AUDIT_NOT_READY');
