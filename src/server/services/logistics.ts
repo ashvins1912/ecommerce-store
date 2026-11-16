@@ -30,8 +30,13 @@ export async function listSellerCarrierConfigs(sellerId: string) {
     .eq('seller_id', sellerId).order('priority_rank'));
 }
 export async function saveSellerCarrierConfig(input: { sellerId: string; providerId: string; credentials: Record<string,string>; priorityRank: number }) {
+  const provider = unwrap(await db().from('logistics_providers').select('code,auth_schema_json').eq('id',input.providerId).eq('is_active',true).single()) as any;
+  const fields = Array.isArray(provider.auth_schema_json?.fields) ? provider.auth_schema_json.fields : [];
   const credentials = Object.fromEntries(Object.entries(input.credentials).map(([k,v]) => [k, String(v).trim()]).filter(([,v]) => v));
+  const missing = fields.filter((field:any) => !credentials[field.name]);
+  if (missing.length) throw Object.assign(new Error('CARRIER_CREDENTIALS_REQUIRED:'+missing.map((field:any)=>field.name).join(',')), { statusCode: 400 });
   if (!Object.keys(credentials).length) throw Object.assign(new Error('CARRIER_CREDENTIALS_REQUIRED'), { statusCode: 400 });
+  await rateAdapter(provider.code).validateCredentials(credentials);
   const encryptedCredentials = encryptField(JSON.stringify(credentials));
   const webhookSecretPlain = crypto.randomBytes(32).toString('hex');
   const webhookSecret = encryptField(webhookSecretPlain);
@@ -96,8 +101,8 @@ export async function getShipmentForCustomer(orderId:string) {
     .eq('order_id',orderId).order('created_at',{ascending:false}).limit(1).maybeSingle());
 }
 export async function getSellerCarrierSecret(configId:string,sellerId:string) {
-  const row = unwrap(await db().from('seller_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers(code)')
-    .eq('id',configId).eq('seller_id',sellerId).single()) as any;
+  const row = unwrap(await db().from('seller_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
+    .eq('id',configId).eq('seller_id',sellerId).eq('is_active',true).eq('logistics_providers.is_active',true).single()) as any;
   return { ...row, credentials:JSON.parse(decryptField(row.encrypted_credentials)), webhookSecret:decryptField(row.webhook_secret) };
 }
 export async function claimLogisticsJob() {
@@ -127,7 +132,7 @@ export async function getCustomerTrackingEvents(orderId:string) {
 }
 
 export async function getSellerWarehouse(sellerId:string,warehouseId:string) {
- return unwrap(await db().from('warehouses').select('id,name,contact_name,contact_phone,address_line1,address_line2,city,state,postal_code,country_code').eq('seller_id',sellerId).eq('id',warehouseId).single());
+ return unwrap(await db().from('warehouses').select('id,name,contact_name,contact_phone,address_line1,address_line2,city,state,postal_code,country_code').eq('seller_id',sellerId).eq('id',warehouseId).eq('is_active',true).single());
 }
 export async function getLogisticsJob(jobId:string) {
  return unwrap(await db().from('logistics_jobs').select('id,job_type,payload,attempts,max_attempts').eq('id',jobId).single());
@@ -161,16 +166,16 @@ const carrierHttp = { async request<T>(url:string,init:{method:string;headers:Re
  return payload as T;
 }};
 function rateAdapter(code:string){
- if(code==='shiprocket'){const url=process.env.SHIPROCKET_API_BASE_URL;if(!url)throw new Error('SHIPROCKET_API_BASE_URL_NOT_CONFIGURED');return new ShiprocketAdapter(carrierHttp,url);}
- if(code==='shadowfax'){const url=process.env.SHADOWFAX_API_BASE_URL;if(!url)throw new Error('SHADOWFAX_API_BASE_URL_NOT_CONFIGURED');return new ShadowfaxAdapter(carrierHttp,url);}
+ if(code==='shiprocket'){const url=process.env.SHIPROCKET_API_BASE_URL||'https://apiv2.shiprocket.in';return new ShiprocketAdapter(carrierHttp,url);}
+ if(code==='shadowfax'){const url=process.env.SHADOWFAX_API_BASE_URL||'https://dale.staging.shadowfax.in/api';return new ShadowfaxAdapter(carrierHttp,url);}
  throw new Error('UNSUPPORTED_CARRIER:'+code);
 }
 export async function getSellerRateQuotes(input:{sellerId:string;destinationPostalCode:string;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string}){
- const configs=unwrap(await db().from('seller_carrier_configs').select('id,priority_rank,encrypted_credentials,logistics_providers!inner(code)')
-  .eq('seller_id',input.sellerId).eq('is_active',true)) as any[];
+ const configs=unwrap(await db().from('seller_carrier_configs').select('id,priority_rank,updated_at,encrypted_credentials,logistics_providers!inner(code,is_active)')
+  .eq('seller_id',input.sellerId).eq('is_active',true).eq('logistics_providers.is_active',true)) as any[];
  const warehouse=unwrap(await db().from('warehouses').select('id,postal_code,country_code').eq('seller_id',input.sellerId).eq('is_active',true).order('is_default',{ascending:false}).limit(1).maybeSingle()) as any;
  if(!warehouse||!configs.length)return [];
- const cacheKey='svc:'+warehouse.postal_code+':'+input.destinationPostalCode+':'+Math.ceil(input.weightGrams/500)+':'+(input.codAmountMinor>0?'cod':'prepaid')+':'+configs.map(x=>x.id).sort().join(',');
+ const cacheKey='svc:'+crypto.createHash('sha256').update(JSON.stringify({origin:warehouse.postal_code,destination:input.destinationPostalCode,weightGrams:input.weightGrams,codAmountMinor:input.codAmountMinor,declaredValueMinor:input.declaredValueMinor,currency:input.currency,configs:configs.map(x=>[x.id,x.priority_rank,x.updated_at]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))})).digest('hex');
  const cached=await getLogisticsRateCache<any[]>(cacheKey);if(cached)return cached;
  const settled=await Promise.allSettled(configs.map(async config=>{
   const provider=rateAdapter(config.logistics_providers.code);
@@ -186,7 +191,7 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
  const candidates=settled.flatMap(result=>result.status==='fulfilled'?result.value:[]);
  const scored=scoreCarriers(candidates.map(x=>({providerCode:x.quote.providerCode,serviceCode:x.quote.serviceCode,costMinor:x.quote.amountMinor,
   estimatedTransitHours:x.quote.estimatedTransitHours,historicalRtoRate:0.5,sellerPriority:x.priorityRank,serviceable:x.quote.serviceable,currency:x.quote.currency})),
-  {cost:0.35,transit:0.30,rto:0.20,priority:0.15});
+  {cost:0.45,transit:0.35,rto:0,priority:0.20});
  const result=scored.map(score=>{const match=candidates.find(x=>x.quote.providerCode===score.providerCode&&x.quote.serviceCode===score.serviceCode);return{...score,carrierConfigId:match?.configId,quote:match?.quote};});
  const earliestExpiry=result.reduce((min,x)=>Math.min(min,Date.parse(x.quote?.expiresAt||new Date(Date.now()+60000).toISOString())),Date.now()+86400000);
  await setLogisticsRateCache(cacheKey,result,Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))));
