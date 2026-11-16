@@ -502,7 +502,7 @@ export default function App() {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
         setClientSessionTokens(session.accessToken, session.csrfToken);
         setUser(session.user);
-        setActivePage(session.user.role === 'SELLER' || session.user.role === 'ADMIN' ? 'seller' : 'store');
+        setActivePage(session.user?.role === 'SELLER' || session.user?.role === 'ADMIN' ? 'seller' : 'store');
         setLikedIds(new Set(session.likedProductIds));
 
         let activeCart = session.cart;
@@ -1612,7 +1612,7 @@ export default function App() {
         onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
-          setActivePage(payload.user.role === 'SELLER' || payload.user.role === 'ADMIN' ? 'seller' : 'store');
+          setActivePage(payload.user?.role === 'SELLER' || payload.user?.role === 'ADMIN' ? 'seller' : 'store');
           const returnTo = new URLSearchParams(window.location.search).get('returnTo');
           if (returnTo && returnTo.startsWith('/')) { const target = new URL(returnTo, window.location.origin); if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search + target.hash); }
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
