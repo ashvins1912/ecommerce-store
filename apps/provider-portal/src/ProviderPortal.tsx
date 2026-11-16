@@ -339,7 +339,7 @@ export default function ProviderPortal() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{product.title}</h3><StatusBadge status={product.status} /></div>
                           <p className="mt-1 text-sm text-stone-600">{product.category} · {money(product.basePricePaise)}</p>
-                          {product.negotiationHistory?.slice(-2).map((item, index) => <p key={index} className="mt-2 break-words text-xs text-amber-800">Seller note: {item.comment}</p>)}
+                          {product.negotiationHistory?.slice(-2).map((item, index) => <p key={index} className="mt-2 break-words text-xs text-amber-800">{item.comment || (item.action === 'APPROVED_BASE_PRICE' ? 'Seller approved the provider price.' : 'Seller requested a product revision.')}</p>)}
                           <div className="mt-3 flex flex-wrap gap-2">
                             {product.status === 'NEGOTIATION_REQUESTED' && <button type="button" onClick={() => void respondToNegotiation(product)} className="rounded-lg border border-stone-300 px-3 py-2 text-xs font-semibold hover:border-rose-800">Respond to seller</button>}
                             {['DRAFT', 'NEGOTIATION_REQUESTED', 'RESUBMITTED'].includes(product.status) && <button type="button" onClick={() => void submitForReview(product._id)} className="rounded-lg bg-stone-900 px-3 py-2 text-xs font-semibold text-white hover:bg-stone-700">Submit for review</button>}
