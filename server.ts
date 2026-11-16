@@ -419,7 +419,7 @@ async function startServer() {
       const settings = await SellerPrivacySettingsModel.findOneAndUpdate(
         { sellerId: user!._id },
         { $set: { sellerId: user!._id, carrierDisclosure: parsed.data.carrierDisclosure } },
-        { upsert: true, new: true, runValidators: true },
+        { upsert: true, returnDocument: 'after', runValidators: true },
       ).lean();
       res.setHeader('Cache-Control', 'private, no-store');
       res.json({ carrierDisclosure: normalizeCarrierDisclosurePolicy(settings?.carrierDisclosure) });
@@ -1895,7 +1895,7 @@ async function startServer() {
           $or: [{ sellerNotificationLeaseUntil: null }, { sellerNotificationLeaseUntil: { $lte: new Date() } }],
         },
         { $set: { sellerNotificationLeaseUntil: leaseUntil } },
-        { new: true }
+        { returnDocument: 'after' }
       );
       if (!claim) continue;
       try {
@@ -2081,7 +2081,7 @@ async function startServer() {
     if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED' });
     const parsed = z.object({ status: z.enum(['VERIFIED', 'REJECTED']), note: z.string().max(500).optional() }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_KYC_DECISION' });
-    const profile = await ProviderProfileModel.findOneAndUpdate({ userId: req.params.providerId }, { $set: { kycStatus: parsed.data.status } }, { new: true }).select('-encryptedTaxId -encryptedSettlementDetails');
+    const profile = await ProviderProfileModel.findOneAndUpdate({ userId: req.params.providerId }, { $set: { kycStatus: parsed.data.status } }, { returnDocument: 'after' }).select('-encryptedTaxId -encryptedSettlementDetails');
     if (!profile) return res.status(404).json({ error: 'PROVIDER_NOT_FOUND' });
     await providerAudit(user, 'PROVIDER_KYC_REVIEWED', req.params.providerId, String(profile._id), { status: parsed.data.status, note: parsed.data.note || '' });
     res.json({ profile });
@@ -2143,7 +2143,7 @@ async function startServer() {
         settlementDetailsLast4: parsed.data.settlementDetails.slice(-4),
         kycStatus: 'PENDING',
       }, $addToSet: { linkedSellerIds: invite.sellerId } },
-      { upsert: true, new: true, runValidators: true }
+      { upsert: true, returnDocument: 'after', runValidators: true }
     );
     const consumed = await ProviderInviteModel.updateOne(
       { _id: invite._id, status: 'PENDING', expiresAt: { $gt: new Date() } },
@@ -2514,7 +2514,7 @@ async function startServer() {
         $or: [{ paymentIntentLeaseUntil: null }, { paymentIntentLeaseUntil: { $lte: now } }],
       },
       { $set: { paymentIntentRequestKey: attemptKey, paymentIntentLeaseUntil: new Date(now.getTime() + 60_000) } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!claimedOrder) {
       const latest = await OrderModel.findOne({ _id: order._id, buyerId: user._id }).lean();
@@ -2547,7 +2547,7 @@ async function startServer() {
           },
           $unset: { paymentIntentRequestKey: 1, paymentIntentLeaseUntil: 1 },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
       if (!persisted) throw new Error('PAYMENT_INTENT_LEASE_LOST');
       res.setHeader('Cache-Control', 'no-store');
