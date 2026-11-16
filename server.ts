@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import compression from 'compression';
+import sharp from 'sharp';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
@@ -135,6 +137,8 @@ import type {
 } from './src/shared/types.js';
 
 const PORT = Number(process.env.PORT || 3000);
+const optimizedImageCache = new Map<string, Buffer>();
+const MAX_OPTIMIZED_IMAGE_CACHE_ENTRIES = 48;
 const escapeRegex = (value: string) => value.split('').map((character) => '.^$*+?()[]{}|\\'.includes(character) ? '\\' + character : character).join('');
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -272,6 +276,8 @@ async function startServer() {
 
   const app = express();
   app.set('trust proxy', 1);
+  // Compress JSON, HTML, CSS and JavaScript responses with Brotli/gzip where supported.
+  app.use(compression({ threshold: 1024 }));
   app.use((_req, res, next) => {
     attachSslSecurityHeaders(res);
     next();
@@ -311,9 +317,38 @@ async function startServer() {
   // their domain-specific authorization; root is represented as ADMIN plus the immutable root flag.
 
 
-  // Static serving for generated images & Sharp WebP uploads
-  app.use('/uploads', express.static(getUploadDir()));
-  app.use('/src/assets', express.static(path.resolve(process.cwd(), 'src/assets')));
+  // Serve source raster assets as cached WebP to browsers that support it.
+  // The original URL is retained, so existing product records and image references remain valid.
+  const sourceAssetRoot = path.resolve(process.cwd(), 'src/assets');
+  app.get(/^\/src\/assets\/(.+\.(?:jpe?g|png))$/i, async (req, res, next) => {
+    if (!req.accepts('image/webp')) return next();
+
+    try {
+      const relativePath = String(req.params[0] || '');
+      const sourcePath = path.resolve(sourceAssetRoot, relativePath);
+      if (!sourcePath.startsWith(sourceAssetRoot + path.sep)) return res.sendStatus(400);
+
+      let webp = optimizedImageCache.get(sourcePath);
+      if (!webp) {
+        webp = await sharp(sourcePath).rotate().webp({ quality: 80, effort: 4 }).toBuffer();
+        if (optimizedImageCache.size >= MAX_OPTIMIZED_IMAGE_CACHE_ENTRIES) {
+          const oldestKey = optimizedImageCache.keys().next().value;
+          if (oldestKey) optimizedImageCache.delete(oldestKey);
+        }
+        optimizedImageCache.set(sourcePath, webp);
+      }
+
+      res.vary('Accept');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.type('image/webp').send(webp);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Static serving for generated images & Sharp WebP uploads.
+  app.use('/uploads', express.static(getUploadDir(), { maxAge: '1d', etag: true }));
+  app.use('/src/assets', express.static(sourceAssetRoot, { maxAge: '1d', etag: true }));
 
   // --- Health ---
   app.get('/api/health', (_req, res) => {
