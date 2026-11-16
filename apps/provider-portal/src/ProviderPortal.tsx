@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { INR_FROM_PAISE } from '@commerce/shared-utils';
 import type { ProviderProductView } from '@commerce/shared-types';
 import { StatusBadge } from '@commerce/shared-ui';
-import { Package, RefreshCw, Upload, Wallet, Building2, AlertCircle } from 'lucide-react';
+import { Package, RefreshCw, Upload, Wallet, Building2, AlertCircle, LogOut, Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
 
 type Product = Omit<ProviderProductView, 'id'> & {
   _id: string;
@@ -54,6 +54,19 @@ export default function ProviderPortal() {
   const [invite, setInvite] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [productQuery, setProductQuery] = useState('');
+  const [productStatus, setProductStatus] = useState('ALL');
+  const [productSort, setProductSort] = useState('updatedAt');
+  const [productDirection, setProductDirection] = useState<'asc' | 'desc'>('desc');
+  const [productPage, setProductPage] = useState(1);
+  const [productTotal, setProductTotal] = useState(0);
+  const [settlementQuery, setSettlementQuery] = useState('');
+  const [settlementStatus, setSettlementStatus] = useState('ALL');
+  const [settlementSort, setSettlementSort] = useState('createdAt');
+  const [settlementDirection, setSettlementDirection] = useState<'asc' | 'desc'>('desc');
+  const [settlementPage, setSettlementPage] = useState(1);
+  const [settlementTotal, setSettlementTotal] = useState(0);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -69,20 +82,35 @@ export default function ProviderPortal() {
   });
 
   const role = auth?.role || auth?.user?.role;
+  const logout = async () => {
+    setLoggingOut(true);
+    try {
+      await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+      setAuth(null);
+      window.location.assign('/?loggedOut=1');
+    } catch (error) {
+      setNotice((error as Error).message);
+      setLoggingOut(false);
+    }
+  };
   const refresh = useCallback(async () => {
     try {
+      const productParams = new URLSearchParams({ page: String(productPage), limit: '10', q: productQuery, status: productStatus, sort: productSort, direction: productDirection });
+      const settlementParams = new URLSearchParams({ page: String(settlementPage), limit: '10', q: settlementQuery, status: settlementStatus, sort: settlementSort, direction: settlementDirection });
       const [profileResult, productResult, settlementResult] = await Promise.all([
         api<any>('/api/provider/profile'),
-        api<any>('/api/provider/products'),
-        api<any>('/api/provider/settlements'),
+        api<any>('/api/provider/products?' + productParams.toString()),
+        api<any>('/api/provider/settlements?' + settlementParams.toString()),
       ]);
       setProviderProfile(profileResult.profile || null);
       setProducts(productResult.products || []);
+      setProductTotal(Number(productResult.total || 0));
       setSettlements(settlementResult.settlements || []);
+      setSettlementTotal(Number(settlementResult.total || 0));
     } catch (error) {
       setNotice((error as Error).message);
     }
-  }, []);
+  }, [productPage, productQuery, productStatus, productSort, productDirection, settlementPage, settlementQuery, settlementStatus, settlementSort, settlementDirection]);
 
   useEffect(() => {
     let active = true;
@@ -240,9 +268,14 @@ export default function ProviderPortal() {
             <p className="mt-1 max-w-2xl text-sm leading-6 text-stone-600">Submit products, respond to seller negotiations and track your receivables.</p>
           </div>
           {role === 'PROVIDER' && (
-            <button type="button" onClick={() => void refresh()} className={buttonClass}>
-              <RefreshCw className="h-4 w-4" /> Refresh dashboard
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => void refresh()} className={buttonClass}>
+                <RefreshCw className="h-4 w-4" /> Refresh
+              </button>
+              <button type="button" onClick={() => void logout()} disabled={loggingOut} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:border-rose-800 disabled:opacity-50">
+                <LogOut className="h-4 w-4" /> {loggingOut ? 'Signing out…' : 'Logout'}
+              </button>
+            </div>
           )}
         </header>
 
@@ -327,6 +360,19 @@ export default function ProviderPortal() {
                   <div className="grid h-10 w-10 place-items-center rounded-lg bg-amber-50 text-amber-900"><Package className="h-5 w-5" /></div>
                   <div><h2 className="font-semibold">Catalogue & negotiations</h2><p className="text-xs text-stone-500">Track seller review and price discussions</p></div>
                 </div>
+                <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_180px_180px]">
+                  <label className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-stone-400" />
+                    <input aria-label="Search catalogue and negotiations" className={inputClass + ' pl-9'} placeholder="Search products, brand or category" value={productQuery} onChange={(event) => { setProductQuery(event.target.value); setProductPage(1); }} />
+                  </label>
+                  <select aria-label="Filter catalogue status" className={inputClass} value={productStatus} onChange={(event) => { setProductStatus(event.target.value); setProductPage(1); }}>
+                    <option value="ALL">All statuses</option><option value="DRAFT">Draft</option><option value="PENDING_REVIEW">Pending review</option><option value="NEGOTIATION_REQUESTED">Negotiation requested</option><option value="RESUBMITTED">Resubmitted</option><option value="APPROVED">Approved</option>
+                  </select>
+                  <select aria-label="Sort catalogue" className={inputClass} value={productSort} onChange={(event) => { setProductSort(event.target.value); setProductPage(1); }}>
+                    <option value="updatedAt">Recently updated</option><option value="createdAt">Date created</option><option value="title">Product name</option><option value="price">Provider price</option><option value="status">Status</option>
+                  </select>
+                  <button type="button" onClick={() => setProductDirection((value) => value === 'asc' ? 'desc' : 'asc')} className="inline-flex min-h-9 items-center gap-2 justify-self-start rounded-lg border border-stone-300 px-3 text-xs font-semibold text-stone-700"><ArrowUpDown className="h-3.5 w-3.5" /> {productDirection === 'asc' ? 'Ascending' : 'Descending'}</button>
+                </div>
                 {products.length ? (
                   <div className="divide-y divide-stone-100">
                     {products.map((product) => (
@@ -348,12 +394,32 @@ export default function ProviderPortal() {
                       </article>
                     ))}
                   </div>
-                ) : <div className="rounded-xl border border-dashed border-stone-300 px-4 py-10 text-center text-sm text-stone-500">No submitted products yet.</div>}
+                ) : <div className="rounded-xl border border-dashed border-stone-300 px-4 py-10 text-center text-sm text-stone-500">No matching catalogue products.</div>}
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 pt-4 text-xs text-stone-500">
+                  <span>{productTotal} products · Page {productPage} of {Math.max(1, Math.ceil(productTotal / 10))}</span>
+                  <div className="flex gap-2">
+                    <button type="button" disabled={productPage <= 1} onClick={() => setProductPage((page) => Math.max(1, page - 1))} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-stone-300 px-3 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /> Previous</button>
+                    <button type="button" disabled={productPage >= Math.ceil(productTotal / 10)} onClick={() => setProductPage((page) => page + 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-stone-300 px-3 disabled:opacity-40">Next <ChevronRight className="h-4 w-4" /></button>
+                  </div>
+                </div>
               </section>
             </div>
 
             <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
               <div className="mb-4 flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-emerald-50 text-emerald-800"><Wallet className="h-5 w-5" /></div><div><h2 className="font-semibold">Settlements & receivables</h2><p className="text-xs text-stone-500">Supplier settlement status</p></div></div>
+              <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_180px_180px]">
+                <label className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-stone-400" />
+                  <input aria-label="Search settlements and receivables" className={inputClass + ' pl-9'} placeholder="Search order, UTR or status" value={settlementQuery} onChange={(event) => { setSettlementQuery(event.target.value); setSettlementPage(1); }} />
+                </label>
+                <select aria-label="Filter settlement status" className={inputClass} value={settlementStatus} onChange={(event) => { setSettlementStatus(event.target.value); setSettlementPage(1); }}>
+                  <option value="ALL">All statuses</option><option value="PENDING_CLEARANCE">Pending clearance</option><option value="READY_FOR_SETTLEMENT">Ready for settlement</option><option value="SETTLED">Settled</option><option value="VOID">Void</option>
+                </select>
+                <select aria-label="Sort settlements" className={inputClass} value={settlementSort} onChange={(event) => { setSettlementSort(event.target.value); setSettlementPage(1); }}>
+                  <option value="createdAt">Date</option><option value="orderId">Order ID</option><option value="amount">Amount</option><option value="quantity">Quantity</option><option value="status">Status</option>
+                </select>
+                <button type="button" onClick={() => setSettlementDirection((value) => value === 'asc' ? 'desc' : 'asc')} className="inline-flex min-h-9 items-center gap-2 justify-self-start rounded-lg border border-stone-300 px-3 text-xs font-semibold text-stone-700"><ArrowUpDown className="h-3.5 w-3.5" /> {settlementDirection === 'asc' ? 'Ascending' : 'Descending'}</button>
+              </div>
               {settlements.length ? (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-left text-sm">
@@ -361,7 +427,14 @@ export default function ProviderPortal() {
                     <tbody className="divide-y divide-stone-100">{settlements.map((settlement) => <tr key={settlement._id}><td className="px-3 py-3 font-medium">{settlement.orderId}</td><td className="px-3 py-3">{settlement.quantity}</td><td className="px-3 py-3 tabular-nums">{money(settlement.amountPaise)}</td><td className="px-3 py-3">{settlement.status}</td><td className="px-3 py-3">{settlement.status === 'SETTLED' && <button type="button" onClick={() => void showReceipt(settlement._id)} className="font-semibold text-rose-900 underline underline-offset-2">Download</button>}</td></tr>)}</tbody>
                   </table>
                 </div>
-              ) : <p className="rounded-xl bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">No settlements available.</p>}
+              ) : <p className="rounded-xl bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">No matching settlements.</p>}
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 pt-4 text-xs text-stone-500">
+                <span>{settlementTotal} receivables · Page {settlementPage} of {Math.max(1, Math.ceil(settlementTotal / 10))}</span>
+                <div className="flex gap-2">
+                  <button type="button" disabled={settlementPage <= 1} onClick={() => setSettlementPage((page) => Math.max(1, page - 1))} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-stone-300 px-3 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /> Previous</button>
+                  <button type="button" disabled={settlementPage >= Math.ceil(settlementTotal / 10)} onClick={() => setSettlementPage((page) => page + 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-stone-300 px-3 disabled:opacity-40">Next <ChevronRight className="h-4 w-4" /></button>
+                </div>
+              </div>
             </section>
           </>
         )}
