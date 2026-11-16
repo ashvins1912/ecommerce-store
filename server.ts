@@ -2659,11 +2659,13 @@ async function startServer() {
       const escapedQuery = escapeRegex(query);
       filter.$or = [{ orderNumber: { $regex: escapedQuery, $options: 'i' } }, { _id: { $regex: escapedQuery, $options: 'i' } }];
     }
-    const [total, orders, logisticsRows] = await Promise.all([
+    const [total, orders] = await Promise.all([
       OrderModel.countDocuments(filter),
       OrderModel.find(filter).select('_id orderNumber sellerId items status courierTracking createdAt updatedAt paymentMode paymentStatus').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
-      listProviderShipments(user._id),
     ]);
+    let logisticsRows: any[] = [];
+    try { logisticsRows = await listProviderShipments(user._id) as any[]; }
+    catch (error) { console.warn('Provider app-shipment metadata unavailable; manual fallback remains visible:', (error as Error).message); }
     const owned = new Set(productIds);
     const logisticsByOrder = new Map((logisticsRows as any[]).map(row => [String(row.order_id), row]));
     const shipments = orders.map((order: any) => {
@@ -2685,9 +2687,9 @@ async function startServer() {
           labelUrl: logistics.label_url, manifestUrl: logistics.manifest_url, pickupScheduled: logistics.pickup_scheduled,
           statusCode: logistics.normalized_status, estimatedDeliveryAt: logistics.estimated_delivery_at,
           carrierName: logistics.provider_carrier_configs?.logistics_providers?.name || '',
-          trackingEvents: [],
+          trackingEvents: (logistics.tracking_events || []).map((event: any) => ({ statusCode: event.status_code, location: event.location_code, occurredAt: event.event_timestamp })),
         } : null,
-        manualDispatchAllowed: (order.items || []).length > 0 && (order.items || []).every((item: any) => owned.has(String(item.productId))) && order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID'),
+        manualDispatchAllowed: (order.items || []).length > 0 && (order.items || []).every((item: any) => owned.has(String(item.productId))) && order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID') && (!logistics || (logistics.booking_status === 'FAILED' && !logistics.awb_number)),
       };
     });
     res.setHeader('Cache-Control', 'private, no-store');
