@@ -69,7 +69,7 @@ export async function createSellerWarehouse(input: {
  return rows[0];
 }
 export async function createShipmentIntent(input: {
- orderId:string;sellerId:string;carrierConfigId:string;warehouseId:string;codAmountMinor:number;currency:string;
+ orderId:string;sellerId:string;carrierConfigId:string;carrierCode:string;warehouseId:string;codAmountMinor:number;currency:string;
  weightGrams:number;destinationPostalCode:string;destinationCountryCode:string;declaredValueMinor:number;serviceCode?:string;
  recipientName:string;recipientPhone:string;recipientEmail?:string;disclosureAuthorizedAt:string;disclosureFields:string[];destinationAddressLine1:string;destinationAddressLine2?:string;
  destinationCity:string;destinationState:string;orderDate:string;
@@ -79,7 +79,7 @@ export async function createShipmentIntent(input: {
   p_order_id:input.orderId,p_seller_id:input.sellerId,p_carrier_config_id:input.carrierConfigId,p_warehouse_id:input.warehouseId,
   p_cod_amount_minor:input.codAmountMinor,p_currency:input.currency,
   p_payload:{
-   orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,warehouseId:input.warehouseId,
+   orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,carrierCode:input.carrierCode,warehouseId:input.warehouseId,
    weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,destinationCountryCode:input.destinationCountryCode,
    declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
    recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,
