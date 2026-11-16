@@ -2194,7 +2194,7 @@ async function startServer() {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_PROVIDER_PRODUCT' });
     const product = await ProviderProductModel.create({ ...parsed.data, providerId: user._id, linkedSellerIds: profile.linkedSellerIds, status: 'DRAFT' });
     await providerAudit(user, 'PROVIDER_PRODUCT_DRAFT_CREATED', user._id, String(product._id));
-    res.status(201).json({ product });
+    res.status(201).json({ product: toProviderSafeProductDto(product.toObject()) });
   });
 
   app.patch('/api/provider/products/:id', async (req, res) => {
@@ -2219,7 +2219,7 @@ async function startServer() {
     if (product.status === 'NEGOTIATION_REQUESTED') product.status = 'RESUBMITTED';
     await product.save();
     await providerAudit(user, 'PROVIDER_PRODUCT_UPDATED', user._id, String(product._id), { fields: Object.keys(parsed.data) });
-    res.json({ product });
+    res.json({ product: toProviderSafeProductDto(product.toObject()) });
   });
 
   app.post('/api/provider/products/:id/submit', async (req, res) => {
@@ -2231,7 +2231,7 @@ async function startServer() {
     product.status = 'PENDING_REVIEW';
     await product.save();
     await providerAudit(user, 'PROVIDER_PRODUCT_SUBMITTED', user._id, String(product._id));
-    res.json({ product });
+    res.json({ product: toProviderSafeProductDto(product.toObject()) });
   });
 
   app.get('/api/seller/providers', async (req, res) => {
