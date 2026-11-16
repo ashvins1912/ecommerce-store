@@ -220,6 +220,14 @@ export default function App() {
   useEffect(() => { if (new URLSearchParams(window.location.search).has('rootInvite')) setAuthOpen(true); }, []);
   const [compareItems, setCompareItems] = useState<Product[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [hasOpenedProductDetail, setHasOpenedProductDetail] = useState(false);
+  const [hasOpenedCart, setHasOpenedCart] = useState(false);
+  const [hasOpenedAuth, setHasOpenedAuth] = useState(false);
+  const [hasOpenedCompare, setHasOpenedCompare] = useState(false);
+  useEffect(() => { if (selectedProductKey) setHasOpenedProductDetail(true); }, [selectedProductKey]);
+  useEffect(() => { if (cartOpen) setHasOpenedCart(true); }, [cartOpen]);
+  useEffect(() => { if (authOpen) setHasOpenedAuth(true); }, [authOpen]);
+  useEffect(() => { if (compareOpen) setHasOpenedCompare(true); }, [compareOpen]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [shareNotice, setShareNotice] = useState<{
     title: string;
@@ -1394,7 +1402,7 @@ export default function App() {
       </footer>}
 
       {/* Overlays */}
-      {selectedProductKey && <ProductDetailModal
+      {hasOpenedProductDetail && <ProductDetailModal
         productIdOrSlug={selectedProductKey}
         initialVariantSku={selectedInitialVariantSku}
         onClose={() => {
@@ -1422,7 +1430,7 @@ export default function App() {
         }}
       />}
 
-      {compareOpen && <JewelleryCompareModal
+      {hasOpenedCompare && <JewelleryCompareModal
         isOpen={compareOpen}
         onClose={() => setCompareOpen(false)}
         items={compareItems}
@@ -1437,7 +1445,7 @@ export default function App() {
         onSelectProduct={handleSelectProduct}
       />}
 
-      {cartOpen && <CartDrawer
+      {hasOpenedCart && <CartDrawer
         isOpen={cartOpen}
         onClose={() => setCartOpen(false)}
         cart={cart}
@@ -1458,7 +1466,7 @@ export default function App() {
         onClearPendingCoupon={() => setPendingCouponCode(null)}
       />}
 
-      {authOpen && <AuthModal
+      {hasOpenedAuth && <AuthModal
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
         onLogout={handleLogout}
