@@ -187,6 +187,7 @@ export interface Product {
   salePrice: number;
   discountPercent: number;
   totalStock: number;
+  shippingWeightGrams?: number;
   images: ProductImage[];
   jewellerySpecs?: JewellerySpecs;
   clothingSpecs?: ClothingSpecs;
