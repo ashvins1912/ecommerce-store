@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { driver } from 'driver.js';
-import 'driver.js/dist/driver.css';
 import { useTranslation } from 'react-i18next';
 import { syncHtmlLangDir } from '../i18n/config';
 
 const TUTORIAL_EVENT = 'kk:open-action-help';
+let driverModulePromise;
 const CUSTOMER_TOUR_SEEN_KEY = 'kk_customer_tour_seen';
 
 const ROLE_DEFAULT_STEPS = {
@@ -169,6 +168,7 @@ function writeCustomerTourSeen() {
 export function useI18nTutorial(role) {
   const { t, i18n } = useTranslation();
   const driverRef = useRef(null);
+  const launchRequestRef = useRef(0);
   const previousFocusRef = useRef(null);
   const liveRegionRef = useRef(null);
   const activeSessionRef = useRef(null);
@@ -256,8 +256,18 @@ export function useI18nTutorial(role) {
   );
 
   const launchSession = useCallback(
-    (keys, mode, initialIndex = 0, preserveFocusOrigin = false) => {
+    async (keys, mode, initialIndex = 0, preserveFocusOrigin = false) => {
       if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+      const requestId = ++launchRequestRef.current;
+      try {
+        driverModulePromise ||= Promise.all([import('driver.js'), import('driver.js/dist/driver.css')]);
+        await driverModulePromise;
+      } catch {
+        driverModulePromise = undefined;
+        return false;
+      }
+      if (requestId !== launchRequestRef.current || typeof window === 'undefined' || typeof document === 'undefined') return false;
+      const { driver } = await import('driver.js');
 
       const prefersReducedMotion = Boolean(
         window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -473,6 +483,7 @@ export function useI18nTutorial(role) {
   );
 
   const closeTour = useCallback(() => {
+    launchRequestRef.current += 1;
     destroyDriver(true);
   }, [destroyDriver]);
 
@@ -490,6 +501,7 @@ export function useI18nTutorial(role) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      launchRequestRef.current += 1;
       activeSessionRef.current = null;
       if (driverRef.current) {
         try {
