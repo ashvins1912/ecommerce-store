@@ -134,7 +134,7 @@ export async function getWalletSummary(userId: string) {
 
 export async function createGatewayCheckout(input: {
   sellerId: string; provider: GatewayProvider; orderId: string;
-  orderNumber: string; amountPaise: number; currency?: string;
+  orderNumber: string; amountPaise: number; currency?: string; idempotencyKey?: string;
 }) {
   const gateway = await getGatewaySecrets(input.sellerId, input.provider);
   if (!gateway) throw new Error('ACTIVE_PAYMENT_GATEWAY_NOT_CONFIGURED');
@@ -163,7 +163,11 @@ export async function createGatewayCheckout(input: {
     'metadata[orderNumber]': input.orderNumber,
   });
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-    method: 'POST', headers: { Authorization: 'Bearer ' + gateway.secret, 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: 'POST', headers: {
+      Authorization: 'Bearer ' + gateway.secret,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': input.idempotencyKey || `checkout:${input.orderId}`,
+    },
     body: params,
   });
   const body = await response.json() as any;
