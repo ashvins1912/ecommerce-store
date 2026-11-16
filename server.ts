@@ -7,7 +7,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
-import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -2392,15 +2392,23 @@ async function startServer() {
     if (!order) return res.json({ received: true, ignored: true });
     const eventId = String(event.id || payment?.id || refundEntity?.id || '');
     if (!eventId) return res.status(400).json({ error: 'WEBHOOK_EVENT_ID_REQUIRED' });
+    const isCapture = event.event === 'payment.captured';
+    const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+    if (isCapture && (!payment?.id || order.paymentProvider !== 'razorpay' || Number(payment.amount) !== expectedAmount || String(payment.currency).toUpperCase() !== 'INR')) {
+      return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
+    }
     const claimed = await claimPaymentEvent('razorpay', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
     if (!claimed) return res.json({ received: true, duplicate: true });
-    if (event.event === 'payment.captured' && payment?.id) {
-      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
-      if (order.paymentProvider !== 'razorpay' || Number(payment.amount) !== expectedAmount || String(payment.currency).toUpperCase() !== 'INR') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
-      order.paymentTransactionId = String(payment.id);
-      order.paymentStatus = 'PAID';
-      order.status = 'PAID_AND_PROCESSING';
-      order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+    if (isCapture) {
+      if (order.paymentStatus !== 'PAID') {
+        order.paymentTransactionId = String(payment.id);
+        order.paymentStatus = 'PAID';
+        order.status = 'PAID_AND_PROCESSING';
+        order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+      } else if (String(order.paymentTransactionId) !== String(payment.id)) {
+        await releasePaymentEvent('razorpay', eventId, 'Payment order already captured by a different transaction.');
+        return res.status(409).json({ error: 'PAYMENT_TRANSACTION_CONFLICT' });
+      }
     } else if (event.event === 'refund.processed') {
       const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
       if (hasReturnRefund) {
@@ -2412,6 +2420,7 @@ async function startServer() {
       }
     }
     await order.save();
+    await markPaymentEventProcessed('razorpay', eventId);
     res.json({ received: true });
   });
 
@@ -2429,15 +2438,25 @@ async function startServer() {
         ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentTransactionId: object?.payment_intent })
         : null;
     if (!order) return res.json({ received: true, ignored: true });
-    const claimed = await claimPaymentEvent('stripe', String(event.id), String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
+    const eventId = String(event.id || '');
+    if (!eventId) return res.status(400).json({ error: 'WEBHOOK_EVENT_ID_REQUIRED' });
+    const isCheckoutComplete = event.type === 'checkout.session.completed';
+    const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+    if (isCheckoutComplete && (order.paymentProvider !== 'stripe' || Number(object?.amount_total) !== expectedAmount || String(object?.currency).toLowerCase() !== 'inr' || object?.payment_status !== 'paid' || !object?.payment_intent)) {
+      return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
+    }
+    const claimed = await claimPaymentEvent('stripe', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
     if (!claimed) return res.json({ received: true, duplicate: true });
-    if (event.type === 'checkout.session.completed') {
-      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
-      if (order.paymentProvider !== 'stripe' || Number(object.amount_total) !== expectedAmount || String(object.currency).toLowerCase() !== 'inr' || object.payment_status !== 'paid') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
-      order.paymentTransactionId = String(object.payment_intent);
-      order.paymentStatus = 'PAID';
-      order.status = 'PAID_AND_PROCESSING';
-      order.statusTimeline.push({ status: order.status, note: 'Stripe Checkout payment verified by signed webhook.', timestamp: new Date() });
+    if (isCheckoutComplete) {
+      if (order.paymentStatus !== 'PAID') {
+        order.paymentTransactionId = String(object.payment_intent);
+        order.paymentStatus = 'PAID';
+        order.status = 'PAID_AND_PROCESSING';
+        order.statusTimeline.push({ status: order.status, note: 'Stripe Checkout payment verified by signed webhook.', timestamp: new Date() });
+      } else if (String(order.paymentTransactionId) !== String(object.payment_intent)) {
+        await releasePaymentEvent('stripe', eventId, 'Payment order already captured by a different transaction.');
+        return res.status(409).json({ error: 'PAYMENT_TRANSACTION_CONFLICT' });
+      }
     } else if (event.type === 'charge.refunded') {
       const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
       if (hasReturnRefund) {
@@ -2449,6 +2468,7 @@ async function startServer() {
       }
     }
     await order.save();
+    await markPaymentEventProcessed('stripe', eventId);
     res.json({ received: true });
   });
 
