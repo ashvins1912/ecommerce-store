@@ -129,6 +129,6 @@ export async function getLogisticsRateCache<T>(key:string):Promise<T|null>{
  const item=memoryLogisticsRates.get(key);if(!item)return null;if(item.expiresAt<Date.now()){memoryLogisticsRates.delete(key);return null;}return item.value as T;
 }
 export async function setLogisticsRateCache(key:string,value:unknown,ttlSeconds=86400):Promise<void>{
- const ttl=Math.max(1,Math.min(86400,Math.floor(ttlSeconds)));memoryLogisticsRates.set(key,{value,expiresAt:Date.now()+ttl*1000});
+ const now=Date.now();for(const [cacheKey,item] of memoryLogisticsRates){if(item.expiresAt<=now)memoryLogisticsRates.delete(cacheKey);}while(memoryLogisticsRates.size>=500){const oldest=memoryLogisticsRates.keys().next().value;if(!oldest)break;memoryLogisticsRates.delete(oldest);}const ttl=Math.max(1,Math.min(86400,Math.floor(ttlSeconds)));memoryLogisticsRates.set(key,{value,expiresAt:now+ttl*1000});
  if(upstashClient){try{await upstashClient.set('logistics:'+key,value,{ex:ttl});}catch{/* memory cache remains available */}}
 }
