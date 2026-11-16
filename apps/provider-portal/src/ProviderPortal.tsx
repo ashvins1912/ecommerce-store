@@ -16,7 +16,7 @@ type Settlement = {
   status: string;
   utrReference?: string;
 };
-type ProviderProfile = {
+type Shipment = { id: string; orderNumber: string; status: string; createdAt: string; items: Array<{ productId: string; title: string; quantity: number }>; courierTracking?: { companyName: string; trackingId: string; trackingUrl?: string } | null; manualDispatchAllowed: boolean };\ntype ProviderProfile = {
   businessName?: string;
   contactPerson?: string;
   kycStatus?: string;
@@ -53,7 +53,7 @@ export default function ProviderPortal() {
   const [providerProfile, setProviderProfile] = useState<ProviderProfile | null>(null);
   const [invite, setInvite] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [settlements, setSettlements] = useState<Settlement[]>([]);\n  const [shipments, setShipments] = useState<Shipment[]>([]);
   const [productQuery, setProductQuery] = useState('');
   const [productStatus, setProductStatus] = useState('ALL');
   const [productSort, setProductSort] = useState('updatedAt');
@@ -97,15 +97,15 @@ export default function ProviderPortal() {
     try {
       const productParams = new URLSearchParams({ page: String(productPage), limit: '10', q: productQuery, status: productStatus, sort: productSort, direction: productDirection });
       const settlementParams = new URLSearchParams({ page: String(settlementPage), limit: '10', q: settlementQuery, status: settlementStatus, sort: settlementSort, direction: settlementDirection });
-      const [profileResult, productResult, settlementResult] = await Promise.all([
+      const [profileResult, productResult, settlementResult, shipmentResult] = await Promise.all([
         api<any>('/api/provider/profile'),
         api<any>('/api/provider/products?' + productParams.toString()),
-        api<any>('/api/provider/settlements?' + settlementParams.toString()),
+        api<any>('/api/provider/settlements?' + settlementParams.toString()),\n        api<any>('/api/provider/shipments'),
       ]);
       setProviderProfile(profileResult.profile || null);
       setProducts(productResult.products || []);
       setProductTotal(Number(productResult.total || 0));
-      setSettlements(settlementResult.settlements || []);
+      setSettlements(settlementResult.settlements || []);\n      setShipments(shipmentResult.shipments || []);
       setSettlementTotal(Number(settlementResult.total || 0));
     } catch (error) {
       setNotice((error as Error).message);
@@ -225,6 +225,24 @@ export default function ProviderPortal() {
       await api('/api/provider/products/' + id + '/submit', { method: 'POST' });
       await refresh();
       setNotice('Product submitted for seller review.');
+    } catch (error) {
+      setNotice((error as Error).message);
+    }
+  };
+
+  const recordManualShipment = async (shipment: Shipment) => {
+    const carrierName = window.prompt('Shipping vendor / courier name');
+    if (!carrierName?.trim()) return;
+    const trackingId = window.prompt('Tracking / consignment number');
+    if (!trackingId?.trim()) return;
+    const trackingUrl = window.prompt('Tracking URL (optional)', '') || '';
+    try {
+      await api('/api/provider/shipments/manual', {
+        method: 'POST',
+        body: JSON.stringify({ orderId: shipment.id, carrierName: carrierName.trim(), trackingId: trackingId.trim(), trackingUrl: trackingUrl.trim() }),
+      });
+      setNotice('Manual shipment recorded and order marked as shipped.');
+      await refresh();
     } catch (error) {
       setNotice((error as Error).message);
     }
@@ -404,6 +422,24 @@ export default function ProviderPortal() {
                 </div>
               </section>
             </div>
+
+            <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-sky-50 text-sky-800"><Package className="h-5 w-5" /></div><div><h2 className="font-semibold">Provider shipments</h2><p className="text-xs text-stone-500">Orders containing only your published products · no buyer address or contact details</p></div></div>
+                <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600">{shipments.length} active / recent</span>
+              </div>
+              {shipments.length ? <div className="divide-y divide-stone-100">
+                {shipments.map((shipment) => <article key={shipment.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{shipment.orderNumber}</h3><StatusBadge status={shipment.status} /></div>
+                    <p className="mt-1 text-xs text-stone-500">{shipment.items.map((item) => item.title + ' × ' + item.quantity).join(' · ')}</p>
+                    {shipment.courierTracking && <p className="mt-2 break-all text-xs text-stone-600">{shipment.courierTracking.companyName} · {shipment.courierTracking.trackingId} {shipment.courierTracking.trackingUrl && <a className="font-semibold text-rose-900 underline" href={shipment.courierTracking.trackingUrl} target="_blank" rel="noreferrer">Track</a>}</p>}
+                  </div>
+                  {shipment.manualDispatchAllowed && <button type="button" onClick={() => void recordManualShipment(shipment)} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-rose-900 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-800">Record manual shipment</button>}
+                </article>)}
+              </div> : <p className="rounded-xl bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">No provider-fulfilment orders are ready yet.</p>}
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">Manual dispatch is available after the seller marks the order Packed and payment is confirmed (or the order is COD). In-app carrier booking requires a carrier configuration and dispatch authorization from the linked seller.</p>
+            </section>
 
             <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
               <div className="mb-4 flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-lg bg-emerald-50 text-emerald-800"><Wallet className="h-5 w-5" /></div><div><h2 className="font-semibold">Settlements & receivables</h2><p className="text-xs text-stone-500">Supplier settlement status</p></div></div>
