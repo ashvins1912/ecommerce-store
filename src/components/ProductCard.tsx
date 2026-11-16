@@ -105,6 +105,8 @@ export function ProductCard({
             alt={product.title}
             referrerPolicy="no-referrer"
             loading="lazy"
+            decoding="async"
+            fetchPriority="low"
             onError={() => setImgError(true)}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
