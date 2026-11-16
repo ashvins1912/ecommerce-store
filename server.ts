@@ -2463,7 +2463,7 @@ async function startServer() {
   app.get('/api/seller/providers/fulfillment-delegations', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
-    const filter = user!.role === 'ADMIN' ? { status: 'REQUESTED' } : { sellerId: user!._id, status: 'REQUESTED' };
+    const filter = user!.role === 'ADMIN' ? { status: { $in: ['REQUESTED', 'ACTIVE'] } } : { sellerId: user!._id, status: { $in: ['REQUESTED', 'ACTIVE'] } };
     const rows = await ProviderFulfillmentDelegationModel.find(filter).sort({ requestedAt: 1 }).lean();
     const providerIds = [...new Set(rows.map((row: any) => row.providerId))];
     const profiles = await ProviderProfileModel.find({ userId: { $in: providerIds } }).select('userId businessName contactPerson kycStatus').lean();
