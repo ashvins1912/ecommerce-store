@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, Minus, Plus, Tag, Trash2, X } from 'lucide-react';
 import type { CartItem, Coupon, CouponValidationResult, Order, User } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
@@ -42,6 +42,10 @@ export function CartDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmedOrders, setConfirmedOrders] = useState<Order[] | null>(null);
+  const [rateGroups,setRateGroups]=useState<Array<{sellerId:string;markupPercent?:number;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;customerChargeMinor?:number;sellerMarkupMinor?:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
+  const [rateLoading,setRateLoading]=useState(false);
+  const [rateError,setRateError]=useState<string|null>(null);
+  const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
 
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
@@ -54,7 +58,8 @@ export function CartDrawer({
   const baseTotal = cart.reduce((sum, i) => sum + i.basePrice * i.quantity, 0);
   const catalogSavings = Math.max(0, baseTotal - subtotal);
   const couponDiscount = appliedValidation?.valid ? appliedValidation.discountAmount : 0;
-  const finalTotal = Math.max(1, subtotal - couponDiscount);
+  const deliveryCharge = rateGroups.reduce((sum, group) => sum + Number(group.quotes[0]?.customerChargeMinor ?? group.quotes[0]?.costMinor ?? 0) / 100, 0);
+  const finalTotal = Math.max(1, subtotal - couponDiscount + deliveryCharge);
 
   const validateAndApplyCoupon = useCallback(
     async (rawCode: string) => {
@@ -117,15 +122,28 @@ export function CartDrawer({
     setError(null);
     setSubmitting(true);
     try {
-      const data = await apiFetch<{ orders: Order[] }>('/api/orders', {
+      const fingerprint = JSON.stringify({
+        items: cart.map((item) => [item.productId, item.variantSku, item.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+        coupon: appliedValidation?.valid ? appliedValidation.coupon?.code || '' : '',
+      });
+      if (!checkoutAttempt.current || checkoutAttempt.current.fingerprint !== fingerprint) {
+        const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        checkoutAttempt.current = { fingerprint, key };
+      }
+      const data = await apiFetch<{ orders: Order[]; replayed?: boolean }>('/api/orders', {
         method: 'POST',
+        headers: { 'Idempotency-Key': checkoutAttempt.current.key },
         body: JSON.stringify({
+          idempotencyKey: checkoutAttempt.current.key,
           items: cart,
           ...(appliedValidation?.valid && appliedValidation.coupon?.code
             ? { couponCode: appliedValidation.coupon.code }
             : {}),
         }),
       });
+      checkoutAttempt.current = null;
       setConfirmedOrders(data.orders);
       setAppliedValidation(null);
       setCouponInput('');
@@ -429,9 +447,21 @@ export function CartDrawer({
                   <span>-{formatINR(couponDiscount)}</span>
                 </div>
               )}
+              <div className="flex justify-between text-xs text-[#57534E]"><span>Delivery fee</span><span>{formatINR(deliveryCharge)}</span></div>
               <div className="flex justify-between text-sm font-semibold text-[#141413] pt-2 border-t border-[#E8E6E1]">
                 <span>{t('cart.total')}</span>
                 <span>{formatINR(finalTotal)}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="rounded-md border border-[#E8E6E1] bg-white p-3 space-y-2">
+                <div className="flex justify-between text-xs"><span>Delivery</span><span>{rateLoading ? 'Calculating…' : rateGroups.length ? formatINR(deliveryCharge) : 'Calculating at checkout'}</span></div>
+                {rateError && <p role="status" className="text-[11px] text-amber-800">Delivery estimate unavailable. Checkout will revalidate the carrier quote.</p>}
+                {rateGroups.map(group => {
+                  const quote = group.quotes[0];
+                  return quote ? <div key={group.sellerId} className="flex justify-between gap-2 text-[11px] text-[#57534E]"><span>{quote.providerCode} · {quote.serviceCode} · ETA {quote.estimatedTransitHours}h</span><span>{formatINR((quote.customerChargeMinor ?? quote.costMinor)/100)}</span></div> : null;
+                })}
+                <p className="text-[10px] text-[#78716C]">Separate delivery fee includes carrier cost and seller-configured markup. Final charge is recalculated securely when you place the order.</p>
               </div>
             </div>
 
@@ -450,7 +480,7 @@ export function CartDrawer({
       {/* Mandatory Checkout Profile Gate Modal */}
       {showGateModal && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/55 p-4">
-          <div className="w-full max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 shadow-2xl">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 shadow-2xl">
             <div className="flex items-start justify-between border-b border-[#F0EEE9] pb-3">
               <div>
                 <h3 className="font-display text-2xl font-semibold text-[#141413]">

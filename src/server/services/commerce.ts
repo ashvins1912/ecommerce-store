@@ -37,7 +37,7 @@ export async function saveGatewayConfiguration(input: {
   const doc = await PaymentGatewayConfigModel.findOneAndUpdate(
     { sellerId: input.sellerId, provider: input.provider },
     { $set: update, $setOnInsert: { sellerId: input.sellerId, provider: input.provider } },
-    { upsert: true, new: true, runValidators: true }
+    { upsert: true, returnDocument: 'after', runValidators: true }
   ).select('+encryptedSecret +encryptedWebhookSecret').lean();
   return {
     provider: doc.provider as GatewayProvider,
@@ -97,7 +97,7 @@ export async function applyWalletTransaction(input: {
       const wallet = await WalletModel.findOneAndUpdate(
         { userId: input.userId, ...(input.type === 'DEBIT_ORDER_REDEMPTION' ? { balancePaise: { $gte: input.amountPaise } } : {}) },
         { $inc: { balancePaise: input.type === 'DEBIT_ORDER_REDEMPTION' ? -input.amountPaise : input.amountPaise, version: 1 }, $setOnInsert: { userId: input.userId, currency: 'INR' } },
-        { new: true, upsert: input.type !== 'DEBIT_ORDER_REDEMPTION', session, setDefaultsOnInsert: true }
+        { returnDocument: 'after', upsert: input.type !== 'DEBIT_ORDER_REDEMPTION', session, setDefaultsOnInsert: true }
       );
       if (!wallet) throw new Error('INSUFFICIENT_WALLET_BALANCE');
       const [entry] = await WalletTransactionModel.create([{
@@ -134,7 +134,7 @@ export async function getWalletSummary(userId: string) {
 
 export async function createGatewayCheckout(input: {
   sellerId: string; provider: GatewayProvider; orderId: string;
-  orderNumber: string; amountPaise: number; currency?: string;
+  orderNumber: string; amountPaise: number; currency?: string; idempotencyKey?: string;
 }) {
   const gateway = await getGatewaySecrets(input.sellerId, input.provider);
   if (!gateway) throw new Error('ACTIVE_PAYMENT_GATEWAY_NOT_CONFIGURED');
@@ -163,7 +163,11 @@ export async function createGatewayCheckout(input: {
     'metadata[orderNumber]': input.orderNumber,
   });
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-    method: 'POST', headers: { Authorization: 'Bearer ' + gateway.secret, 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: 'POST', headers: {
+      Authorization: 'Bearer ' + gateway.secret,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': input.idempotencyKey || `checkout:${input.orderId}`,
+    },
     body: params,
   });
   const body = await response.json() as any;
@@ -195,13 +199,55 @@ export async function verifyPaymentWebhook(input: {
 }
 
 export async function claimPaymentEvent(provider: GatewayProvider, eventId: string, orderId: string, payloadHash: string) {
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + 60_000);
   try {
-    await PaymentEventModel.create({ provider, eventId, orderId, payloadHash, processedAt: new Date() });
+    await PaymentEventModel.create({
+      provider, eventId, orderId, payloadHash, status: 'PROCESSING',
+      processingLeaseUntil: leaseUntil, attempts: 1, processedAt: null,
+    });
     return true;
   } catch (err) {
-    if ((err as { code?: number }).code === 11000) return false;
-    throw err;
+    if ((err as { code?: number }).code !== 11000) throw err;
   }
+  // A committed event is never reclaimed. An abandoned processing lease can be reclaimed
+  // when the gateway retries after a worker/process crash.
+  const reclaimed = await PaymentEventModel.findOneAndUpdate(
+    {
+      provider, eventId, processedAt: null, status: { $ne: 'PROCESSED' },
+      $or: [{ processingLeaseUntil: null }, { processingLeaseUntil: { $lte: now } }, { status: 'FAILED' }],
+    },
+    {
+      $set: { status: 'PROCESSING', processingLeaseUntil: leaseUntil, payloadHash, lastError: null },
+      $inc: { attempts: 1 },
+    },
+    { returnDocument: 'after' }
+  ).lean();
+  return Boolean(reclaimed);
+}
+
+export async function getPaymentEventState(provider: GatewayProvider, eventId: string): Promise<'PROCESSING' | 'PROCESSED' | 'FAILED' | null> {
+  const event = await PaymentEventModel.findOne({ provider, eventId }).select('status processedAt').lean() as any;
+  if (!event) return null;
+  // Backward compatibility: older rows marked processedAt at claim time are treated as complete.
+  if (event.status === 'PROCESSED' || (event.status == null && event.processedAt)) return 'PROCESSED';
+  return event.status === 'FAILED' ? 'FAILED' : 'PROCESSING';
+}
+
+export async function markPaymentEventProcessed(provider: GatewayProvider, eventId: string) {
+  const result = await PaymentEventModel.updateOne(
+    { provider, eventId, status: 'PROCESSING', processedAt: null },
+    { $set: { status: 'PROCESSED', processedAt: new Date() }, $unset: { processingLeaseUntil: 1, lastError: 1 } }
+  );
+  if (result.modifiedCount !== 1) throw new Error('PAYMENT_EVENT_PROCESSING_LEASE_LOST');
+  return true;
+}
+
+export async function releasePaymentEvent(provider: GatewayProvider, eventId: string, error: string) {
+  await PaymentEventModel.updateOne(
+    { provider, eventId, status: 'PROCESSING', processedAt: null },
+    { $set: { status: 'FAILED', lastError: error.slice(0, 1000) }, $unset: { processingLeaseUntil: 1 } }
+  );
 }
 
 export async function refundGatewayPayment(input: {
@@ -240,7 +286,7 @@ export async function restoreCancelledOrderInventory(orderId: string) {
       const order = await OrderModel.findOneAndUpdate(
         { _id: orderId, status: 'Cancelled', inventoryRestored: { $ne: true } },
         { $set: { inventoryRestored: true } },
-        { new: true, session }
+        { returnDocument: 'after', session }
       );
       if (!order) return;
       for (const item of order.items || []) {

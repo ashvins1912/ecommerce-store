@@ -33,6 +33,7 @@ import { ProductCardSkeleton } from './components/ProductCardSkeleton';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { AuthModal } from './components/AuthModal';
+import { RootInviteAcceptance } from './components/RootInviteAcceptance';
 import { OrdersView } from './components/OrdersView';
 import { SellerHubView } from './components/SellerHubView';
 import { WishlistView } from './components/WishlistView';
@@ -40,6 +41,7 @@ import { AccountSignUpView } from './components/CustomerSignUpView';
 import { JewelleryCompareModal } from './components/JewelleryCompareModal';
 import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
 import { FlashSaleSection } from './components/FlashSaleSection';
+import ProviderPortal from '../apps/provider-portal/src/ProviderPortal';
 
 const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
 const RECENT_STORAGE_KEY = 'kk_recently_viewed';
@@ -154,11 +156,7 @@ function upsertJsonLdScript(payload: Record<string, unknown>): void {
 
 export default function App() {
   const { t, tc, to, tseason, tsort } = useI18n();
-  const [activePage, setActivePage] = useState<ActivePage>(() =>
-    typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/seller-hub'
-      ? 'seller'
-      : 'store'
-  );
+  const [activePage, setActivePage] = useState<ActivePage>('store');
   const [user, setUser] = useState<User | null>(null);
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
@@ -208,6 +206,7 @@ export default function App() {
   const [selectedInitialVariantSku, setSelectedInitialVariantSku] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  useEffect(() => { if (new URLSearchParams(window.location.search).has('rootInvite')) setAuthOpen(true); }, []);
   const [compareItems, setCompareItems] = useState<Product[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -219,6 +218,7 @@ export default function App() {
 
   const heroRef = useRef<HTMLElement | null>(null);
   const catalogRef = useRef<HTMLElement | null>(null);
+  const catalogCursorRef = useRef<{ signature: string; cursors: Record<number, string> }>({ signature: '', cursors: {} });
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -262,6 +262,7 @@ export default function App() {
   // Support shared product/category deep-links (?product=..., ?category=..., ?season=...), Admin invite links (?sellerInvite=... or ?invite=...), and hero scroll tracking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('auth') === '1') { setAuthInitialMode('signin'); setAuthOpen(true); }
     const sharedProd = params.get('product');
     if (sharedProd) {
       setSelectedProductKey(sharedProd);
@@ -277,9 +278,8 @@ export default function App() {
     ) {
       setSeason(urlSeason as SeasonType | 'All');
     }
-    const pathIsSellerHub = window.location.pathname.replace(/\/+$/, '') === '/seller-hub';
     const inviteParam = params.get('sellerInvite') || params.get('invite');
-    if (inviteParam || pathIsSellerHub) {
+    if (inviteParam) {
       setSellerInviteToken(inviteParam);
       setActivePage('seller');
     } else if (params.get('page') === 'signup' || params.get('signup') === '1') {
@@ -305,6 +305,7 @@ export default function App() {
 
     const currentUrl = new URL(window.location.href);
     const preserveInvite = currentUrl.searchParams.get('sellerInvite') || currentUrl.searchParams.get('invite');
+    const preserveOAuth = currentUrl.searchParams.get('oauth') === '1';
 
     if (activeProductMeta && selectedProductKey) {
       const productSlugOrId = activeProductMeta.slug || activeProductMeta._id;
@@ -357,7 +358,7 @@ export default function App() {
         },
       });
 
-      if (!preserveInvite) {
+      if (!preserveInvite && !preserveOAuth) {
         const nextUrl = new URL(baseCanonical);
         nextUrl.searchParams.set('product', productSlugOrId);
         if (window.location.search !== nextUrl.search) {
@@ -431,7 +432,7 @@ export default function App() {
       url: canonicalUrl,
     });
 
-    if (!preserveInvite && activePage === 'store') {
+    if (!preserveInvite && !preserveOAuth && activePage === 'store') {
       const nextSearch = canonicalParams.toString() ? `?${canonicalParams.toString()}` : '';
       if (window.location.search !== nextSearch) {
         window.history.replaceState({}, '', `${pathname}${nextSearch}`);
@@ -477,6 +478,7 @@ export default function App() {
         if (cancelled) return;
         setClientSessionTokens(signedIn.accessToken, signedIn.csrfToken);
         setUser(signedIn.user);
+        setActivePage(signedIn.user.role === 'SELLER' || signedIn.user.role === 'ADMIN' ? 'seller' : 'store');
         setLikedIds(new Set(signedIn.likedProductIds || []));
         setCart(signedIn.cart || []);
         localStorage.setItem('kk_guest_cart', JSON.stringify(signedIn.cart || []));
@@ -493,13 +495,16 @@ export default function App() {
     return () => { cancelled = true; };
   }, [showToast]);
 
-  // Load initial auth/guest session + merge localStorage cart if server cart empty
+  // Load initial auth/guest session + merge localStorage cart if server cart empty.
+  // OAuth callback exchange owns auth state on callback mounts; never let guest hydration race it.
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('oauth') === '1') return;
     (async () => {
       try {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
         setClientSessionTokens(session.accessToken, session.csrfToken);
         setUser(session.user);
+        setActivePage(session.user?.role === 'SELLER' || session.user?.role === 'ADMIN' ? 'seller' : 'store');
         setLikedIds(new Set(session.likedProductIds));
 
         let activeCart = session.cart;
@@ -580,6 +585,15 @@ export default function App() {
   const fetchCatalog = useCallback(async () => {
     setCatalogLoading(true);
     try {
+      const cursorSignature = JSON.stringify({
+        category, occasion, season, sort, debouncedQuery, selectedCampaignId,
+        minPrice, maxPrice, minDiscount, inStockOnly, colorFilter, viewerId: user?._id || '',
+      });
+      if (catalogCursorRef.current.signature !== cursorSignature) {
+        catalogCursorRef.current = { signature: cursorSignature, cursors: {} };
+      }
+      const cursorEligible = !debouncedQuery && !selectedCampaignId && !colorFilter.trim() &&
+        ['most_demanding', 'newly_added', 'fast_selling', 'price_asc', 'price_desc'].includes(sort);
       const params = new URLSearchParams({
         category,
         occasion,
@@ -594,8 +608,17 @@ export default function App() {
       if (minDiscount) params.set('minDiscount', minDiscount);
       if (inStockOnly) params.set('inStockOnly', 'true');
       if (colorFilter.trim()) params.set('color', colorFilter.trim());
+      if (cursorEligible && page > 1) {
+        const cursor = catalogCursorRef.current.cursors[page];
+        if (cursor) params.set('cursor', cursor);
+      }
 
       const data = await apiFetch<ProductListResponse>(`/api/products?${params}`);
+      if (cursorEligible && data.nextCursor) {
+        catalogCursorRef.current.cursors[page + 1] = data.nextCursor;
+      } else {
+        delete catalogCursorRef.current.cursors[page + 1];
+      }
       setCatalog(data);
     } finally {
       setCatalogLoading(false);
@@ -613,6 +636,7 @@ export default function App() {
     minDiscount,
     inStockOnly,
     colorFilter,
+    user?._id,
   ]);
 
   useEffect(() => {
@@ -808,21 +832,32 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const openCustomerSignup = () => setActivePage('signup');
+    window.addEventListener('commerce:navigate-signup', openCustomerSignup);
+    return () => window.removeEventListener('commerce:navigate-signup', openCustomerSignup);
+  }, []);
+
+  const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
+    setActivePage('store');
+    if (cat) {
+      setCategory(cat);
+      setPage(1);
+    }
+  }, []);
+
   const compareIds = new Set(compareItems.map((i) => i._id));
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
+  if (user?.role === 'PROVIDER' || window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
+  const isSellerWorkspace = user?.role === 'SELLER' || user?.role === 'ADMIN';
+  const isSellerDashboard = isSellerWorkspace && activePage === 'seller';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF9F6] text-[#141413] overflow-x-clip">
-      <TopBar
+      {!isSellerDashboard && <TopBar
         activePage={activePage}
         activeCategory={category}
-        onNavigateStore={(cat) => {
-          setActivePage('store');
-          if (cat) {
-            setCategory(cat);
-            setPage(1);
-          }
-        }}
+        onNavigateStore={navigateToStore}
         onNavigateWishlist={() => setActivePage('wishlist')}
         onNavigateOrders={() => setActivePage('orders')}
         wishlistCount={likedIds.size}
@@ -833,7 +868,7 @@ export default function App() {
           setAuthInitialMode('signin');
           setAuthOpen(true);
         }}
-      />
+      />}
 
       {activePage === 'signup' && (
         <div className="flex-1">
@@ -851,7 +886,7 @@ export default function App() {
               setAuthInitialMode('signin');
               setAuthOpen(true);
             }}
-            onNavigateStore={() => setActivePage('store')}
+            onNavigateStore={() => navigateToStore()}
           />
         </div>
       )}
@@ -865,7 +900,7 @@ export default function App() {
             onSelectProduct={handleSelectProduct}
             compareIds={compareIds}
             onToggleCompare={handleToggleCompare}
-            onBrowseCatalog={() => setActivePage('store')}
+            onBrowseCatalog={() => navigateToStore()}
           />
         </div>
       )}
@@ -902,7 +937,7 @@ export default function App() {
             }}
             inviteToken={sellerInviteToken}
             onInviteConsumed={handleInviteConsumed}
-            onReturnToStore={() => setActivePage('store')}
+            onReturnToStore={() => navigateToStore()}
           />
         </div>
       )}
@@ -1141,29 +1176,6 @@ export default function App() {
               <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-end gap-3 sm:gap-4 rounded-lg border border-[#E8E6E1] bg-white p-4 text-xs">
                 <div className="w-full sm:w-auto">
                   <label className="block font-medium text-[#44403C] mb-1">
-                    {t('filter.category')}
-                  </label>
-                  <select
-                    value={category}
-                    onChange={(e) => {
-                      setCategory(e.target.value as ProductCategory | 'All');
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-auto min-h-[44px] rounded border border-[#D6D3CD] bg-white px-3 py-2 text-xs"
-                  >
-                    <option value="All">{t('filter.allCategories')}</option>
-                    {(storeCategories.length > 0
-                      ? storeCategories.map((c) => c.name)
-                      : ['Artificial Jewellery', 'Clothing', 'Accessories']
-                    ).map((catName) => (
-                      <option key={catName} value={catName}>
-                        {tc(catName)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="w-full sm:w-auto">
-                  <label className="block font-medium text-[#44403C] mb-1">
                     {t('search.minPrice')}
                   </label>
                   <input
@@ -1318,47 +1330,39 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
-                  {OCCASIONS.map((occ) => (
-                    <button
-                      key={occ}
-                      type="button"
-                      onClick={() => {
-                        setOccasion(occ);
-                        setPage(1);
-                      }}
-                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        occasion === occ
-                          ? 'bg-white text-[#141413] shadow-xs'
-                          : 'text-[#57534E] hover:text-[#141413]'
-                      }`}
-                    >
-                      {occ === 'All' ? t('filter.allOccasions') : to(occ)}
-                    </button>
-                  ))}
+              <section className="rounded-xl border border-[#E8E6E1] bg-white px-3 py-2.5 sm:px-4" aria-label="Quick filters">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-[#881337]" />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#78716C]">Quick filters</span>
+                    <span className="hidden text-[10px] text-[#A8A29E] sm:inline">Refine your edit</span>
+                  </div>
+                  <button type="button" onClick={() => { setCategory('All'); setOccasion('All'); setSeason('All'); setPage(1); }} className="text-[11px] font-medium text-[#881337] hover:underline">Clear all</button>
                 </div>
-
-                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
-                  {SEASONS.map((ssn) => (
-                    <button
-                      key={ssn}
-                      type="button"
-                      onClick={() => {
-                        setSeason(ssn);
-                        setPage(1);
-                      }}
-                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        season === ssn
-                          ? 'bg-white text-[#881337] font-semibold shadow-xs'
-                          : 'text-[#57534E] hover:text-[#141413]'
-                      }`}
-                    >
-                      {ssn === 'All' ? t('season.all') : tseason(ssn)}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <label className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Category</label>
+                    <select aria-label="Category quick filter" value={category} onChange={(e) => { setCategory(e.target.value as ProductCategory | 'All'); setPage(1); }} className="h-8 min-w-0 flex-1 rounded-lg border border-[#E7E5E4] bg-[#FAF9F6] px-2.5 text-xs font-medium text-[#292524] focus:border-[#881337] focus:outline-none sm:max-w-[280px]">
+                      <option value="All">{t('filter.allCategories')}</option>
+                      {(storeCategories.length > 0 ? storeCategories.map((c) => c.name) : ['Artificial Jewellery', 'Clothing', 'Accessories']).map((catName) => <option key={catName} value={catName}>{tc(catName)}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Occasion</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
+                        {OCCASIONS.map((occ) => <button key={occ} type="button" onClick={() => { setOccasion(occ); setPage(1); }} aria-pressed={occasion===occ} className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors ${occasion===occ?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E]'}`}>{occ === 'All' ? t('filter.allOccasions') : to(occ)}</button>)}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Season</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
+                        {SEASONS.map((ssn) => <button key={ssn} type="button" onClick={() => { setSeason(ssn); setPage(1); }} aria-pressed={season===ssn} className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors ${season===ssn?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E]'}`}>{ssn === 'All' ? t('season.all') : tseason(ssn)}</button>)}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </section>
             </div>
 
             {/* Product Grid */}
@@ -1479,7 +1483,7 @@ export default function App() {
       )}
 
       {/* Quiet Editorial Footer */}
-      <footer className="border-t border-[#E8E6E1] bg-white">
+      {!isSellerDashboard && <footer className="border-t border-[#E8E6E1] bg-white">
         <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
           <div className="font-display text-lg font-semibold text-[#141413]">{t('brand')}</div>
           <div className="flex flex-wrap items-center gap-6">
@@ -1507,17 +1511,10 @@ export default function App() {
             >
               {t('footer.orderHistory')}
             </button>
-            <button
-              type="button"
-              onClick={() => setActivePage('seller')}
-              className="hover:text-[#141413] cursor-pointer"
-            >
-              {t('nav.sellerHub')}
-            </button>
           </div>
           <div>© 2026 {t('brand')}</div>
         </div>
-      </footer>
+      </footer>}
 
       {/* Overlays */}
       <ProductDetailModal
@@ -1535,7 +1532,7 @@ export default function App() {
         onSelectProduct={handleSelectProduct}
         onQuickBuy={handleQuickBuy}
         onShareWhatsApp={handleShareWhatsApp}
-        onOpenAuth={() => setAuthOpen(true)}
+        onOpenAuth={() => { setActivePage('signup'); setAuthOpen(false); }}
         compareIds={compareIds}
         onToggleCompare={handleToggleCompare}
         categoryTop10Thresholds={catalog.categoryTop10Thresholds}
@@ -1589,15 +1586,23 @@ export default function App() {
         onClose={() => setAuthOpen(false)}
         user={user}
         initialMode={authInitialMode}
-        onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
+          setActivePage(payload.user?.role === 'SELLER' || payload.user?.role === 'ADMIN' ? 'seller' : 'store');
+          const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+          if (returnTo && returnTo.startsWith('/')) { const target = new URL(returnTo, window.location.origin); if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search + target.hash); }
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
           if (payload.cart) {
             setCart(payload.cart);
             localStorage.setItem('kk_guest_cart', JSON.stringify(payload.cart));
           }
         }}
+      />
+
+      <RootInviteAcceptance
+        user={user}
+        onRequireAuth={() => { setAuthInitialMode('signin'); setAuthOpen(true); }}
+        onAccepted={(acceptedUser) => { setUser(acceptedUser); setActivePage(acceptedUser.role === 'SELLER' || acceptedUser.role === 'ADMIN' ? 'seller' : 'store'); }}
       />
 
       {/* Floating Artificial Jewellery Comparison Bar */}

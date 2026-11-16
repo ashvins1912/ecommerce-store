@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
 import { getSupabaseBrowserClient } from '../lib/supabase';
 import {
   apiFetch,
@@ -14,7 +14,6 @@ interface AuthModalProps {
   onClose: () => void;
   user: User | null;
   initialMode?: 'signin' | 'signup';
-  onOpenSignUpPage?: () => void;
   onAuthChanged: (payload: {
     user: User | null;
     likedProductIds?: string[];
@@ -27,7 +26,6 @@ export function AuthModal({
   onClose,
   user,
   initialMode = 'signin',
-  onOpenSignUpPage,
   onAuthChanged,
 }: AuthModalProps) {
   const { t, locale } = useI18n();
@@ -255,6 +253,7 @@ export function AuthModal({
       email: 'ananya.mehta@example.com',
       roleLabel: t('auth.roleBuyer'),
       desc: t('auth.buyerProfileDesc'),
+      image: '/src/assets/images/hero_kala_karat_1794740129596.jpg',
     },
     {
       id: 'usr_seller_1',
@@ -262,6 +261,7 @@ export function AuthModal({
       email: 'meera@zaveriatelier.in',
       roleLabel: t('auth.roleSeller'),
       desc: t('auth.sellerProfileDesc'),
+      image: '/src/assets/images/jewellery_kundan_choker_1794740131002.jpg',
     },
     {
       id: 'usr_admin_1',
@@ -269,15 +269,33 @@ export function AuthModal({
       email: 'ops@kalaandkarat.in',
       roleLabel: t('auth.roleAdmin'),
       desc: t('auth.adminProfileDesc'),
+      image: '/src/assets/images/hero_kala_karat_1794740129596.jpg',
+    },
+    {
+      id: 'usr_provider_1',
+      name: 'Aarav Artisan Supply',
+      email: 'provider.aarav@example.com',
+      roleLabel: 'Provider',
+      desc: 'Demo provider · jewellery supply catalog',
+      image: '/src/assets/images/jewellery_kundan_choker_1794740131002.jpg',
+    },
+    {
+      id: 'usr_provider_2',
+      name: 'Nisha Craft Works',
+      email: 'provider.nisha@example.com',
+      roleLabel: 'Provider',
+      desc: 'Demo provider · handloom and apparel supply',
+      image: '/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg',
     },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs">
-      <div className="max-h-[90vh] overflow-y-auto w-full max-w-lg rounded-lg border border-[#E8E6E1] bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17120F]/55 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl border border-[#E8E6E1] bg-white p-5 shadow-2xl sm:p-7">
         <div className="flex items-start justify-between gap-4 border-b border-[#F0EEE9] pb-4">
           <div>
-            <h2 className="font-display text-2xl font-semibold text-[#141413]">
+            {!user && <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#881337]">Kala &amp; Karat · Secure customer access</p>}
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-[#141413]">
               {user
                 ? t('auth.sessionTitle')
                 : mode === 'signup'
@@ -432,7 +450,7 @@ export function AuthModal({
               <span>Create one account to shop and sell</span>
             </div>
             {/* Account access */}
-            <div className="grid grid-cols-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] p-1">
+            <div className="grid grid-cols-2 rounded-xl border border-[#E8E6E1] bg-[#FAF9F6] p-1">
               <button
                 type="button"
                 onClick={() => {
@@ -465,7 +483,7 @@ export function AuthModal({
 
             <div className="grid grid-cols-2 gap-3">
               <button type="button" disabled={loading} onClick={() => void handleSocialSignIn('google')}
-                className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold text-[#292524] hover:border-[#881337] disabled:opacity-60">
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold text-[#292524] hover:border-[#881337] hover:bg-[#FAF9F6] disabled:opacity-60">
                 <span aria-hidden="true" className="text-base font-bold">G</span>
                 <span>Google</span>
               </button>
@@ -499,7 +517,7 @@ export function AuthModal({
                   placeholder={t('auth.emailPlaceholder')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                  className="min-h-11 w-full rounded-lg border border-[#D6D3CD] px-3 py-2.5 text-sm focus:border-[#881337] focus:outline-none focus:ring-2 focus:ring-[#881337]/10"
                 />
                 <div className="relative">
                   <input
@@ -508,7 +526,7 @@ export function AuthModal({
                     placeholder={t('auth.passwordPlaceholder')}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 pr-10 text-sm focus:border-[#881337] focus:outline-none"
+                    className="min-h-11 w-full rounded-lg border border-[#D6D3CD] px-3 py-2.5 pr-10 text-sm focus:border-[#881337] focus:outline-none focus:ring-2 focus:ring-[#881337]/10"
                   />
                   <button
                     type="button"
@@ -522,98 +540,25 @@ export function AuthModal({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full min-h-[42px] rounded-md bg-[#881337] px-4 py-2.5 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
+                  className="w-full min-h-11 rounded-lg bg-[#881337] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
                 >
                   {loading ? t('auth.signingIn') : t('auth.signInSync')}
                 </button>
               </form>
-            ) : (
-              <form onSubmit={handleSignUp} className="space-y-3">
-                <input
-                  type="text"
-                  required
-                  minLength={2}
-                  placeholder={t('auth.namePlaceholder')}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-                />
-                <input
-                  type="email"
-                  required
-                  placeholder={t('auth.emailPlaceholder')}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-                />
-                <input
-                  type="tel"
-                  placeholder={`${t('auth.mobileLabel')} (${t('auth.mobilePlaceholder')})`}
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm tabular-nums focus:border-[#881337] focus:outline-none"
-                />
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    placeholder={t('auth.passwordPlaceholder')}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 pr-10 text-sm focus:border-[#881337] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#78716C] hover:text-[#141413] cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  minLength={6}
-                  placeholder={t('auth.confirmPasswordPlaceholder')}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full min-h-[42px] rounded-md bg-[#881337] px-4 py-2.5 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
-                >
-                  {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
-                </button>
-              </form>
-            )}
+            ) : null}
 
-            {onOpenSignUpPage && (
-              <div className="flex items-center justify-between gap-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] px-3 py-2 text-xs">
-                <span className="text-[#57534E]">
-                  {mode === 'signin' ? t('auth.noAccountYet') : t('auth.signUpTitle')}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onOpenSignUpPage();
-                  }}
-                  className="inline-flex items-center gap-1 font-semibold text-[#881337] hover:underline cursor-pointer"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  <span>{t('auth.openSignUpPage')}</span>
-                </button>
-              </div>
-            )}
+            <div className="mt-4 border-t border-[#F0EEE9] pt-3 text-center text-xs text-[#57534E]">
+              New customer?{' '}
+              <button type="button" onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('commerce:navigate-signup')); }} className="font-semibold text-[#881337] hover:underline cursor-pointer">
+                Create your customer account
+              </button>
+            </div>
+
           </div>
         )}
 
-        {/* Demo profiles for local role testing */}
-        <div className="mt-5 border-t border-[#F0EEE9] pt-4">
+        {/* Demo profiles are deliberately hidden in production; live users authenticate through Supabase. */}
+        {import.meta.env.DEV && <div className="mt-5 border-t border-[#F0EEE9] pt-4">
           <div className="mb-2 text-xs font-medium text-[#6B6A65]">
             {t('auth.quickProfiles')}
           </div>
@@ -639,22 +584,27 @@ export function AuthModal({
                       : 'border-[#E8E6E1] hover:border-[#881337] cursor-pointer'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-[#141413]">
-                      {acc.name} · <span className="text-[#881337]">{acc.roleLabel}</span>
-                    </span>
-                    {isActive && (
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#881337]">
-                        {t('auth.activeLabel')}
-                      </span>
-                    )}
+                  <div className="flex items-center gap-3">
+                    <img src={acc.image} alt="" className="h-11 w-11 shrink-0 rounded-md object-cover" loading="lazy" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-semibold text-[#141413]">
+                          {acc.name} · <span className="text-[#881337]">{acc.roleLabel}</span>
+                        </span>
+                        {isActive && (
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#881337]">
+                            {t('auth.activeLabel')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-[#6B6A65]">{acc.desc}</div>
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-[#6B6A65]">{acc.desc}</div>
                 </button>
               );
             })}
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );

@@ -2,6 +2,9 @@ import mongoose, { Schema, type Model } from 'mongoose';
 
 const ShippingAddressSchema = new Schema(
   {
+    // Address IDs are application strings (legacy seeds use values like "addr_s1").
+    // Keep them as strings rather than Mongoose's default ObjectId subdocument IDs.
+    _id: { type: String, default: () => new mongoose.Types.ObjectId().toString() },
     label: { type: String, required: true, default: 'Home' },
     fullName: { type: String, required: true },
     phone: { type: String, required: true },
@@ -11,12 +14,13 @@ const ShippingAddressSchema = new Schema(
     pincode: { type: String, required: true },
     isDefault: { type: Boolean, default: false },
   },
-  { _id: true }
+  { _id: false }
 );
 
 const UserSchema = new Schema(
   {
-    role: { type: String, enum: ['BUYER', 'SELLER', 'ADMIN'], default: 'BUYER', index: true },
+    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], default: 'BUYER', index: true },
+    isRootSuperuser: { type: Boolean, default: false, index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     avatarUrl: { type: String },
@@ -40,6 +44,7 @@ const UserSchema = new Schema(
       isTrustedSeller: { type: Boolean, default: false },
       totalOrders: { type: Number, default: 0 },
       cancelledOrders: { type: Number, default: 0 },
+      shippingMarkupPercent: { type: Number, default: 0, min: 0, max: 100 },
     },
   },
   { timestamps: true }
@@ -70,6 +75,7 @@ const ProductSchema = new Schema(
     salePrice: { type: Number, required: true, min: 0 },
     discountPercent: { type: Number, default: 0, min: 0, max: 95 },
     totalStock: { type: Number, required: true, min: 0 },
+    shippingWeightGrams: { type: Number, required: true, min: 1, max: 100000, default: 500 },
     images: [
       {
         url: { type: String, required: true },
@@ -131,6 +137,8 @@ const ProductSchema = new Schema(
       default: ['Newly Added'],
     },
     isProductTrusted: { type: Boolean, default: false },
+    isQualityChecked: { type: Boolean, default: false },
+    manufacturerWarrantyVerified: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true, index: true },
     listingStatus: {
       type: String,
@@ -143,6 +151,9 @@ const ProductSchema = new Schema(
     isDiscontinued: { type: Boolean, default: false, index: true },
     isDeleted: { type: Boolean, default: false, index: true },
     disabledAt: { type: Date, default: null },
+    providerId: { type: String, default: null, select: false, index: true },
+    providerProductId: { type: String, default: null, select: false, index: true },
+    providerBasePricePaise: { type: Number, default: null, select: false },
   },
   { timestamps: true }
 );
@@ -154,6 +165,10 @@ ProductSchema.index({
   isDiscontinued: 1,
   isDeleted: 1,
 });
+ProductSchema.index({ category: 1, trendScore: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, createdAt: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, salesCount: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, salePrice: 1, _id: 1 });
 
 const LikeSchema = new Schema(
   {
@@ -198,6 +213,8 @@ const OrderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true, index: true },
     buyerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    checkoutIdempotencyKey: { type: String, default: undefined, immutable: true },
+    checkoutPayloadHash: { type: String, default: undefined, immutable: true },
     sellerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     items: [
       {
@@ -214,15 +231,36 @@ const OrderSchema = new Schema(
       },
     ],
     totalAmount: { type: Number, required: true, min: 0 },
+    shipping: {
+      actualCarrierCost: { type: Number, default: 0, min: 0 },
+      sellerMarkup: { type: Number, default: 0, min: 0 },
+      customerCharge: { type: Number, default: 0, min: 0 },
+      insuranceAmount: { type: Number, default: 0, min: 0 },
+      carrierCode: { type: String, default: null },
+      serviceCode: { type: String, default: null },
+      estimatedTransitHours: { type: Number, default: null },
+      quoteExpiresAt: { type: Date, default: null },
+      policy: { type: String, enum: ['SEPARATE'], default: 'SEPARATE' },
+    },
     paymentMode: { type: String, enum: ['COD', 'RAZORPAY', 'STRIPE', 'WALLET', 'MIXED'], default: 'COD', index: true },
     paymentStatus: { type: String, enum: ['NOT_REQUIRED', 'PENDING', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'], default: 'NOT_REQUIRED', index: true },
     paymentProvider: { type: String, enum: ['razorpay', 'stripe'], default: null },
     paymentReference: { type: String, default: null, index: true },
+    paymentIntentRequestKey: { type: String, default: null },
+    paymentIntentLeaseUntil: { type: Date, default: null, index: true },
+    sellerNotificationSentAt: { type: Date, default: null },
+    sellerNotificationLeaseUntil: { type: Date, default: null, index: true },
     paymentCheckoutUrl: { type: String, default: null },
     paymentTransactionId: { type: String, default: null, index: true },
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
     cancellationRequestedAt: { type: Date, default: null },
     cancellationPreviousStatus: { type: String, default: null },
+    providerCancellationReview: {
+      providerId: { type: String, default: null, index: true },
+      status: { type: String, enum: ['NOT_FORWARDED', 'PENDING', 'APPROVED', 'REJECTED'], default: 'NOT_FORWARDED', index: true },
+      note: { type: String, default: '', maxlength: 1000 },
+      forwardedAt: Date, reviewedAt: Date,
+    },
     inventoryRestored: { type: Boolean, default: false },
     deliveredAt: { type: Date, default: null },
     refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'PARTIAL', 'REFUNDED', 'REJECTED'], default: 'NONE' },
@@ -261,6 +299,10 @@ const OrderSchema = new Schema(
   },
   { timestamps: true }
 );
+OrderSchema.index(
+  { buyerId: 1, checkoutIdempotencyKey: 1, sellerId: 1 },
+  { unique: true, partialFilterExpression: { checkoutIdempotencyKey: { $type: 'string' } } }
+);
 
 export const ATLAS_SEARCH_INDEX_DEFINITION = {
   name: 'products_hybrid_search',
@@ -283,6 +325,27 @@ export const ATLAS_SEARCH_INDEX_DEFINITION = {
     },
   },
 };
+
+const RootInviteSchema = new Schema({
+  tokenHash: { type: String, required: true, unique: true, index: true },
+  email: { type: String, required: true, lowercase: true, trim: true, index: true },
+  role: { type: String, enum: ['ADMIN', 'SELLER', 'PROVIDER'], required: true },
+  invitedByRootId: { type: String, required: true, index: true },
+  status: { type: String, enum: ['PENDING', 'ACCEPTED', 'REVOKED'], default: 'PENDING', index: true },
+  acceptedUserId: { type: String, default: null },
+  acceptedAt: { type: Date, default: null },
+  expiresAt: { type: Date, required: true, index: true },
+}, { timestamps: true });
+RootInviteSchema.index({ email: 1, role: 1, status: 1 });
+
+const RootAccessAuditSchema = new Schema({
+  actorId: { type: String, required: true, index: true },
+  action: { type: String, required: true, index: true },
+  targetType: { type: String, default: '' },
+  targetId: { type: String, default: '' },
+  query: { type: String, default: '' },
+  ip: { type: String, default: '' },
+}, { timestamps: true });
 
 const SellerInviteSchema = new Schema(
   {
@@ -310,7 +373,7 @@ const AuthSessionSchema = new Schema(
   {
     sessionId: { type: String, required: true, unique: true, index: true },
     userId: { type: String, required: true, index: true },
-    role: { type: String, enum: ['BUYER', 'SELLER', 'ADMIN'], required: true },
+    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], required: true },
     provider: { type: String, enum: ['supabase', 'invite', 'demo'], default: 'supabase' },
     tokenFingerprint: { type: String, required: true },
     csrfToken: { type: String, required: true },
@@ -438,6 +501,22 @@ const ReturnRequestSchema = new Schema({
   courierName: String,
   trackingId: String,
   trackingUrl: String,
+  providerId: { type: String, default: null, index: true },
+  providerReviewStatus: { type: String, enum: ['NOT_FORWARDED', 'PENDING', 'APPROVED', 'REJECTED'], default: 'NOT_FORWARDED', index: true },
+  providerForwardedAt: Date,
+  providerReviewedAt: Date,
+  providerDecisionNote: { type: String, default: '', maxlength: 1000 },
+  providerPickupAddressShared: { type: Boolean, default: false },
+  providerReturnAddress: {
+    warehouseId: String, name: String, contactName: String, contactPhone: String,
+    addressLine1: String, addressLine2: String, city: String, state: String, postalCode: String, countryCode: String,
+  },
+  returnPickupStatus: { type: String, enum: ['NOT_BOOKED', 'BOOKED', 'PICKED_UP', 'DELIVERED', 'FAILED'], default: 'NOT_BOOKED' },
+  returnPickupBookedBy: { type: String, default: '' },
+  returnPickupCarrier: { type: String, default: '' },
+  returnPickupTrackingId: { type: String, default: '' },
+  returnPickupTrackingUrl: { type: String, default: '' },
+  returnPickupBookedAt: Date,
   status: { type: String, enum: ['REQUESTED', 'APPROVED', 'REJECTED', 'IN_TRANSIT', 'RECEIVED', 'REFUND_PENDING', 'REFUNDED'], default: 'REQUESTED', index: true },
   receivedAt: Date,
   refundDestination: { type: String, enum: ['ORIGINAL_SOURCE', 'WALLET'], default: 'WALLET' },
@@ -448,10 +527,45 @@ const PaymentEventSchema = new Schema({
   provider: { type: String, enum: ['razorpay', 'stripe'], required: true },
   eventId: { type: String, required: true },
   orderId: { type: String, required: true, index: true },
-  processedAt: Date,
+  status: { type: String, enum: ['PROCESSING', 'PROCESSED', 'FAILED'], default: 'PROCESSING', index: true },
+  processingLeaseUntil: { type: Date, default: null, index: true },
+  attempts: { type: Number, default: 1, min: 1 },
+  lastError: { type: String, default: null },
+  processedAt: { type: Date, default: null },
   payloadHash: { type: String, required: true },
 }, { timestamps: true });
 PaymentEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
+PaymentEventSchema.index({ status: 1, processingLeaseUntil: 1 });
+
+const SellerPrivacySettingsSchema = new Schema({
+  sellerId: { type: String, required: true, unique: true, index: true },
+  carrierDisclosure: {
+    recipientName: { type: Boolean, default: false },
+    recipientPhone: { type: Boolean, default: false },
+    recipientAddress: { type: Boolean, default: false },
+    recipientEmail: { type: Boolean, default: false },
+  },
+}, { timestamps: true });
+const PrivacyDisclosureAuditSchema = new Schema({
+  sellerId: { type: String, required: true, index: true },
+  orderId: { type: String, required: true, index: true },
+  carrierConfigId: { type: String, required: true },
+  carrierCode: { type: String, required: true },
+  fieldsAuthorized: { type: [String], required: true },
+  actorId: { type: String, required: true },
+  authorizedAt: { type: Date, required: true },
+  jobId: { type: String, default: null, index: true },
+  dispatchStatus: { type: String, enum: ['AUTHORIZED', 'DISPATCHING', 'DISPATCHED', 'NOT_DISPATCHED', 'BLOCKED', 'FAILED'], default: 'AUTHORIZED', index: true },
+  dispatchedAt: { type: Date, default: null },
+  dispatchErrorCode: { type: String, default: null, maxlength: 120 },
+  purpose: { type: String, enum: ['SHIPMENT_FULFILLMENT'], required: true },
+}, { timestamps: true });
+PrivacyDisclosureAuditSchema.index({ sellerId: 1, orderId: 1, authorizedAt: -1 });
+
+export const SellerPrivacySettingsModel: Model<any> =
+  mongoose.models.SellerPrivacySettings || mongoose.model('SellerPrivacySettings', SellerPrivacySettingsSchema);
+export const PrivacyDisclosureAuditModel: Model<any> =
+  mongoose.models.PrivacyDisclosureAudit || mongoose.model('PrivacyDisclosureAudit', PrivacyDisclosureAuditSchema);
 
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);
@@ -463,6 +577,10 @@ export const ReviewModel: Model<any> =
   mongoose.models.Review || mongoose.model('Review', ReviewSchema);
 export const OrderModel: Model<any> =
   mongoose.models.Order || mongoose.model('Order', OrderSchema);
+export const RootInviteModel: Model<any> =
+  mongoose.models.RootInvite || mongoose.model('RootInvite', RootInviteSchema);
+export const RootAccessAuditModel: Model<any> =
+  mongoose.models.RootAccessAudit || mongoose.model('RootAccessAudit', RootAccessAuditSchema);
 export const SellerInviteModel: Model<any> =
   mongoose.models.SellerInvite || mongoose.model('SellerInvite', SellerInviteSchema);
 export const AuthSessionModel: Model<any> =

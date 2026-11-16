@@ -1,4 +1,4 @@
-export type UserRole = 'GUEST' | 'BUYER' | 'SELLER' | 'ADMIN';
+export type UserRole = 'GUEST' | 'BUYER' | 'SELLER' | 'PROVIDER' | 'ADMIN';
 
 export type BuiltinProductCategory = 'Artificial Jewellery' | 'Clothing' | 'Accessories';
 
@@ -103,6 +103,7 @@ export interface OAuthAccount {
 export interface User {
   _id: string;
   role: Exclude<UserRole, 'GUEST'>;
+  isRootSuperuser?: boolean;
   name: string;
   email: string;
   avatarUrl?: string;
@@ -187,6 +188,7 @@ export interface Product {
   salePrice: number;
   discountPercent: number;
   totalStock: number;
+  shippingWeightGrams?: number;
   images: ProductImage[];
   jewellerySpecs?: JewellerySpecs;
   clothingSpecs?: ClothingSpecs;
@@ -203,6 +205,8 @@ export interface Product {
   reviewCount: number;
   badges: ProductBadge[];
   isProductTrusted: boolean;
+  isQualityChecked?: boolean;
+  manufacturerWarrantyVerified?: boolean;
   isActive: boolean;
   listingStatus?: ProductListingStatus;
   isPublished?: boolean;
@@ -282,6 +286,11 @@ export interface Order {
   sellerId: string;
   items: OrderItem[];
   totalAmount: number;
+  shipping?: {
+    actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number;
+    carrierCode?: string | null; serviceCode?: string | null; estimatedTransitHours?: number | null;
+    quoteExpiresAt?: string | null; policy: 'SEPARATE';
+  };
   paymentMode?: 'COD' | 'RAZORPAY' | 'STRIPE' | 'WALLET' | 'MIXED';
   paymentStatus?: 'NOT_REQUIRED' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUNDED';
   paymentProvider?: 'razorpay' | 'stripe';
@@ -295,6 +304,13 @@ export interface Order {
     discountAmount: number;
   };
   status: OrderStatus;
+  providerCancellationReview?: {
+    providerId: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'NOT_FORWARDED';
+    note?: string;
+    forwardedAt?: string | Date | null;
+    reviewedAt?: string | Date | null;
+  };
   shippingAddress: Omit<ShippingAddress, 'label' | 'isDefault' | '_id'>;
   courierTracking?: CourierTracking;
   statusTimeline: StatusTimelineEntry[];
@@ -436,6 +452,7 @@ export interface ProductListResponse {
   totalPages: number;
   didYouMean?: string | null;
   categoryTop10Thresholds?: Record<string, number>;
+  nextCursor?: string | null;
 }
 
 export interface OrderListResponse {

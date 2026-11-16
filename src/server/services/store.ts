@@ -55,13 +55,22 @@ import {
   CouponModel,
   CategoryControlModel,
   ShareEventModel,
+  SellerPrivacySettingsModel,
+  PrivacyDisclosureAuditModel,
 } from '../models/schemas.js';
+import { ProviderProfileModel, ProviderProductModel } from '../models/providerSchemas.js';
+import { encryptField } from './fieldEncryption.js';
 import type { AuthSessionRecord } from './session.js';
 import { deleteStoredImageAssets } from './storage.js';
 import { purgeProductFromCartCaches } from './redis.js';
+import { aggregateInventoryLines } from '../../../packages/hybrid-engine/src/index.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
+
+// Production must never receive demo identities. Real accounts are created through
+// the verified invitation/sign-up flows; seed users exist only for local development.
+const ACTIVE_SEED_USERS = process.env.NODE_ENV === 'production' ? [] : SEED_USERS;
 
 interface StoreState {
   users: User[];
@@ -147,6 +156,13 @@ function loadLocalStore(): StoreState {
           parsed.users = [];
           dirty = true;
         }
+        if (process.env.NODE_ENV === 'production') {
+          const safeUsers = parsed.users.filter((user) => user.role !== 'PROVIDER');
+          if (safeUsers.length !== parsed.users.length) {
+            parsed.users = safeUsers;
+            dirty = true;
+          }
+        }
         if (!Array.isArray(parsed.sessions)) {
           parsed.sessions = [];
           dirty = true;
@@ -202,7 +218,7 @@ function loadLocalStore(): StoreState {
             dirty = true;
           }
         }
-        for (const seedUser of SEED_USERS) {
+        for (const seedUser of ACTIVE_SEED_USERS) {
           const exists = parsed.users.some(
             (u) => u._id === seedUser._id || u.email.toLowerCase() === seedUser.email.toLowerCase()
           );
@@ -221,7 +237,7 @@ function loadLocalStore(): StoreState {
     }
   }
   const initial: StoreState = {
-    users: structuredClone(SEED_USERS),
+    users: structuredClone(ACTIVE_SEED_USERS),
     products: structuredClone(SEED_PRODUCTS).map((p) => ({ ...p, sharesCount: p.sharesCount ?? 0 })),
     likes: [],
     reviews: structuredClone(SEED_REVIEWS),
@@ -246,7 +262,10 @@ function saveLocalStore(state: StoreState) {
 const localState: StoreState = loadLocalStore();
 
 export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI?.trim();
+  if (process.env.NODE_ENV === 'production' && !uri) {
+    throw new Error('MONGODB_URI_REQUIRED_IN_PRODUCTION: configure a persistent MongoDB database before starting.');
+  }
   if (uri) {
     try {
       await mongoose.connect(uri);
@@ -258,34 +277,141 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
         ReviewModel.syncIndexes(),
         OrderModel.syncIndexes(),
         SellerInviteModel.syncIndexes(),
+        SellerPrivacySettingsModel.syncIndexes(),
+        PrivacyDisclosureAuditModel.syncIndexes(),
       ]);
-      // Seed Atlas M0 if empty
-      const productCount = await ProductModel.countDocuments();
-      if (productCount === 0) {
-        const idMap = new Map<string, mongoose.Types.ObjectId>();
-        for (const u of SEED_USERS) {
-          const oid = new mongoose.Types.ObjectId();
-          idMap.set(u._id, oid);
-          await UserModel.create({ ...u, _id: oid });
+      // Idempotently ensure one sample account per configured demo identity. The unique
+      // email index is the database-level guard; $setOnInsert never overwrites a real
+      // account or changes an existing user's role/profile on application restart.
+      const idMap = new Map<string, mongoose.Types.ObjectId>();
+      for (const u of ACTIVE_SEED_USERS) {
+        const email = u.email.trim().toLowerCase();
+        let account: any;
+        try {
+          // Mongoose timestamps manage these fields on upsert. Do not include seed
+          // timestamps in $setOnInsert or MongoDB sees conflicting updatedAt paths.
+          const seedUser = Object.fromEntries(
+            Object.entries(u).filter(([key]) => key !== 'createdAt' && key !== 'updatedAt'),
+          ) as Omit<User, 'createdAt' | 'updatedAt'>;
+          account = await UserModel.findOneAndUpdate(
+            { email },
+            { $setOnInsert: { ...seedUser, _id: new mongoose.Types.ObjectId(), email } },
+            { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+          ).lean();
+        } catch (error) {
+          // Concurrent application starts can race on the unique email index.
+          // In that case, read the winner rather than failing startup or duplicating it.
+          if ((error as { code?: number }).code !== 11000) throw error;
+          account = await UserModel.findOne({ email }).lean();
         }
+        if (!account) throw new Error(`Unable to ensure demo account for ${email}`);
+        idMap.set(u._id, new mongoose.Types.ObjectId(String(account._id)));
+      }
+
+      // Seed the sample catalogue only when it is empty. Existing products and users
+      // are never replaced; seller references always point at the ensured DB users.
+      const productCount = await ProductModel.countDocuments();
+      if (productCount === 0 && process.env.NODE_ENV !== 'production') {
         for (const p of SEED_PRODUCTS) {
           const oid = new mongoose.Types.ObjectId();
           idMap.set(p._id, oid);
+          const sellerId = idMap.get(p.sellerId);
+          if (!sellerId) throw new Error(`Missing seeded seller reference for product ${p._id}`);
           await ProductModel.create({
             ...p,
             _id: oid,
-            sellerId: idMap.get(p.sellerId) || new mongoose.Types.ObjectId(),
+            sellerId,
           });
         }
-      } else {
-        // Ensure dummy test users (Buyer, Seller, Admin) always exist for testing
-        for (const u of SEED_USERS) {
-          const existing = await UserModel.findOne({ email: u.email.toLowerCase() }).lean();
-          if (!existing) {
-            await UserModel.create({ ...u, _id: new mongoose.Types.ObjectId() });
+      }
+      console.info(`[seed] Development demo identities checked: ${ACTIVE_SEED_USERS.length}; catalogue mode: ${productCount === 0 ? (process.env.NODE_ENV === 'production' ? 'empty-production-catalogue' : 'initialized') : 'existing'}`);
+
+      // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
+      if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
+        for (const demo of [
+          { email: 'provider.aarav@example.com', businessName: 'Aarav Artisan Supply', sellerEmail: 'meera@zaveriatelier.in', mobile: '+919876540001' },
+          { email: 'provider.nisha@example.com', businessName: 'Nisha Craft Works', sellerEmail: 'raghav@jaipurloom.in', mobile: '+919876540002' },
+        ]) {
+          const providerUser = await UserModel.findOne({ email: demo.email }).lean();
+          const linkedSeller = await UserModel.findOne({ email: demo.sellerEmail }).lean();
+          if (providerUser && linkedSeller) {
+            await ProviderProfileModel.updateOne(
+              { userId: String(providerUser._id) },
+              { $setOnInsert: {
+                userId: String(providerUser._id),
+                linkedSellerIds: [String(linkedSeller._id)],
+                businessName: demo.businessName,
+                contactPerson: demo.businessName,
+                mobile: demo.mobile,
+                whatsapp: demo.mobile,
+                warehouseAddress: 'Demo Warehouse, Jaipur, Rajasthan, India',
+                encryptedTaxId: encryptField('DEMO-GST-TEST-0001'),
+                encryptedSettlementDetails: encryptField('DEMO-ACCOUNT-000000000001'),
+                settlementDetailsLast4: '0001',
+                kycStatus: 'PENDING',
+              } },
+              { upsert: true }
+            );
           }
         }
+
+        // Seed realistic image-backed catalog rows for the demo provider workspaces.
+        // These use existing repository assets and are isolated by providerId.
+        const demoCatalog = [
+          {
+            email: 'provider.aarav@example.com',
+            sellerEmail: 'meera@zaveriatelier.in',
+            title: 'Demo Kundan Bridal Choker',
+            category: 'Artificial Jewellery',
+            subCategory: 'Choker Necklaces',
+            description: 'Demo provider listing with a local product image for testing the full catalog-to-review mapping.',
+            brand: 'Aarav Artisan',
+            manufacturerName: 'Aarav Artisan Supply',
+            basePricePaise: 185000,
+            imageUrls: ['/src/assets/images/jewellery_kundan_choker_1794740131002.jpg', '/src/assets/images/jewellery_jhumka_earrings_1794740130423.jpg'],
+          },
+          {
+            email: 'provider.nisha@example.com',
+            sellerEmail: 'raghav@jaipurloom.in',
+            title: 'Demo Chanderi Anarkali Set',
+            category: 'Clothing',
+            subCategory: 'Kurta Sets',
+            description: 'Demo provider listing with a local apparel image for validating provider catalog and seller review screens.',
+            brand: 'Nisha Craft',
+            manufacturerName: 'Nisha Craft Works',
+            basePricePaise: 245000,
+            imageUrls: ['/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg', '/src/assets/images/clothing_linen_co_ord_1794740132428.jpg'],
+          },
+        ];
+        for (const demo of demoCatalog) {
+          const providerUser = await UserModel.findOne({ email: demo.email }).lean();
+          const linkedSeller = await UserModel.findOne({ email: demo.sellerEmail }).lean();
+          if (!providerUser || !linkedSeller) continue;
+          await ProviderProductModel.updateOne(
+            { providerId: String(providerUser._id), title: demo.title },
+            { $setOnInsert: {
+              providerId: String(providerUser._id),
+              linkedSellerIds: [String(linkedSeller._id)],
+              title: demo.title,
+              category: demo.category,
+              subCategory: demo.subCategory,
+              description: demo.description,
+              brand: demo.brand,
+              manufacturerName: demo.manufacturerName,
+              sizeVariants: ['Free Size'],
+              colorVariants: ['Demo Gold'],
+              imageUrls: demo.imageUrls,
+              basePricePaise: demo.basePricePaise,
+              returnable: true,
+              returnWindowDays: 7,
+              damageReplacementPolicy: 'Demo-only replacement policy.',
+              status: 'PENDING_REVIEW',
+            } },
+            { upsert: true }
+          );
+        }
       }
+
       const catCount = await CategoryControlModel.countDocuments();
       if (catCount === 0) {
         for (const cat of buildDefaultCategories()) {
@@ -303,8 +429,12 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
       }
       return { mode: 'mongodb' };
     } catch (err) {
-      console.warn('MongoDB Atlas connection failed, running persistent local store:', err);
       mongoConnected = false;
+      if (process.env.NODE_ENV === 'production') {
+        console.error('Production MongoDB connection failed; refusing to start with local JSON storage.', err);
+        throw new Error('PRODUCTION_DATABASE_CONNECTION_FAILED');
+      }
+      console.warn('MongoDB connection failed, using the local development store:', err);
     }
   }
   return { mode: 'local' };
@@ -583,6 +713,7 @@ export interface ProductFilterQuery {
   includeInactive?: boolean;
   includeDisabled?: boolean;
   viewerId?: string;
+  cursor?: string;
 }
 
 function computeCategoryTop10Thresholds(products: Product[]): Record<string, number> {
@@ -603,6 +734,97 @@ function computeCategoryTop10Thresholds(products: Product[]): Record<string, num
   return thresholds;
 }
 
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
+function encodeProductCursor(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+function decodeProductCursor(cursor: string): { sort: string; value: number | string; id: string } | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (!parsed || typeof parsed.sort !== 'string' ||
+      !['createdAt', 'trendScore', 'salesCount', 'salePrice'].includes(parsed.sort) ||
+      !mongoose.isValidObjectId(parsed.id) ||
+      !(typeof parsed.value === 'number' || typeof parsed.value === 'string')) return null;
+    return parsed;
+  } catch { return null; }
+}
+async function queryMongoProductsPage(filters: ProductFilterQuery, page: number, limit: number, disabledSet: Set<string>) {
+  const filter: Record<string, any> = filters.includeInactive ? { isDeleted: { $ne: true } } : { ...MONGO_PUBLIC_PRODUCT_FILTER };
+  if (filters.sellerId) {
+    if (!mongoose.isValidObjectId(filters.sellerId)) return null;
+    filter.sellerId = new mongoose.Types.ObjectId(filters.sellerId);
+  }
+  if (filters.category && filters.category !== 'All') filter.category = new RegExp('^' + escapeRegexLiteral(filters.category) + '$', 'i');
+  if (filters.occasion && filters.occasion !== 'All') filter.occasions = filters.occasion;
+  if (filters.season && filters.season !== 'All') filter.seasons = filters.season;
+  if (filters.inStockOnly) filter.totalStock = { $gt: 0 };
+  if (typeof filters.minPrice === 'number' || typeof filters.maxPrice === 'number') {
+    filter.salePrice = {
+      ...(typeof filters.minPrice === 'number' ? { $gte: filters.minPrice } : {}),
+      ...(typeof filters.maxPrice === 'number' ? { $lte: filters.maxPrice } : {}),
+    };
+  }
+  if (typeof filters.minDiscount === 'number' && filters.minDiscount > 0) filter.discountPercent = { $gte: filters.minDiscount };
+  filter.visibility = filters.viewerId && mongoose.isValidObjectId(filters.viewerId)
+    ? { $ne: 'ASSIGNED' } : { $ne: 'ASSIGNED' };
+  if (filters.viewerId && mongoose.isValidObjectId(filters.viewerId)) {
+    filter.$or = [{ visibility: { $ne: 'ASSIGNED' } }, { assignedCustomerIds: new mongoose.Types.ObjectId(filters.viewerId) }];
+    delete filter.visibility;
+  }
+  if (!filters.includeDisabled && disabledSet.size) {
+    filter.$nor = [...disabledSet].map((name) => ({ category: new RegExp('^' + escapeRegexLiteral(name) + '$', 'i') }));
+  }
+  const sortMap: Record<string, { field: string; direction: 1 | -1 }> = {
+    newly_added: { field: 'createdAt', direction: -1 },
+    fast_selling: { field: 'salesCount', direction: -1 },
+    price_asc: { field: 'salePrice', direction: 1 },
+    price_desc: { field: 'salePrice', direction: -1 },
+    most_demanding: { field: 'trendScore', direction: -1 },
+  };
+  const selectedSort = sortMap[filters.sort || 'most_demanding'] || sortMap.most_demanding;
+  const baseFilter = { ...filter };
+  let queryFilter = { ...filter };
+  if (filters.cursor) {
+    const decoded = decodeProductCursor(filters.cursor);
+    if (!decoded || decoded.sort !== selectedSort.field) throw new Error('INVALID_PRODUCT_CURSOR');
+    const value = selectedSort.field === 'createdAt' ? new Date(decoded.value) : Number(decoded.value);
+    if (selectedSort.field === 'createdAt' && !Number.isFinite((value as Date).getTime())) throw new Error('INVALID_PRODUCT_CURSOR');
+    const operator = selectedSort.direction === -1 ? '$lt' : '$gt';
+    queryFilter = { ...filter, $and: [{ $or: [
+      { [selectedSort.field]: { [operator]: value } },
+      { [selectedSort.field]: value, _id: { [operator]: new mongoose.Types.ObjectId(decoded.id) } },
+    ] }] };
+  }
+  const [docs, total, thresholdRows] = await Promise.all([
+    ProductModel.find(queryFilter).sort({ [selectedSort.field]: selectedSort.direction, _id: selectedSort.direction })
+      .skip(filters.cursor ? 0 : (page - 1) * limit).limit(limit + 1).lean(),
+    ProductModel.countDocuments(baseFilter),
+    ProductModel.aggregate(([
+      { $match: MONGO_PUBLIC_PRODUCT_FILTER },
+      { $setWindowFields: { partitionBy: '$category', sortBy: { trendScore: -1 }, output: {
+        rank: { $documentNumber: {} },
+        categoryCount: { $count: {}, window: { documents: ['unbounded', 'unbounded'] } },
+      } } },
+      { $match: { $expr: { $lte: ['$rank', { $max: [1, { $ceil: { $multiply: ['$categoryCount', 0.1] } }] }] } } },
+      { $group: { _id: '$category', threshold: { $min: { $ifNull: ['$trendScore', 0] } } } },
+    ] as any)),
+  ]);
+  const hasMore = docs.length > limit, pageDocs = hasMore ? docs.slice(0, limit) : docs;
+  const products = pageDocs.map((doc: any) => normalizeProductDoc(doc));
+  const last = pageDocs[pageDocs.length - 1] as any;
+  const nextCursor = hasMore && last ? encodeProductCursor({
+    sort: selectedSort.field,
+    value: selectedSort.field === 'createdAt' ? new Date(last.createdAt).toISOString() : Number(last[selectedSort.field] || 0),
+    id: String(last._id),
+  }) : null;
+  const categoryTop10Thresholds: Record<string, number> = {};
+  for (const row of thresholdRows as Array<{ _id: string; threshold: number }>) categoryTop10Thresholds[row._id] = row.threshold;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  return { products, total, page: Math.min(page, totalPages), limit, totalPages, didYouMean: null, categoryTop10Thresholds, nextCursor };
+}
+
 export async function queryProducts(filters: ProductFilterQuery): Promise<{
   products: Product[];
   total: number;
@@ -611,17 +833,23 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   totalPages: number;
   didYouMean?: string | null;
   categoryTop10Thresholds: Record<string, number>;
+  nextCursor?: string | null;
 }> {
   const page = Math.max(1, filters.page || 1);
   // Strict limit(20) pagination rule for storefront listings
   const limit = Math.min(20, Math.max(1, filters.limit || 20));
-  const [allProducts, allCategories] = await Promise.all([
-    getAllProductsRaw({ includeControlled: Boolean(filters.includeInactive) }),
-    getAllCategoriesRaw(),
-  ]);
-  const disabledSet = new Set(
-    allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase())
-  );
+  const allCategories = await getAllCategoriesRaw();
+  const disabledSet = new Set(allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase()));
+  if (filters.cursor && (filters.q?.trim() || filters.color?.trim() || filters.campaignId ||
+      ['special_offers', 'occasion_favorites', 'highest_rated'].includes(filters.sort || 'most_demanding'))) {
+    throw new Error('CURSOR_UNSUPPORTED_FOR_FILTER');
+  }
+  if (mongoConnected && !filters.q?.trim() && !filters.color?.trim() && !filters.campaignId &&
+      !['special_offers', 'occasion_favorites', 'highest_rated'].includes(filters.sort || 'most_demanding')) {
+    const result = await queryMongoProductsPage(filters, page, limit, disabledSet);
+    if (result) return result;
+  }
+  const allProducts = await getAllProductsRaw({ includeControlled: Boolean(filters.includeInactive) });
   const categoryTop10Thresholds = computeCategoryTop10Thresholds(allProducts);
 
   let items = allProducts.filter((p) => {
@@ -933,6 +1161,7 @@ export async function updateProductDiscountOrStock(
     salePrice?: number;
     basePrice?: number;
     totalStock?: number;
+    shippingWeightGrams?: number;
     title?: string;
     occasions?: OccasionType[];
     seasons?: SeasonType[];
@@ -986,6 +1215,7 @@ export async function updateProductDiscountOrStock(
     ...(typeof updates.totalStock === 'number'
       ? { totalStock: updates.totalStock, variants: nextVariants }
       : {}),
+    ...(typeof updates.shippingWeightGrams === 'number' ? { shippingWeightGrams: updates.shippingWeightGrams } : {}),
     basePrice,
     discountPercent,
     salePrice,
@@ -994,7 +1224,7 @@ export async function updateProductDiscountOrStock(
   };
 
   if (mongoConnected && mongoose.isValidObjectId(productId)) {
-    const updated = await ProductModel.findByIdAndUpdate(productId, { $set: patch }, { new: true }).lean();
+    const updated = await ProductModel.findByIdAndUpdate(productId, { $set: patch }, { returnDocument: 'after' }).lean();
     return updated ? normalizeProductDoc(updated) : null;
   }
 
@@ -1177,7 +1407,7 @@ export async function updateProductControlState(
     const doc = await ProductModel.findByIdAndUpdate(
       productId,
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     updated = doc ? normalizeProductDoc(doc) : null;
   } else {
@@ -1343,6 +1573,63 @@ export async function findUserById(id: string): Promise<User | null> {
   }
   const found = localState.users.find((u) => u._id === id);
   return found ? sanitizeUser(found) : null;
+}
+
+export async function ensureRootSuperuser(): Promise<void> {
+  const email = (process.env.ROOT_SUPERUSER_EMAIL || 'ashvinsingh25@gmail.com').trim().toLowerCase();
+  const initialPassword = process.env.ROOT_SUPERUSER_INITIAL_PASSWORD || '';
+  if (!initialPassword) {
+    if (process.env.NODE_ENV === 'production') throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must be configured with at least 14 characters; refusing to start without secure root provisioning.');
+    return;
+  }
+  if (initialPassword.length < 14) throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must contain at least 14 characters.');
+  if (mongoConnected) {
+    const existing = await UserModel.findOne({ email }).select('+passwordHash');
+    if (!existing) {
+      await UserModel.create({
+        role: 'ADMIN', isRootSuperuser: true, name: 'Root Superuser', email,
+        passwordHash: hashPassword(initialPassword), authProvider: 'invite', oauthAccounts: [],
+        isWhatsappVerified: false, shippingAddresses: [],
+      });
+    } else {
+      const firstRootProvision = existing.isRootSuperuser !== true;
+      existing.role = 'ADMIN';
+      existing.isRootSuperuser = true;
+      if (firstRootProvision || !(existing as any).passwordHash) (existing as any).passwordHash = hashPassword(initialPassword);
+      await existing.save();
+    }
+    return;
+  }
+  const existing = localState.users.find((user) => user.email.toLowerCase() === email) as (User & { passwordHash?: string; isRootSuperuser?: boolean }) | undefined;
+  if (!existing) {
+    const now = new Date().toISOString();
+    localState.users.push({
+      _id: 'root_' + crypto.randomBytes(12).toString('hex'), role: 'ADMIN', isRootSuperuser: true,
+      name: 'Root Superuser', email, passwordHash: hashPassword(initialPassword), authProvider: 'invite',
+      oauthAccounts: [], isWhatsappVerified: false, shippingAddresses: [], createdAt: now, updatedAt: now,
+    } as any);
+  } else {
+    const firstRootProvision = existing.isRootSuperuser !== true;
+    existing.role = 'ADMIN';
+    existing.isRootSuperuser = true;
+    if (firstRootProvision || !existing.passwordHash) existing.passwordHash = hashPassword(initialPassword);
+  }
+  saveLocalStore(localState);
+}
+
+export async function updateRootSuperuserPassword(userId: string, currentPassword: string, nextPassword: string): Promise<boolean> {
+  if (mongoConnected && mongoose.isValidObjectId(userId)) {
+    const doc = await UserModel.findOne({ _id: userId, isRootSuperuser: true }).select('+passwordHash');
+    if (!doc || !verifyPassword(currentPassword, (doc as any).passwordHash)) return false;
+    (doc as any).passwordHash = hashPassword(nextPassword);
+    await doc.save();
+    return true;
+  }
+  const user = localState.users.find((item) => item._id === userId && (item as any).isRootSuperuser) as (User & { passwordHash?: string }) | undefined;
+  if (!user || !verifyPassword(currentPassword, user.passwordHash)) return false;
+  user.passwordHash = hashPassword(nextPassword);
+  saveLocalStore(localState);
+  return true;
 }
 
 export async function findUserByEmail(email: string): Promise<User | null> {
@@ -1598,7 +1885,7 @@ export async function activateSellerProfile(
           sellerProfile,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     return doc ? sanitizeUser(doc) : null;
   }
@@ -1792,7 +2079,7 @@ export async function logShareEvent(input: {
     const updated = await ProductModel.findOneAndUpdate(
       { _id: input.productId, ...MONGO_PUBLIC_PRODUCT_FILTER },
       { $inc: { sharesCount: 1, trendScore: 2 } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!updated) return null;
     const ev = await ShareEventModel.create({
@@ -2024,43 +2311,62 @@ export async function createOrder(input: {
   buyer: User;
   items: CartItem[];
   couponCode?: string;
-}): Promise<Order[]> {
-  if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) {
-    throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
+  idempotencyKey?: string;
+  shippingBySeller?: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode?: string; serviceCode?: string; estimatedTransitHours?: number; quoteExpiresAt?: string | null; policy: 'SEPARATE' }>;
+}): Promise<Order[] & { replayed?: boolean }> {
+  if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
+  if (!input.items.length) throw new Error('EMPTY_CART');
+  const idempotencyKey = input.idempotencyKey?.trim();
+  if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 120)) throw new Error('INVALID_CHECKOUT_IDEMPOTENCY_KEY');
+
+  const buyerObjectId = mongoose.isValidObjectId(input.buyer._id) ? new mongoose.Types.ObjectId(input.buyer._id) : null;
+  const checkoutPayloadHash = idempotencyKey ? crypto.createHash('sha256').update(JSON.stringify({
+    items: input.items.map((item) => ({
+      productId: item.productId, variantSku: item.variantSku, sellerId: item.sellerId,
+      quantity: item.quantity, unitPrice: item.unitPrice,
+    })).sort((a, b) => a.productId.localeCompare(b.productId) || a.variantSku.localeCompare(b.variantSku)),
+    couponCode: input.couponCode?.trim().toUpperCase() || '',
+  })).digest('hex') : undefined;
+
+  const replayOrders = async () => {
+    if (!buyerObjectId || !idempotencyKey) return null;
+    const previous = await OrderModel.find({ buyerId: buyerObjectId, checkoutIdempotencyKey: idempotencyKey }).sort({ createdAt: 1 }).lean();
+    if (!previous.length) return null;
+    if (previous.some((doc: any) => doc.checkoutPayloadHash !== checkoutPayloadHash)) throw new Error('IDEMPOTENCY_KEY_CONFLICT');
+    const replay = previous.map((doc: any) => ({
+      ...doc, _id: String(doc._id), buyerId: String(doc.buyerId), sellerId: String(doc.sellerId),
+    })) as Order[] & { replayed?: boolean };
+    replay.replayed = true;
+    return replay;
+  };
+  if (mongoConnected && buyerObjectId && idempotencyKey) {
+    const replay = await replayOrders();
+    if (replay) return replay;
   }
-  const addr =
-    input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
 
-  // Validate product availability & stock (reject unpublished, unlisted, discontinued, removed, or 0-stock items)
-  for (const item of input.items) {
-    const prod = await getProductByIdOrSlug(item.productId, { includeControlled: true });
-    if (!prod || !isProductPubliclyVisible(prod)) {
-      throw new Error(`"${item.title}" is no longer available for purchase.`);
-    }
-    if (prod.totalStock < item.quantity) {
-      throw new Error(`"${item.title}" is currently out of stock or has insufficient units.`);
-    }
+  const addr = input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
+  const products = await Promise.all(input.items.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+  for (let i = 0; i < input.items.length; i++) {
+    const item = input.items[i], prod = products[i];
+    if (!prod || !isProductPubliclyVisible(prod)) throw new Error(`"${item.title}" is no longer available for purchase.`);
+    if (String(prod.sellerId) !== String(item.sellerId)) throw new Error('CART_SELLER_MISMATCH');
+    if (!Number.isSafeInteger(item.quantity) || item.quantity < 1) throw new Error('INVALID_CART_QUANTITY');
+    const variant = (prod.variants || []).find((v) => v.variantSku === item.variantSku);
+    if ((prod.variants || []).length && !variant) throw new Error('PRODUCT_VARIANT_UNAVAILABLE');
+    if (prod.totalStock < item.quantity || (variant && variant.stock < item.quantity)) throw new Error(`"${item.title}" is currently out of stock or has insufficient units.`);
+    const authoritativePrice = variant?.priceOverride ?? prod.salePrice;
+    if (Number(item.unitPrice) !== Number(authoritativePrice)) throw new Error('CART_PRICE_CHANGED');
   }
 
-  let appliedCouponRecord: Coupon | null = null;
-  let totalCouponDiscount = 0;
-  let eligibleTotalBasis = 0;
-
+  let appliedCouponRecord: Coupon | null = null, totalCouponDiscount = 0, eligibleTotalBasis = 0;
   if (input.couponCode && input.couponCode.trim()) {
-    const validation = await validateCouponForCart({
-      code: input.couponCode.trim(),
-      user: input.buyer,
-      items: input.items,
-    });
-    if (!validation.valid || !validation.coupon) {
-      throw new Error(validation.reason || 'INVALID_COUPON');
-    }
+    const validation = await validateCouponForCart({ code: input.couponCode.trim(), user: input.buyer, items: input.items });
+    if (!validation.valid || !validation.coupon) throw new Error(validation.reason || 'INVALID_COUPON');
     appliedCouponRecord = validation.coupon;
     totalCouponDiscount = validation.discountAmount;
     eligibleTotalBasis = validation.eligibleSubtotal || 1;
   }
 
-  // Group cart items by sellerId
   const bySeller = new Map<string, CartItem[]>();
   for (const item of input.items) {
     const list = bySeller.get(item.sellerId) || [];
@@ -2068,122 +2374,127 @@ export async function createOrder(input: {
     bySeller.set(item.sellerId, list);
   }
 
-  const createdOrders: Order[] = [];
-  const nowIso = new Date().toISOString();
+  const nowIso = new Date().toISOString(), sellerEntries = Array.from(bySeller.entries());
+  const orders: Order[] = [];
   let remainingDiscount = totalCouponDiscount;
-  const sellerEntries = Array.from(bySeller.entries());
-
   for (let idx = 0; idx < sellerEntries.length; idx++) {
     const [sellerId, sellerItems] = sellerEntries[idx];
-    const orderNumber = `ORD-2026-${Math.floor(10000 + Math.random() * 89999)}`;
-    const subtotal = sellerItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-
+    const subtotal = sellerItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
     let sellerCouponDiscount = 0;
     if (appliedCouponRecord && remainingDiscount > 0) {
-      const sellerEligibleSubtotal = sellerItems
-        .filter((item) => isCouponEligibleForProduct(appliedCouponRecord!, item.productId, item.sellerId))
-        .reduce((s, i) => s + i.unitPrice * i.quantity, 0);
-
-      if (sellerEligibleSubtotal > 0) {
-        if (idx === sellerEntries.length - 1) {
-          sellerCouponDiscount = Math.min(subtotal, remainingDiscount);
-        } else {
-          sellerCouponDiscount = Math.min(
-            subtotal,
-            Math.round((sellerEligibleSubtotal / Math.max(1, eligibleTotalBasis)) * totalCouponDiscount)
-          );
-        }
+      const eligibleSubtotal = sellerItems.filter((item) => isCouponEligibleForProduct(appliedCouponRecord!, item.productId, item.sellerId))
+        .reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+      if (eligibleSubtotal > 0) {
+        sellerCouponDiscount = idx === sellerEntries.length - 1
+          ? Math.min(subtotal, remainingDiscount)
+          : Math.min(subtotal, Math.round((eligibleSubtotal / Math.max(1, eligibleTotalBasis)) * totalCouponDiscount));
         remainingDiscount = Math.max(0, remainingDiscount - sellerCouponDiscount);
       }
     }
-
-    const totalAmount = Math.max(1, subtotal - sellerCouponDiscount);
-
-    const order: Order = {
-      _id: `ord_${crypto.randomBytes(5).toString('hex')}`,
-      orderNumber,
-      buyerId: input.buyer._id,
-      buyerName: input.buyer.name,
-      sellerId,
-      items: sellerItems.map((i) => ({
-        productId: i.productId,
-        variantSku: i.variantSku,
-        title: i.title,
-        size: i.size,
-        colorName: i.colorName,
-        imageUrl: i.imageUrl,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
+    orders.push({
+      // Local fallback identifier; Mongo mode replaces it with a real ObjectId before insert.
+      _id: `local_${crypto.randomBytes(8).toString('hex')}`,
+      orderNumber: `ORD-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+      buyerId: input.buyer._id, buyerName: input.buyer.name, sellerId,
+      items: sellerItems.map((item) => ({
+        productId: item.productId, variantSku: item.variantSku, title: item.title,
+        size: item.size, colorName: item.colorName, imageUrl: item.imageUrl,
+        quantity: item.quantity, unitPrice: item.unitPrice,
       })),
-      totalAmount,
-      ...(appliedCouponRecord && sellerCouponDiscount > 0
-        ? {
-            appliedCoupon: {
-              couponId: appliedCouponRecord._id,
-              code: appliedCouponRecord.code,
-              discountAmount: sellerCouponDiscount,
-            },
-          }
-        : {}),
+      totalAmount: Math.max(1, subtotal - sellerCouponDiscount + Number(input.shippingBySeller?.[sellerId]?.customerCharge || 0)),
+      ...(input.shippingBySeller?.[sellerId] ? { shipping: input.shippingBySeller[sellerId] } : {}),
+      ...(appliedCouponRecord && sellerCouponDiscount > 0 ? {
+        appliedCoupon: { couponId: appliedCouponRecord._id, code: appliedCouponRecord.code, discountAmount: sellerCouponDiscount },
+      } : {}),
       status: 'Pending',
-      shippingAddress: {
-        fullName: addr.fullName,
-        phone: addr.phone,
-        street: addr.street,
-        city: addr.city,
-        state: addr.state,
-        pincode: addr.pincode,
-      },
-      statusTimeline: [
-        {
-          status: 'Pending',
-          note: appliedCouponRecord && sellerCouponDiscount > 0
-            ? `Order placed via Kala & Karat (Coupon ${appliedCouponRecord.code} saved ₹${sellerCouponDiscount})`
-            : 'Order placed via Kala & Karat',
-          timestamp: nowIso,
-        },
-      ],
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
+      shippingAddress: { fullName: addr.fullName, phone: addr.phone, street: addr.street, city: addr.city, state: addr.state, pincode: addr.pincode },
+      statusTimeline: [{
+        status: 'Pending',
+        note: appliedCouponRecord && sellerCouponDiscount > 0
+          ? `Order placed via Kala & Karat (Coupon ${appliedCouponRecord.code} saved ₹${sellerCouponDiscount})`
+          : 'Order placed via Kala & Karat',
+        timestamp: nowIso,
+      }],
+      createdAt: nowIso, updatedAt: nowIso,
+    });
+  }
 
-    if (mongoConnected && mongoose.isValidObjectId(input.buyer._id)) {
-      const doc = await OrderModel.create({
-        ...order,
-        _id: new mongoose.Types.ObjectId(),
-        buyerId: new mongoose.Types.ObjectId(input.buyer._id),
-        sellerId: new mongoose.Types.ObjectId(sellerId),
+  if (mongoConnected && buyerObjectId) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const reservations = aggregateInventoryLines(input.items).sort((a, b) => a.productId.localeCompare(b.productId));
+        for (const reservation of reservations) {
+          if (!mongoose.isValidObjectId(reservation.productId)) throw new Error('INVALID_PRODUCT_ID');
+          const firstLine = input.items.find((line) => line.productId === reservation.productId)!;
+          const filter: Record<string, any> = {
+            _id: new mongoose.Types.ObjectId(reservation.productId),
+            sellerId: new mongoose.Types.ObjectId(firstLine.sellerId),
+            isDeleted: { $ne: true }, isActive: true, isPublished: true,
+            isUnlisted: { $ne: true }, isDiscontinued: { $ne: true },
+            totalStock: { $gte: reservation.quantity },
+          };
+          const arrayFilters: Record<string, any>[] = [], and: Record<string, any>[] = [];
+          const inc: Record<string, number> = {
+            totalStock: -reservation.quantity, salesCount: reservation.quantity, trendScore: reservation.quantity * 5,
+          };
+          reservation.variants.forEach((variant, index) => {
+            const identifier = `variant${index}`;
+            and.push({ variants: { $elemMatch: { variantSku: variant.variantSku, stock: { $gte: variant.quantity } } } });
+            inc[`variants.$[${identifier}].stock`] = -variant.quantity;
+            arrayFilters.push({ [`${identifier}.variantSku`]: variant.variantSku, [`${identifier}.stock`]: { $gte: variant.quantity } });
+          });
+          if (and.length) filter.$and = and;
+          const result = await ProductModel.updateOne(filter, { $inc: inc }, { session, ...(arrayFilters.length ? { arrayFilters } : {}) });
+          if (result.modifiedCount !== 1) throw new Error('INVENTORY_RESERVATION_CONFLICT');
+        }
+        const docs = orders.map((order) => ({
+          ...order, _id: new mongoose.Types.ObjectId(), buyerId: buyerObjectId,
+          sellerId: new mongoose.Types.ObjectId(order.sellerId),
+          ...(idempotencyKey ? { checkoutIdempotencyKey: idempotencyKey, checkoutPayloadHash } : {}),
+        }));
+        const inserted = await OrderModel.insertMany(docs, { session, ordered: true });
+        inserted.forEach((doc: any, index: number) => { orders[index]._id = String(doc._id); });
+        if (appliedCouponRecord && totalCouponDiscount > 0) {
+          const couponFilter: Record<string, any> = {
+            _id: appliedCouponRecord._id, isActive: true, expiresAt: { $gt: new Date() },
+            $or: [
+              { usageLimit: { $exists: false } }, { usageLimit: null },
+              { $expr: { $lt: ['$usedCount', '$usageLimit'] } },
+            ],
+          };
+          const couponUpdate = await CouponModel.updateOne(couponFilter, { $inc: { usedCount: 1 } }, { session });
+          if (couponUpdate.modifiedCount !== 1) throw new Error('COUPON_USAGE_LIMIT_REACHED');
+        }
       });
-      order._id = String(doc._id);
-      for (const item of sellerItems) {
-        if (mongoose.isValidObjectId(item.productId)) {
-          await ProductModel.updateOne(
-            { _id: item.productId },
-            { $inc: { salesCount: item.quantity, totalStock: -item.quantity, trendScore: item.quantity * 5 } }
-          );
-        }
+      return orders;
+    } catch (error) {
+      if (idempotencyKey && (error as { code?: number }).code === 11000) {
+        const replay = await replayOrders();
+        if (replay) return replay;
       }
-    } else {
-      localState.orders.unshift(order);
-      for (const item of sellerItems) {
-        const prod = localState.products.find((p) => p._id === item.productId);
-        if (prod) {
-          prod.salesCount += item.quantity;
-          prod.totalStock = Math.max(0, prod.totalStock - item.quantity);
-          prod.trendScore = prod.likesCount + prod.cartAddsCount * 3 + prod.salesCount * 5;
-        }
-      }
-      saveLocalStore(localState);
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    createdOrders.push(order);
   }
 
-  if (appliedCouponRecord && totalCouponDiscount > 0) {
-    await incrementCouponUsage(appliedCouponRecord._id);
+  if (process.env.NODE_ENV === 'production') throw new Error('MONGODB_TRANSACTIONAL_CHECKOUT_REQUIRED');
+  for (const order of orders) {
+    localState.orders.unshift(order);
+    for (const item of order.items) {
+      const prod = localState.products.find((p) => p._id === item.productId);
+      if (prod) {
+        prod.salesCount += item.quantity; prod.totalStock -= item.quantity;
+        const variant = (prod.variants || []).find((v) => v.variantSku === item.variantSku);
+        if (variant) variant.stock -= item.quantity;
+        prod.trendScore = prod.likesCount + prod.cartAddsCount * 3 + prod.salesCount * 5;
+      }
+    }
   }
-
-  return createdOrders;
+  saveLocalStore(localState);
+  if (appliedCouponRecord && totalCouponDiscount > 0) await incrementCouponUsage(appliedCouponRecord._id);
+  return orders;
 }
 
 export async function updateOrderStatusOrTracking(
@@ -2698,7 +3009,7 @@ export async function revokeSellerInvite(inviteId: string): Promise<SellerInvite
     const doc = await SellerInviteModel.findByIdAndUpdate(
       inviteId,
       { $set: { status: 'revoked', revokedAt: new Date() } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!doc) return null;
     return {
@@ -2837,7 +3148,7 @@ export async function acceptSellerInvite(input: {
     const updatedInvite = await SellerInviteModel.findOneAndUpdate(
       { token: input.token.trim(), status: 'pending' },
       { $set: { status: 'accepted', email: invitedEmail, acceptedAt: nowDate, acceptedUserId: userDoc._id } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!updatedInvite) {
       throw new Error('This seller invitation could not be redeemed.');
