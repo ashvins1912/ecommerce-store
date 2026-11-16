@@ -1724,14 +1724,38 @@ async function startServer() {
     }
 
     const cart = await loadCartForActor({ userId: user._id, guestToken });
-    const itemsToOrder = cart.length > 0 ? cart : (req.body?.items as CartItem[]) || [];
-    if (itemsToOrder.length === 0) {
+    const submittedItems = cart.length > 0 ? cart : (req.body?.items as CartItem[]) || [];
+    if (submittedItems.length === 0) {
       return res.status(400).json({ error: 'Your shopping bag is empty.' });
     }
 
+    const suppliedIdempotencyKey = String(req.get('Idempotency-Key') || req.body?.idempotencyKey || '').trim();
+    if (suppliedIdempotencyKey && (suppliedIdempotencyKey.length < 8 || suppliedIdempotencyKey.length > 120)) {
+      return res.status(400).json({ error: 'INVALID_CHECKOUT_IDEMPOTENCY_KEY' });
+    }
+    const idempotencyKey = suppliedIdempotencyKey || undefined;
     const couponCode = typeof req.body?.couponCode === 'string' ? req.body.couponCode.trim() : undefined;
-    const itemProducts = await Promise.all(itemsToOrder.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+    const itemProducts = await Promise.all(submittedItems.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+    if (itemProducts.some((product) => !product)) return res.status(409).json({ error: 'PRODUCT_NO_LONGER_AVAILABLE' });
     if (itemProducts.some((product) => product?.visibility === 'ASSIGNED' && (!product.assignedCustomerIds || !product.assignedCustomerIds.map(String).includes(user._id)))) return res.status(403).json({ error: 'PRODUCT_NOT_ASSIGNED_TO_BUYER' });
+    const itemsToOrder = submittedItems.map((item, index) => {
+      const product = itemProducts[index]!;
+      const variant = (product.variants || []).find((entry) => entry.variantSku === item.variantSku);
+      if ((product.variants || []).length && !variant) throw new Error('PRODUCT_VARIANT_UNAVAILABLE');
+      return {
+        ...item,
+        sellerId: String(product.sellerId),
+        title: product.title,
+        slug: product.slug,
+        category: product.category,
+        basePrice: product.basePrice,
+        unitPrice: variant?.priceOverride ?? product.salePrice,
+        size: variant?.size ?? item.size,
+        colorName: variant?.colorName ?? item.colorName,
+        colorHex: variant?.colorHex ?? item.colorHex,
+        imageUrl: variant?.variantImageUrl || product.images?.[0]?.url || item.imageUrl,
+      };
+    });
     const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
     const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
     const prepaidProviderBySeller = new Map<string, 'razorpay' | 'stripe'>();
@@ -1748,7 +1772,7 @@ async function startServer() {
     }
     let createdOrders;
     try {
-      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode });
+      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode, idempotencyKey });
       for (const order of createdOrders) {
         const prepaid = requiresPrepaid && order.items.some((item) => {
           const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
@@ -1770,8 +1794,8 @@ async function startServer() {
       return res.status(400).json({ error: (err as Error).message });
     }
 
-    // Notify each seller with the complete fulfilment summary and a login-protected Seller Hub deep link.
-    for (const order of createdOrders) {
+    // Notify each seller once; idempotent checkout replays must not resend fulfilment messages.
+    if (!(createdOrders as any).replayed) for (const order of createdOrders) {
       const seller = await findUserById(order.sellerId);
       const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
       const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
@@ -1792,7 +1816,7 @@ async function startServer() {
     }
 
     await saveCartForActor({ userId: user._id, guestToken }, []);
-    res.status(201).json({ orders: createdOrders });
+    res.status(201).json({ orders: createdOrders, replayed: Boolean((createdOrders as any).replayed) });
   });
 
   app.patch('/api/orders/:id/status', async (req, res) => {
