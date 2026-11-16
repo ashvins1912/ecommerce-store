@@ -30,7 +30,7 @@ CREATE TABLE warehouses (
 CREATE INDEX warehouses_seller_active_idx ON warehouses(seller_id,is_active);
 CREATE UNIQUE INDEX warehouses_one_default_per_seller_idx ON warehouses(seller_id) WHERE is_default AND is_active;
 CREATE TABLE shipments (
- id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id TEXT NOT NULL, seller_id TEXT NOT NULL,
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id TEXT NOT NULL,
  seller_carrier_config_id UUID NOT NULL REFERENCES seller_carrier_configs(id) ON DELETE RESTRICT,
  warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
  provider_shipment_id VARCHAR(120), awb_number VARCHAR(120),
@@ -40,7 +40,7 @@ CREATE TABLE shipments (
  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX shipments_order_seller_idx ON shipments(order_id,seller_id,created_at DESC);
-CREATE INDEX shipments_seller_status_idx ON shipments(seller_id,normalized_status,updated_at DESC);
+CREATE INDEX shipments_warehouse_status_idx ON shipments(warehouse_id,normalized_status,updated_at DESC);
 CREATE UNIQUE INDEX shipments_config_awb_unique_idx ON shipments(seller_carrier_config_id,awb_number) WHERE awb_number IS NOT NULL;
 CREATE TABLE shipment_tracking_events (
  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
