@@ -80,7 +80,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
   const rawStatus=String(p?.current_status||p?.status||'');const at=String(p?.current_timestamp||p?.date||p?.etd||'');
   if(!awb||!rawStatus||!at)throw new Error('INVALID_SHIPROCKET_WEBHOOK');
   return{providerCode:this.code,awbNumber:awb,status:status(rawStatus),occurredAt:at,locationCode:p.location||p.current_location,
-   eventHash:crypto.createHash('sha256').update(String(p.event_id||p.shipment_id||awb+':'+rawStatus+':'+at)).digest('hex'),raw:payload};
+   eventHash:crypto.createHash('sha256').update(String(p.event_id||awb+':'+rawStatus+':'+at)).digest('hex'),raw:payload};
  }
 }
 function status(v:string):ShipmentResult['status']{
@@ -89,7 +89,7 @@ function status(v:string):ShipmentResult['status']{
   NEW:'CREATED',CREATED:'CREATED',PICKUP_SCHEDULED:'MANIFESTED',PICKUP_BOOKED:'MANIFESTED',PICKED_UP:'IN_TRANSIT',SHIPPED:'IN_TRANSIT',IN_TRANSIT:'IN_TRANSIT',
   REACHED_AT_DESTINATION_HUB:'IN_TRANSIT',REACHED_WAREHOUSE:'IN_TRANSIT',OUT_FOR_DELIVERY:'OUT_FOR_DELIVERY',OFD:'OUT_FOR_DELIVERY',DELIVERED:'DELIVERED',
   UNDELIVERED:'NDR',NDR:'NDR',PICKUP_EXCEPTION:'NDR',PICKUP_ERROR:'NDR',RTO:'RTO_INITIATED',RTO_INITIATED:'RTO_INITIATED',RTO_IN_TRANSIT:'RTO_INITIATED',
-  RTO_DELIVERED:'RTO_DELIVERED',CANCELLED:'CANCELLED',CANCELED:'CANCELLED',CANCELLED_BEFORE_DISPATCHED:'CANCELLED',LOST:'NDR',DAMAGED:'NDR',
+  RTO_DELIVERED:'RTO_DELIVERED',RTO_ACKNOWLEDGED:'RTO_DELIVERED',CANCELLED:'CANCELLED',CANCELED:'CANCELLED',CANCELLED_BEFORE_DISPATCHED:'CANCELLED',LOST:'NDR',DAMAGED:'NDR',
  };
  if(!m[k])throw new Error('UNKNOWN_SHIPROCKET_STATUS:'+v);return m[k];
 }
