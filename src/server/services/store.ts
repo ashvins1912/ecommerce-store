@@ -2247,6 +2247,7 @@ export async function createOrder(input: {
   items: CartItem[];
   couponCode?: string;
   idempotencyKey?: string;
+  shippingBySeller?: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode?: string; serviceCode?: string; estimatedTransitHours?: number; quoteExpiresAt?: string | null; policy: 'SEPARATE' }>;
 }): Promise<Order[] & { replayed?: boolean }> {
   if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
   if (!input.items.length) throw new Error('EMPTY_CART');
@@ -2335,7 +2336,8 @@ export async function createOrder(input: {
         size: item.size, colorName: item.colorName, imageUrl: item.imageUrl,
         quantity: item.quantity, unitPrice: item.unitPrice,
       })),
-      totalAmount: Math.max(1, subtotal - sellerCouponDiscount),
+      totalAmount: Math.max(1, subtotal - sellerCouponDiscount + Number(input.shippingBySeller?.[sellerId]?.customerCharge || 0)),
+      ...(input.shippingBySeller?.[sellerId] ? { shipping: input.shippingBySeller[sellerId] } : {}),
       ...(appliedCouponRecord && sellerCouponDiscount > 0 ? {
         appliedCoupon: { couponId: appliedCouponRecord._id, code: appliedCouponRecord.code, discountAmount: sellerCouponDiscount },
       } : {}),
