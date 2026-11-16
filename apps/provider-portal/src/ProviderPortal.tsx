@@ -16,7 +16,8 @@ type Settlement = {
   status: string;
   utrReference?: string;
 };
-type Shipment = { id: string; orderNumber: string; status: string; createdAt: string; items: Array<{ productId: string; title: string; quantity: number }>; courierTracking?: { companyName: string; trackingId: string; trackingUrl?: string } | null; manualDispatchAllowed: boolean };\ntype ProviderProfile = {
+type Shipment = { id: string; orderNumber: string; status: string; createdAt: string; items: Array<{ productId: string; title: string; quantity: number }>; courierTracking?: { companyName: string; trackingId: string; trackingUrl?: string } | null; manualDispatchAllowed: boolean };
+type ProviderProfile = {
   businessName?: string;
   contactPerson?: string;
   kycStatus?: string;
@@ -53,7 +54,8 @@ export default function ProviderPortal() {
   const [providerProfile, setProviderProfile] = useState<ProviderProfile | null>(null);
   const [invite, setInvite] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);\n  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
   const [productQuery, setProductQuery] = useState('');
   const [productStatus, setProductStatus] = useState('ALL');
   const [productSort, setProductSort] = useState('updatedAt');
@@ -100,12 +102,14 @@ export default function ProviderPortal() {
       const [profileResult, productResult, settlementResult, shipmentResult] = await Promise.all([
         api<any>('/api/provider/profile'),
         api<any>('/api/provider/products?' + productParams.toString()),
-        api<any>('/api/provider/settlements?' + settlementParams.toString()),\n        api<any>('/api/provider/shipments'),
+        api<any>('/api/provider/settlements?' + settlementParams.toString()),
+        api<any>('/api/provider/shipments'),
       ]);
       setProviderProfile(profileResult.profile || null);
       setProducts(productResult.products || []);
       setProductTotal(Number(productResult.total || 0));
-      setSettlements(settlementResult.settlements || []);\n      setShipments(shipmentResult.shipments || []);
+      setSettlements(settlementResult.settlements || []);
+      setShipments(shipmentResult.shipments || []);
       setSettlementTotal(Number(settlementResult.total || 0));
     } catch (error) {
       setNotice((error as Error).message);
