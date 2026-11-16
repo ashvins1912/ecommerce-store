@@ -35,7 +35,7 @@ export class ShadowfaxAdapter implements ICarrierProvider {
   };
   const x=await this.http.request<{message:string;data?:{id:number|string;awb_number:string;promised_delivery_date?:string};errors?:unknown}>(this.baseUrl+'/v3/clients/orders/',{method:'POST',headers:{...this.headers(c),'idempotency-key':r.idempotencyKey},body});
   if(x.message!=='Success'||!x.data?.awb_number)throw new Error('SHADOWFAX_ORDER_REJECTED:'+String(x.errors||x.message||'missing AWB'));
-  return{providerCode:this.code,providerShipmentId:String(x.data.id),awbNumber:x.data.awb_number,estimatedDeliveryAt:x.data.promised_delivery_date?new Date(x.data.promised_delivery_date).toISOString():undefined,status:'CREATED'};
+  return{providerCode:this.code,providerShipmentId:String(x.data.id),awbNumber:x.data.awb_number,estimatedDeliveryAt:x.data.promised_delivery_date?new Date(x.data.promised_delivery_date).toISOString():undefined,pickupScheduled:true,status:'CREATED'};
  }
  async getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>{
   const x=await this.http.request<any>(this.baseUrl+'/v4/clients/orders/'+encodeURIComponent(awb)+'/track/',{method:'GET',headers:this.headers(c)});
@@ -57,7 +57,7 @@ export class ShadowfaxAdapter implements ICarrierProvider {
 function status(v:string):ShipmentResult['status']{
  const k=v.toLowerCase().trim().replace(/[ -]/g,'_');
  const m:Record<string,ShipmentResult['status']>={
-  new:'CREATED',created:'CREATED',assigned_for_pickup:'MANIFESTED',assigned_for_seller_pickup:'MANIFESTED',ofp:'MANIFESTED',picked:'IN_TRANSIT',
+  new:'CREATED',created:'CREATED',assigned_for_pickup:'MANIFESTED',assigned_for_seller_pickup:'MANIFESTED',ofp:'MANIFESTED',picked:'IN_TRANSIT',in_transit:'IN_TRANSIT',
   recd_at_rev_hub:'IN_TRANSIT',recd_at_fwd_hub:'IN_TRANSIT',recd_at_fwd_dc:'IN_TRANSIT',received_from_client_warehouse:'IN_TRANSIT',
   assigned_for_delivery:'OUT_FOR_DELIVERY',ofd:'OUT_FOR_DELIVERY',delivered:'DELIVERED',partially_delivered:'DELIVERED',
   nc:'NDR',na:'NDR',on_hold:'NDR',seller_not_contactable:'NDR',pickup_not_attempted:'NDR',reopen_ndr:'NDR',
