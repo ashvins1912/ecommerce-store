@@ -29,7 +29,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
    fetchedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60*1000).toISOString(),
   }));
  }
- private async findExistingOrder(orderId:string,headers:Record<string,string>):Promise<{shipmentId:string;awb?:string}|null>{
+ private async findExistingOrder(orderId:string,headers:Record<string,string>):Promise<{shipmentId:string;awb?:string;pickupScheduled:boolean}|null>{
   try{
    const response=await this.http.request<any>(this.baseUrl+'/v1/external/orders?'+new URLSearchParams({search:orderId}),{method:'GET',headers});
    const rows=Array.isArray(response.data)?response.data:Array.isArray(response.data?.data)?response.data.data:Array.isArray(response.orders)?response.orders:[];
@@ -38,7 +38,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
    const shipment=Array.isArray(order.shipments)?order.shipments[0]:order.shipment||{};
    const shipmentId=shipment.id||shipment.shipment_id||order.shipment_id;
    if(!shipmentId)return null;
-   return{shipmentId:String(shipmentId),awb:shipment.awb||shipment.awb_code||shipment.awb_number||order.awb_code};
+   const statusCode=Number(shipment.status_code||shipment.status||order.status_code||order.status||0);\n   return{shipmentId:String(shipmentId),awb:shipment.awb||shipment.awb_code||shipment.awb_number||order.awb_code,pickupScheduled:statusCode>=3};
   }catch{return null;}
  }
  async createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>{
@@ -50,7 +50,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
   if(!/^\\d{10}$/.test(phone)||!/^\\d{6}$/.test(String(pin)))throw new Error('SHIPROCKET_PHONE_OR_PINCODE_INVALID');
   const orderId=r.orderId.slice(0,50);const headers=await this.headers(c);
   let existing=await this.findExistingOrder(orderId,headers);
-  let shipmentId=existing?.shipmentId;let awb=existing?.awb;
+  let shipmentId=existing?.shipmentId;let awb=existing?.awb;let pickupScheduled=existing?.pickupScheduled===true;
   if(!shipmentId){
    try{
     const created=await this.http.request<any>(this.baseUrl+'/v1/external/orders/create/adhoc',{method:'POST',headers,body:{
@@ -78,8 +78,11 @@ export class ShiprocketAdapter implements ICarrierProvider {
    awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
    if(!awb)throw new Error('SHIPROCKET_AWB_ASSIGN_FAILED:'+String(assigned.message||assigned.response?.message||'AWB missing'));
   }
-  const pickup=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/pickup',{method:'POST',headers,body:{shipment_id:shipmentId}});
-  if(pickup.status===false||pickup.pickup_status===0||Number(pickup.status_code)>=400)throw new Error('SHIPROCKET_PICKUP_SCHEDULE_FAILED:'+String(pickup.message||pickup.response||'pickup rejected'));
+  if(!pickupScheduled){
+   const pickup=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/pickup',{method:'POST',headers,body:{shipment_id:shipmentId}});
+   if(pickup.status===false||String(pickup.status).toLowerCase()==='false'||pickup.pickup_status===0||Number(pickup.status_code)>=400)throw new Error('SHIPROCKET_PICKUP_SCHEDULE_FAILED:'+String(pickup.message||pickup.response||'pickup rejected'));
+   pickupScheduled=true;
+  }
   let manifestUrl:string|undefined;
   try{
    const manifest=await this.http.request<any>(this.baseUrl+'/v1/external/manifests/generate',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
@@ -90,7 +93,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
    const label=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/label',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
    labelUrl=label.label_url||label.response?.label_url||label.data?.label_url;
   }catch{/* Label can be generated later from the Shiprocket panel. */}
-  return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,manifestUrl,pickupScheduled:true,estimatedDeliveryAt:new Date(Date.now()+r.quote.estimatedTransitHours*3600000).toISOString(),status:'CREATED'};
+  return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,manifestUrl,pickupScheduled,estimatedDeliveryAt:new Date(Date.now()+r.quote.estimatedTransitHours*3600000).toISOString(),status:'CREATED'};
  }
  async getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>{
   const x=await this.http.request<any>(this.baseUrl+'/v1/external/courier/track/awb/'+encodeURIComponent(awb),{method:'GET',headers:await this.headers(c)});
