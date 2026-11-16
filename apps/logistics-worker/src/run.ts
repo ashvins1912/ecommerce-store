@@ -61,6 +61,11 @@ async function processJob(job:any){
   idempotencyKey:'logistics-job:'+job.id,orderDate:p.orderDate,
   items:p.items||[],
  };
+ // Re-read the seller policy after rate lookup and immediately before the external carrier call.
+ const dispatchSettings=await SellerPrivacySettingsModel.findOne({sellerId:String(p.sellerId)}).lean();
+ const dispatchAuthorization=authorizeCarrierDisclosure(dispatchSettings?.carrierDisclosure, String(p.carrierCode||'').toLowerCase(), deliveryData.recipientEmail);
+ if(!dispatchAuthorization.allowed)throw new Error('CARRIER_DISCLOSURE_AUTHORIZATION_REVOKED_BEFORE_DISPATCH');
+ if([...dispatchAuthorization.fields].sort().join('|')!==queuedFields.join('|'))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_BEFORE_DISPATCH');
  const result=await provider.createShipment(request,config.credentials);
  if(!result.providerShipmentId||!result.awbNumber)throw new Error('CARRIER_RESPONSE_MISSING_SHIPMENT_ID_OR_AWB');
  await updateShipmentFromCarrier({shipmentId:p.shipmentId,providerShipmentId:result.providerShipmentId,awbNumber:result.awbNumber,labelUrl:result.labelUrl,manifestUrl:result.manifestUrl,estimatedDeliveryAt:result.estimatedDeliveryAt,pickupScheduled:result.pickupScheduled,statusCode:10});
