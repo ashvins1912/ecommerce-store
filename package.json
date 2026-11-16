@@ -66,6 +66,10 @@
     "apps/provider-portal",
     "packages/shared-types",
     "packages/shared-utils",
-    "packages/shared-ui"
+    "packages/shared-ui",
+    "packages/logistics-core",
+    "packages/adapters/shadowfax",
+    "packages/adapters/shiprocket",
+    "apps/logistics-worker"
   ]
 }
