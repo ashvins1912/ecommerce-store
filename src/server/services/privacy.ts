@@ -70,17 +70,19 @@ function pickAllowed<T extends Record<string, any>>(value: T, allowed: readonly 
 
 /** Explicit provider-owned profile projection; never pass a raw Mongoose document. */
 export function toProviderSafeProfileDto(profile: Record<string, any>) {
-  return pickAllowed(profile, [
-    '_id', 'userId', 'linkedSellerIds', 'businessName', 'contactPerson', 'mobile',
+  const dto = pickAllowed(profile, [
+    '_id', 'userId', 'businessName', 'contactPerson', 'mobile',
     'whatsapp', 'warehouseAddress', 'settlementDetailsLast4', 'kycStatus',
     'createdAt', 'updatedAt',
   ]);
+  dto.linkedSellerCount = Array.isArray(profile.linkedSellerIds) ? profile.linkedSellerIds.length : 0;
+  return dto;
 }
 
 /** Explicit provider-owned catalogue projection. */
 export function toProviderSafeProductDto(product: Record<string, any>) {
   const dto = pickAllowed(product, [
-    '_id', 'providerId', 'linkedSellerIds', 'title', 'category', 'subCategory',
+    '_id', 'providerId', 'title', 'category', 'subCategory',
     'description', 'brand', 'manufacturerName', 'manufacturingDate',
     'sizeVariants', 'colorVariants', 'imageUrls', 'basePricePaise',
     'returnable', 'returnWindowDays', 'damageReplacementPolicy', 'status',
@@ -99,7 +101,7 @@ export function toProviderSafeProductDto(product: Record<string, any>) {
 /** Explicit provider receivable projection; buyer identity/contact is never part of this contract. */
 export function toProviderSafeSettlementDto(settlement: Record<string, any>) {
   return pickAllowed(settlement, [
-    '_id', 'orderId', 'orderItemKey', 'sellerId', 'providerId',
+    '_id', 'orderId', 'orderItemKey', 'providerId',
     'providerProductId', 'quantity', 'unitBasePricePaise', 'amountPaise',
     'currency', 'status', 'availableAt', 'deductionsPaise', 'utrReference',
     'settledAt', 'createdAt', 'updatedAt',
