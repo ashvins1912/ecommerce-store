@@ -23,6 +23,9 @@ type ProviderWarehouse = { id: string; warehouse_code: string; name: string; cit
 type LinkedSeller = { id: string; name: string };
 type Delegation = { sellerId: string; status: string; requestedCarrierCodes: string[]; allowedCarrierCodes: string[]; requestedDisclosureFields: string[]; allowedDisclosureFields: string[]; expiresAt?: string | null };
 type CarrierRate = { providerCode: string; serviceCode: string; amountMinor: number; currency: string; estimatedTransitHours: number; serviceable: boolean; codSupported: boolean; expiresAt: string };
+type ProviderReturn = { id:string; orderId:string; productId:string; quantity:number; reason:string; media:Array<{url:string}>; providerReviewStatus:string; providerDecisionNote?:string; providerPickupAddressShared:boolean; pickupAddress?:{fullName:string;phone:string;street:string;city:string;state:string;pincode:string}|null; providerReturnAddress?:{name:string;contactName:string;contactPhone:string;addressLine1:string;addressLine2?:string;city:string;state:string;postalCode:string}|null; returnPickup:{status:string;carrier?:string;trackingId?:string;trackingUrl?:string} };
+type ProviderCancellation = { id:string; orderNumber:string; items:Array<{title:string;quantity:number}>; forwardedAt:string };
+
 type ProviderProfile = {
   businessName?: string;
   contactPerson?: string;
@@ -61,7 +64,7 @@ export default function ProviderPortal() {
   const [invite, setInvite] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
-  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);\n  const [providerReturns, setProviderReturns] = useState<ProviderReturn[]>([]);\n  const [providerCancellations, setProviderCancellations] = useState<ProviderCancellation[]>([]);\n  const [returnPickupDrafts, setReturnPickupDrafts] = useState<Record<string,{carrierName:string;trackingId:string;trackingUrl:string}>>({});
   const [shippingProviders, setShippingProviders] = useState<LogisticsProvider[]>([]);
   const [providerCarriers, setProviderCarriers] = useState<ProviderCarrier[]>([]);
   const [providerWarehouses, setProviderWarehouses] = useState<ProviderWarehouse[]>([]);
@@ -124,7 +127,7 @@ export default function ProviderPortal() {
     try {
       const productParams = new URLSearchParams({ page: String(productPage), limit: '10', q: productQuery, status: productStatus, sort: productSort, direction: productDirection });
       const settlementParams = new URLSearchParams({ page: String(settlementPage), limit: '10', q: settlementQuery, status: settlementStatus, sort: settlementSort, direction: settlementDirection });
-      const [profileResult, productResult, settlementResult, shipmentResult, carrierResult, warehouseResult, sellerResult, delegationResult] = await Promise.all([
+      const [profileResult, productResult, settlementResult, shipmentResult, carrierResult, warehouseResult, sellerResult, delegationResult, returnResult, cancellationResult] = await Promise.all([
         api<any>('/api/provider/profile'),
         api<any>('/api/provider/products?' + productParams.toString()),
         api<any>('/api/provider/settlements?' + settlementParams.toString()),
@@ -133,12 +136,14 @@ export default function ProviderPortal() {
         api<any>('/api/provider/logistics/warehouses').catch(() => ({ warehouses: [] })),
         api<any>('/api/provider/linked-sellers').catch(() => ({ sellers: [] })),
         api<any>('/api/provider/fulfillment-delegations').catch(() => ({ delegations: [] })),
+        api<any>('/api/provider/returns').catch(() => ({ returns: [] })),
+        api<any>('/api/provider/cancellations').catch(() => ({ cancellations: [] })),
       ]);
       setProviderProfile(profileResult.profile || null);
       setProducts(productResult.products || []);
       setProductTotal(Number(productResult.total || 0));
       setSettlements(settlementResult.settlements || []);
-      setShipments(shipmentResult.shipments || []);
+      setShipments(shipmentResult.shipments || []);\n      setProviderReturns(returnResult.returns || []);\n      setProviderCancellations(cancellationResult.cancellations || []);
       setShippingProviders(carrierResult.providers || []);
       setProviderCarriers(carrierResult.carriers || []);
       setProviderWarehouses(warehouseResult.warehouses || []);
@@ -333,6 +338,40 @@ export default function ProviderPortal() {
       setBookingOrderId('');
       await refresh();
     } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const reviewProviderReturn = async (item: ProviderReturn, action:'approve'|'reject') => {
+    setShippingSaving(true);
+    try {
+      const warehouseId = providerWarehouses.find((warehouse) => warehouse.is_default)?.id || providerWarehouses[0]?.id;
+      if (action === 'approve' && !warehouseId) throw new Error('Add a provider pickup / return warehouse before approving returns.');
+      await api('/api/provider/returns/' + item.id + '/review', { method:'POST', body:JSON.stringify({ action, warehouseId, note: action==='approve'?'Return accepted; use the approved return-to address.':'Provider declined this return.' }) });
+      setNotice(action==='approve'?'Return approved and return-to address shared with seller.':'Return declined and seller notified in the review queue.');
+      await refresh();
+    } catch(error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const recordProviderReturnPickup = async (item:ProviderReturn) => {
+    const draft=returnPickupDrafts[item.id];
+    if(!draft?.carrierName.trim()||!draft.trackingId.trim()){setNotice('Enter courier name and AWB / tracking ID.');return;}
+    setShippingSaving(true);
+    try {
+      await api('/api/provider/returns/'+item.id+'/pickup',{method:'POST',body:JSON.stringify(draft)});
+      setNotice('Return pickup booking details saved and shared with seller.');
+      await refresh();
+    } catch(error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const reviewProviderCancellation = async (item:ProviderCancellation,action:'approve'|'reject') => {
+    setShippingSaving(true);
+    try {
+      await api('/api/provider/cancellations/'+item.id+'/review',{method:'POST',body:JSON.stringify({action,note:action==='approve'?'Provider approves cancellation.':'Provider rejects cancellation.'})});
+      setNotice(action==='approve'?'Cancellation approved. Seller can now complete the cancellation review.':'Cancellation rejected. Seller has been notified.');
+      await refresh();
+    } catch(error) { setNotice((error as Error).message); }
     finally { setShippingSaving(false); }
   };
 
@@ -550,6 +589,26 @@ export default function ProviderPortal() {
                 </div>
               </section>
             </div>
+
+            <section className="grid min-w-0 gap-5 xl:grid-cols-2">
+              <div className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-semibold">Return review requests</h2><p className="mt-1 text-xs text-stone-500">Seller-forwarded returns · buyer address is shown only when the seller explicitly shares it</p></div><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">{providerReturns.filter(item=>item.providerReviewStatus==='PENDING').length} pending</span></div>
+                {providerReturns.length?providerReturns.map(item=><article key={item.id} className="space-y-3 border-t border-stone-100 py-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2"><strong>Order {item.orderId}</strong><span className="rounded-full bg-stone-100 px-2 py-1">{item.providerReviewStatus}</span></div>
+                  <p>{item.productId} · Qty {item.quantity} · {item.reason}</p>
+                  <div className="flex flex-wrap gap-2">{item.media.map((media,index)=><a key={index} href={media.url} target="_blank" rel="noreferrer" className="text-rose-900 underline">Evidence {index+1}</a>)}</div>
+                  {item.pickupAddress?<div className="rounded-lg bg-amber-50 p-3 text-amber-950"><strong>Buyer pickup address (seller authorized sharing)</strong><p>{item.pickupAddress.fullName} · {item.pickupAddress.phone}</p><p>{item.pickupAddress.street}, {item.pickupAddress.city}, {item.pickupAddress.state} {item.pickupAddress.pincode}</p></div>:<p className="rounded-lg bg-stone-50 p-3 text-stone-600">Buyer pickup address has not been shared. You can approve and provide a return-to address, but cannot arrange pickup from the buyer through this request.</p>}
+                  {item.providerReturnAddress&&<p className="rounded-lg bg-emerald-50 p-3 text-emerald-950"><strong>Return-to address:</strong> {item.providerReturnAddress.name}, {item.providerReturnAddress.addressLine1}, {item.providerReturnAddress.city}, {item.providerReturnAddress.state} {item.providerReturnAddress.postalCode}</p>}
+                  {item.providerReviewStatus==='PENDING'&&<div className="flex flex-wrap gap-2"><button type="button" disabled={shippingSaving} onClick={()=>void reviewProviderReturn(item,'approve')} className="rounded-lg bg-emerald-700 px-3 py-2 font-semibold text-white disabled:opacity-40">Approve & share return address</button><button type="button" disabled={shippingSaving} onClick={()=>void reviewProviderReturn(item,'reject')} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-40">Reject</button></div>}
+                  {item.providerReviewStatus==='APPROVED'&&item.pickupAddress&&item.returnPickup.status!=='BOOKED'&&<div className="grid gap-2 sm:grid-cols-3"><input placeholder="Courier name" value={returnPickupDrafts[item.id]?.carrierName||''} onChange={e=>setReturnPickupDrafts(v=>({...v,[item.id]:{carrierName:e.target.value,trackingId:v[item.id]?.trackingId||'',trackingUrl:v[item.id]?.trackingUrl||''}}))} className="rounded border px-2 py-2"/><input placeholder="AWB / tracking ID" value={returnPickupDrafts[item.id]?.trackingId||''} onChange={e=>setReturnPickupDrafts(v=>({...v,[item.id]:{carrierName:v[item.id]?.carrierName||'',trackingId:e.target.value,trackingUrl:v[item.id]?.trackingUrl||''}}))} className="rounded border px-2 py-2"/><button type="button" disabled={shippingSaving} onClick={()=>void recordProviderReturnPickup(item)} className="rounded bg-sky-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Save pickup booking</button><input placeholder="Tracking URL (optional)" value={returnPickupDrafts[item.id]?.trackingUrl||''} onChange={e=>setReturnPickupDrafts(v=>({...v,[item.id]:{carrierName:v[item.id]?.carrierName||'',trackingId:v[item.id]?.trackingId||'',trackingUrl:e.target.value}}))} className="rounded border px-2 py-2 sm:col-span-3"/></div>}
+                  {item.returnPickup.status==='BOOKED'&&<p className="text-emerald-800">Pickup booked: {item.returnPickup.carrier} · {item.returnPickup.trackingId} {item.returnPickup.trackingUrl&&<a href={item.returnPickup.trackingUrl} target="_blank" rel="noreferrer" className="underline">Track</a>}</p>}
+                </article>):<p className="py-6 text-center text-xs text-stone-500">No return review requests.</p>}
+              </div>
+              <div className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-semibold">Cancellation review requests</h2><p className="mt-1 text-xs text-stone-500">Second-level review for provider-supplied orders</p></div><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">{providerCancellations.length} pending</span></div>
+                {providerCancellations.length?providerCancellations.map(item=><article key={item.id} className="flex flex-col gap-3 border-t border-stone-100 py-3 sm:flex-row sm:items-center sm:justify-between"><div><strong>{item.orderNumber}</strong><p className="mt-1 text-xs text-stone-500">{item.items.map(row=>row.title+' × '+row.quantity).join(' · ')}</p><p className="mt-1 text-[11px] text-stone-400">Forwarded {new Date(item.forwardedAt).toLocaleString()}</p></div><div className="flex gap-2"><button type="button" disabled={shippingSaving} onClick={()=>void reviewProviderCancellation(item,'approve')} className="rounded bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Approve</button><button type="button" disabled={shippingSaving} onClick={()=>void reviewProviderCancellation(item,'reject')} className="rounded border px-3 py-2 text-xs disabled:opacity-40">Reject</button></div></article>):<p className="py-6 text-center text-xs text-stone-500">No cancellation review requests.</p>}
+              </div>
+            </section>
 
             <section className="grid min-w-0 gap-5 xl:grid-cols-2">
               <form onSubmit={saveProviderCarrier} className="min-w-0 space-y-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
