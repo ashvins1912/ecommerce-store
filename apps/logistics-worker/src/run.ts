@@ -4,7 +4,7 @@ import type { HttpTransport } from '../../../packages/adapters/shadowfax/src/ind
 import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret } from '../../../src/server/services/logistics.js';
 import type { ICarrierProvider, RateQuote, ShipmentRequest } from '../../../packages/logistics-core/src/index.js';
 import { initDatabase } from '../../../src/server/services/store.js';
-import { SellerPrivacySettingsModel } from '../../../src/server/models/schemas.js';
+import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from '../../../src/server/models/schemas.js';
 import { authorizeCarrierDisclosure } from '../../../src/server/services/privacy.js';
 
 const transport: HttpTransport = {
@@ -66,9 +66,20 @@ async function processJob(job:any){
  const dispatchAuthorization=authorizeCarrierDisclosure(dispatchSettings?.carrierDisclosure, String(p.carrierCode||'').toLowerCase(), deliveryData.recipientEmail);
  if(!dispatchAuthorization.allowed)throw new Error('CARRIER_DISCLOSURE_AUTHORIZATION_REVOKED_BEFORE_DISPATCH');
  if([...dispatchAuthorization.fields].sort().join('|')!==queuedFields.join('|'))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_BEFORE_DISPATCH');
+ if(!p.disclosureAuditId)throw new Error('CARRIER_DISCLOSURE_AUDIT_REFERENCE_MISSING');
+ // If the audit store cannot be updated, do not send customer data to the carrier.
+ const auditStart=await PrivacyDisclosureAuditModel.updateOne(
+  {_id:p.disclosureAuditId,dispatchStatus:'AUTHORIZED'},
+  {$set:{dispatchStatus:'DISPATCHING',jobId:String(job.id),dispatchErrorCode:null}},
+ );
+ if(auditStart.matchedCount!==1)throw new Error('CARRIER_DISCLOSURE_AUDIT_NOT_READY');
  const result=await provider.createShipment(request,config.credentials);
  if(!result.providerShipmentId||!result.awbNumber)throw new Error('CARRIER_RESPONSE_MISSING_SHIPMENT_ID_OR_AWB');
  await updateShipmentFromCarrier({shipmentId:p.shipmentId,providerShipmentId:result.providerShipmentId,awbNumber:result.awbNumber,labelUrl:result.labelUrl,manifestUrl:result.manifestUrl,estimatedDeliveryAt:result.estimatedDeliveryAt,pickupScheduled:result.pickupScheduled,statusCode:10});
+ await PrivacyDisclosureAuditModel.updateOne(
+  {_id:p.disclosureAuditId,dispatchStatus:'DISPATCHING'},
+  {$set:{dispatchStatus:'DISPATCHED',dispatchedAt:new Date(),dispatchErrorCode:null}},
+ );
  return {shipmentId:p.shipmentId,providerCode:provider.code,awbNumber:result.awbNumber,labelUrl:result.labelUrl,manifestUrl:result.manifestUrl,pickupScheduled:result.pickupScheduled,estimatedDeliveryAt:result.estimatedDeliveryAt};
 }
 export async function runLogisticsWorker(){
@@ -80,7 +91,20 @@ export async function runLogisticsWorker(){
    const job=Array.isArray(claimed)?claimed[0]:claimed;
    if(!job){await delay(pollMs);continue;}
    try{const result=await processJob(job);await completeLogisticsJob(job.id,result);}
-   catch(error){const message=error instanceof Error?error.message:String(error);console.error('Logistics job failed:',job.id,message);await failLogisticsJob(job.id,message,Number(job.attempts||0),Number(job.max_attempts||5));}
+   catch(error){
+    const message=error instanceof Error?error.message:String(error);
+    console.error('Logistics job failed:',job.id,message);
+    if(job.payload?.disclosureAuditId){
+     const blocked=message.startsWith('CARRIER_DISCLOSURE_')||message==='CARRIER_DELIVERY_FIELDS_MISSING';
+     try{
+      await PrivacyDisclosureAuditModel.updateOne(
+       {_id:job.payload.disclosureAuditId,dispatchStatus:{$in:['AUTHORIZED','DISPATCHING']}},
+       {$set:{dispatchStatus:blocked?'BLOCKED':'FAILED',dispatchErrorCode:message.slice(0,120)}},
+      );
+     }catch(auditError){console.error('Could not update carrier disclosure audit:',auditError);}
+    }
+    await failLogisticsJob(job.id,message,Number(job.attempts||0),Number(job.max_attempts||5));
+   }
   }catch(error){console.error('Logistics queue poll failed:',error);await delay(Math.max(pollMs,5000));}
  }
 }
