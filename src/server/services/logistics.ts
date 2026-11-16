@@ -211,7 +211,7 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
    origin:{warehouseId:warehouse.id,postalCode:warehouse.postal_code,countryCode:warehouse.country_code||'IN'},
    destination:{warehouseId:'destination',postalCode:input.destinationPostalCode,countryCode:'IN'},
    weightGrams:input.weightGrams,codAmountMinor:input.codAmountMinor,declaredValueMinor:input.declaredValueMinor,currency:input.currency,
-  },credentials),800));
+  },credentials),4500));
   return quotes.map(quote=>({configId:config.id,priorityRank:config.priority_rank,quote}));
  }));
  const candidates=settled.flatMap(result=>result.status==='fulfilled'?result.value:[]);
