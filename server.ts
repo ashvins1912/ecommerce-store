@@ -103,7 +103,7 @@ import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerc
 import {
   listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
-  getCustomerTrackingEvents, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes,
+  getCustomerTrackingEvents, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
 } from './src/server/services/logistics.js';
 import { STATUS_CODE, verifyHmacSha256 } from './packages/logistics-core/src/index.js';
 import { ShadowfaxAdapter } from './packages/adapters/shadowfax/src/index.js';
@@ -451,6 +451,16 @@ async function startServer() {
       });
       res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
+  });
+
+  app.post('/api/seller/logistics/shipments/:id/retry', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: 'INVALID_SHIPMENT_ID' });
+    try {
+      const jobId = await retrySellerShipment(user!._id, req.params.id);
+      res.status(202).json({ jobId, status: 'QUEUED', message: 'Shipment booking retry queued.' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 409).json({ error: e.message || 'SHIPMENT_NOT_RETRYABLE' }); }
   });
 
   app.post('/api/logistics/webhooks/:providerCode', async (req, res) => {
