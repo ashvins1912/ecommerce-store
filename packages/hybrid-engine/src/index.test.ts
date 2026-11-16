@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BloomHint, decorrelatedJitter, rankCarriersHybrid, runSaga, SlidingWindowCircuitBreaker } from "./index.js";
+import { aggregateInventoryLines, BloomHint, decorrelatedJitter, rankCarriersHybrid, runSaga, SlidingWindowCircuitBreaker } from "./index.js";
 
 test("TOPSIS plus epsilon-greedy ranks serviceable carriers and explores deterministically",()=>{
  const candidates=[
@@ -18,3 +18,19 @@ test("Bloom hint remembers inserted event IDs",()=>{const b=new BloomHint();b.ad
 test("decorrelated jitter stays within cap",()=>{assert.equal(decorrelatedJitter(1000,100,2000,()=>1),2000);});
 test("circuit breaker opens after sliding-window failures",async()=>{let now=100;const b=new SlidingWindowCircuitBreaker(2,1000,500,()=>now);await assert.rejects(()=>b.execute(async()=>{throw Error("x")}));await assert.rejects(()=>b.execute(async()=>{throw Error("x")}));await assert.rejects(()=>b.execute(async()=>1),/CIRCUIT_OPEN/);now=700;assert.equal(await b.execute(async()=>1),1);});
 test("saga compensates completed steps in reverse order",async()=>{const calls:string[]=[];const ctx={};await assert.rejects(()=>runSaga(ctx,[{name:"a",run:async()=>{calls.push("a+")},compensate:async()=>{calls.push("a-")}},{name:"b",run:async()=>{throw Error("failed")},compensate:async()=>{calls.push("b-")}}]));assert.deepEqual(calls,["a+","a-"]);});
+
+test("inventory lines aggregate product and variant quantities",()=>{
+ const groups=aggregateInventoryLines([
+  {productId:"p1",variantSku:"red-s",quantity:2},
+  {productId:"p1",variantSku:"red-s",quantity:3},
+  {productId:"p1",variantSku:"blue-m",quantity:1},
+  {productId:"p2",quantity:4},
+ ]);
+ assert.deepEqual(groups,[
+  {productId:"p1",quantity:6,variants:[{variantSku:"red-s",quantity:5},{variantSku:"blue-m",quantity:1}]},
+  {productId:"p2",quantity:4,variants:[]},
+ ]);
+});
+test("inventory aggregation rejects invalid quantities",()=>{
+ assert.throws(()=>aggregateInventoryLines([{productId:"p1",quantity:0}]),/INVALID_INVENTORY_LINE/);
+});
