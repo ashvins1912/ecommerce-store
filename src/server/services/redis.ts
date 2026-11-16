@@ -1,6 +1,6 @@
 import { Redis } from '@upstash/redis';
 import type { CartItem } from '../../shared/types.js';
-import { LRUKCache } from '../../../packages/hybrid-engine/src/index.js';
+import { LRUKCache, TOKEN_BUCKET_LUA } from '../../../packages/hybrid-engine/src/index.js';
 
 const hasUpstash =
   Boolean(process.env.UPSTASH_REDIS_REST_URL) && Boolean(process.env.UPSTASH_REDIS_REST_TOKEN);
@@ -106,13 +106,19 @@ export async function checkRateLimit(
   if (upstashClient) {
     try {
       const rateKey = `rl:${identifier}`;
-      const count = await upstashClient.incr(rateKey);
-      if (count === 1) {
-        await upstashClient.expire(rateKey, windowSeconds);
-      }
-      return { allowed: count <= maxRequests, remaining: Math.max(0, maxRequests - count) };
+      const nowSeconds = Date.now() / 1000;
+      const capacity = Math.max(1, maxRequests);
+      const refillPerSecond = capacity / Math.max(1, windowSeconds);
+      const raw = await upstashClient.eval(
+        TOKEN_BUCKET_LUA,
+        [rateKey],
+        [nowSeconds, capacity, refillPerSecond, 1, Math.max(2, windowSeconds * 2)]
+      ) as number[];
+      const allowed = Number(raw?.[0]) === 1;
+      const remaining = Math.max(0, Math.floor(Number(raw?.[1] || 0)));
+      return { allowed, remaining };
     } catch {
-      // Fall through to memory limiter
+      // Fall through to the bounded process-local limiter if Redis is unavailable.
     }
   }
   const now = Date.now();
