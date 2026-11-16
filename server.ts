@@ -485,7 +485,7 @@ async function startServer() {
         requiredFields: disclosure.missing,
       });
       const result = await createShipmentIntent({
-        orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
+        orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId, carrierCode,
         warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
         destinationPostalCode: pin, destinationCountryCode: 'IN',
         codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
