@@ -72,6 +72,7 @@ import { useI18n, type Language } from '../lib/i18n';
 import { useI18nTutorial } from '../hooks/useI18nTutorial';
 import { ActionButton } from './ActionButton';
 import { CustomerSearchModal, type AssignableCustomer } from './CustomerSearchModal';
+import { DashboardKPI } from './DashboardKPI';
 import { ProviderManagementPanel } from './ProviderManagementPanel';
 import { LogisticsManagementPanel } from './LogisticsManagementPanel';
 import { RootSuperuserPanel } from './RootSuperuserPanel';
@@ -2100,7 +2101,7 @@ ${inv.note ? `Admin note: ${inv.note}
 
       {/* TAB 1: RECHARTS SELLER ANALYTICS */}
       {sellerTab === 'analytics' && analytics && (
-        <div className="space-y-8">
+        <div className="space-y-8 min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-[#6B6A65]">{t('seller.mostSharedSub')}</p>
             <button
@@ -2113,103 +2114,15 @@ ${inv.note ? `Admin note: ${inv.note}
               <span>{analyticsRefreshing ? t('seller.saving') : 'Refresh Analytics'}</span>
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
-              <div className="text-xs text-[#6B6A65]">{t('seller.kpiRevenue')}</div>
-              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
-                {formatINR(analytics.overview.totalRevenue)}
-              </div>
-              <div className="mt-1 text-[11px] text-[#6B6A65] tabular-nums">
-                {analytics.overview.totalOrders} {t('orders.colOrders')}
-              </div>
-            </div>
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
-              <div className="text-xs text-[#6B6A65]">{t('seller.kpiViews')}</div>
-              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
-                {analytics.overview.totalViews.toLocaleString()}
-              </div>
-              <div className="mt-1 text-[11px] text-[#6B6A65] tabular-nums">
-                {analytics.overview.totalLikes.toLocaleString()} {t('card.likes')} ·{' '}
-                {analytics.overview.totalCartAdds}
-              </div>
-            </div>
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-1 text-xs text-[#6B6A65]">
-                <span>{t('seller.kpiShares')}</span>
-                <Share2 className="h-3.5 w-3.5 text-[#166534]" />
-              </div>
-              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
-                {(analytics.overview.totalShares || 0).toLocaleString()}
-              </div>
-              <div className="mt-1 text-[11px] text-[#166534] tabular-nums">
-                {t('seller.mostSharedSub')}
-              </div>
-            </div>
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
-              <div className="text-xs text-[#6B6A65]">{t('seller.kpiConv')}</div>
-              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
-                {analytics.overview.conversionRate}%
-              </div>
-            </div>
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
-              <div className="text-xs text-[#6B6A65]">{t('seller.kpiTrust')}</div>
-              <div className="mt-1 text-xl sm:text-2xl font-semibold text-[#141413] tabular-nums">
-                {analytics.overview.trustScore.toFixed(1)} / 5.0
-              </div>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-7 rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="font-display text-xl font-semibold text-[#141413]">
-                    {t('seller.revTrend')}
-                  </h2>
-                  <p className="text-xs text-[#6B6A65]">{t('orders.aggDesc')}</p>
-                </div>
-                <div className="inline-flex items-center gap-1 rounded-md bg-[#F0EEE9] p-1">
-                  {(
-                    [
-                      { id: 'day', label: t('orders.granDay') },
-                      { id: 'week', label: t('orders.granWeek') },
-                      { id: 'month', label: t('orders.granMonth') },
-                      { id: 'year', label: t('orders.granYear') },
-                    ] as const
-                  ).map((g) => (
-                    <button
-                      key={g.id}
-                      type="button"
-                      onClick={() => setGranularity(g.id)}
-                      className={`min-h-[44px] min-w-[44px] rounded px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
-                        granularity === g.id
-                          ? 'bg-white text-[#141413] shadow-xs'
-                          : 'text-[#57534E]'
-                      }`}
-                    >
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          <DashboardKPI
+            analytics={analytics}
+            granularity={granularity}
+            onGranularityChange={setGranularity}
+          />
 
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analytics.timeSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F0EEE9" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#6B6A65' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#6B6A65' }} />
-                    <Tooltip
-                      formatter={(val: any) => [formatINR(Number(val)), 'Revenue']}
-                      contentStyle={{ fontSize: '12px', borderRadius: '6px' }}
-                    />
-                    <Bar dataKey="revenue" fill="#881337" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="lg:col-span-5 rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 sm:gap-6">
+            <div className="md:col-span-2 xl:col-span-5 min-w-0 rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 space-y-4">
               <div>
                 <h2 className="font-display text-xl font-semibold text-[#141413]">
                   {t('seller.funnelTitle')}
@@ -2232,64 +2145,64 @@ ${inv.note ? `Admin note: ${inv.note}
                 </ResponsiveContainer>
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
-              <h3 className="font-display text-xl font-semibold text-[#141413]">
-                {t('seller.occasionInterest')}
-              </h3>
-              <div className="space-y-3 text-xs">
-                {analytics.occasionBreakdown.map((occ) => (
-                  <div key={occ.occasion} className="flex items-center justify-between">
-                    <span className="font-medium text-[#141413]">
-                      {to(occ.occasion as OccasionType)}
-                    </span>
-                    <span className="text-[#6B6A65] tabular-nums">
-                      {occ.interestScore.toLocaleString()} pts · {occ.sales}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
-              <h3 className="font-display text-xl font-semibold text-[#141413]">
-                {t('seller.colorDemand')}
-              </h3>
-              <div className="space-y-3 text-xs">
-                {analytics.attributeBreakdown.map((attr) => (
-                  <div key={attr.attribute} className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-[#141413] truncate">{attr.attribute}</span>
-                    <span className="text-[#6B6A65] tabular-nums shrink-0">{attr.count}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
-              <h3 className="font-display text-xl font-semibold text-[#141413]">
-                {t('seller.sentimentTitle')}
-              </h3>
-              <div className="flex items-center gap-4 text-xs tabular-nums border-b border-[#F0EEE9] pb-3">
-                <span className="text-emerald-700 font-semibold">
-                  {analytics.sentimentSummary.Positive} +
-                </span>
-                <span className="text-[#6B6A65]">{analytics.sentimentSummary.Neutral} =</span>
-                <span className="text-red-700">{analytics.sentimentSummary.Negative} -</span>
-              </div>
-              <div className="space-y-2.5 text-xs">
-                {REVIEW_CLASSES.map((cls) => {
-                  const stat = analytics.sentimentSummary.aspectRatings[cls];
-                  return (
-                    <div key={cls} className="flex items-center justify-between">
-                      <span className="text-[#141413]">{tr(cls)}</span>
+            <div className="md:col-span-2 xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 min-w-0">
+              <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+                <h3 className="font-display text-xl font-semibold text-[#141413]">
+                  {t('seller.occasionInterest')}
+                </h3>
+                <div className="space-y-3 text-xs">
+                  {analytics.occasionBreakdown.map((occ) => (
+                    <div key={occ.occasion} className="flex items-center justify-between">
+                      <span className="font-medium text-[#141413]">
+                        {to(occ.occasion as OccasionType)}
+                      </span>
                       <span className="text-[#6B6A65] tabular-nums">
-                        {stat?.count > 0 ? `${stat.avg} / 5 (${stat.count})` : '—'}
+                        {occ.interestScore.toLocaleString()} pts · {occ.sales}
                       </span>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+                <h3 className="font-display text-xl font-semibold text-[#141413]">
+                  {t('seller.colorDemand')}
+                </h3>
+                <div className="space-y-3 text-xs">
+                  {analytics.attributeBreakdown.map((attr) => (
+                    <div key={attr.attribute} className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-[#141413] truncate">{attr.attribute}</span>
+                      <span className="text-[#6B6A65] tabular-nums shrink-0">{attr.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+                <h3 className="font-display text-xl font-semibold text-[#141413]">
+                  {t('seller.sentimentTitle')}
+                </h3>
+                <div className="flex items-center gap-4 text-xs tabular-nums border-b border-[#F0EEE9] pb-3">
+                  <span className="text-emerald-700 font-semibold">
+                    {analytics.sentimentSummary.Positive} +
+                  </span>
+                  <span className="text-[#6B6A65]">{analytics.sentimentSummary.Neutral} =</span>
+                  <span className="text-red-700">{analytics.sentimentSummary.Negative} -</span>
+                </div>
+                <div className="space-y-2.5 text-xs">
+                  {REVIEW_CLASSES.map((cls) => {
+                    const stat = analytics.sentimentSummary.aspectRatings[cls];
+                    return (
+                      <div key={cls} className="flex items-center justify-between">
+                        <span className="text-[#141413]">{tr(cls)}</span>
+                        <span className="text-[#6B6A65] tabular-nums">
+                          {stat?.count > 0 ? `${stat.avg} / 5 (${stat.count})` : '—'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>

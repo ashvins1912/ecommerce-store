@@ -41,7 +41,7 @@ import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
 import { FlashSaleSection } from './components/FlashSaleSection';
 import { CatalogFilterBar } from './components/CatalogFilterBar';
 import { ActionButton } from './components/ActionButton';
-import { useI18nTutorial } from './hooks/useI18nTutorial';
+import { useI18nTutorial } from './hooks/useI18nTutorial.js';
 import ProviderPortal from '../apps/provider-portal/src/ProviderPortal';
 
 const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
@@ -157,7 +157,12 @@ function upsertJsonLdScript(payload: Record<string, unknown>): void {
 
 export default function App() {
   const { t, tc, tseason } = useI18n();
-  const { startRoleTour } = useI18nTutorial('CUSTOMER');
+  const {
+    startRoleTour,
+    startCustomerTour,
+    hasSeenCustomerTour,
+    dismissCustomerTourPrompt,
+  } = useI18nTutorial('CUSTOMER');
   const [activePage, setActivePage] = useState<ActivePage>('store');
   const [user, setUser] = useState<User | null>(null);
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
@@ -1063,6 +1068,31 @@ export default function App() {
                     {t('hero.ctaSecondary')}
                   </button>
                 </div>
+
+                {!hasSeenCustomerTour && (!user || user.role === 'BUYER') && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E8E6E1] bg-[#FAF9F6] px-3 py-2 text-xs">
+                    <span className="text-[#44403C] font-medium">
+                      New to {t('brand')}? Take a quick 1-minute guided tour.
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => startCustomerTour()}
+                        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-[#881337]/10 px-3 text-xs font-semibold text-[#881337] hover:bg-[#881337]/15 cursor-pointer"
+                      >
+                        Start Tour
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Dismiss new customer tour prompt"
+                        onClick={dismissCustomerTourPrompt}
+                        className="inline-flex h-[44px] w-[44px] min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-[#6B6A65] hover:bg-white hover:text-[#141413] cursor-pointer"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="lg:col-span-7 relative min-h-[220px] sm:min-h-[340px] lg:min-h-[360px] bg-[#F2EFE9]">

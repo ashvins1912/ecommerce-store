@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
   Compass,
@@ -108,10 +109,18 @@ export function TopBar({
       }
     };
 
+    const onResize = () => {
+      if (window.innerWidth >= 768) {
+        setMobileMenuOpen(false);
+      }
+    };
+
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize, { passive: true });
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
     };
   }, [mobileMenuOpen]);
 
@@ -302,24 +311,33 @@ export function TopBar({
         </div>
       </header>
 
-      {/* Mobile Slide-Over Navigation Drawer (< 768px) rendered OUTSIDE backdrop-blur header */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-[70] flex md:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('brand')}
-          id="mobile-nav-drawer"
-        >
+      {/* Fixed Slide-Over Mobile Navigation Drawer (< 768px) rendered OUTSIDE backdrop-blur header */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-[1px]"
-            aria-hidden="true"
-            onClick={closeDrawer}
-          />
-          <div
-            ref={drawerPanelRef}
-            className="relative z-10 flex h-dvh w-80 max-w-[88vw] flex-col bg-[#FAF9F6] border-r border-[#E8E6E1] shadow-2xl"
+            className="fixed inset-0 z-[70] md:hidden overflow-hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('brand')}
+            id="mobile-nav-drawer"
           >
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-[1px]"
+              aria-hidden="true"
+              onClick={closeDrawer}
+            />
+            <motion.div
+              ref={drawerPanelRef}
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed inset-y-0 left-0 z-10 flex h-dvh w-80 max-w-[85vw] flex-col bg-[#FAF9F6] border-r border-[#E8E6E1] shadow-2xl overflow-x-hidden"
+            >
             {/* 1. Drawer Header */}
             <div className="flex items-center justify-between gap-2 border-b border-[#E8E6E1] bg-white px-4 py-3">
               <div className="min-w-0">
@@ -546,9 +564,10 @@ export function TopBar({
                 </button>
               )}
             </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </>
   );
 }

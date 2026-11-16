@@ -45,7 +45,11 @@
 /* Accessible & responsive driver.js tutorial popover overrides (safe down to 320px viewports) */
 .driver-popover.kk-driver-popover {
   max-width: calc(100vw - 2rem) !important;
+  max-height: calc(100dvh - 2rem) !important;
   width: min(360px, calc(100vw - 2rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
   background-color: #FFFFFF;
   color: #141413;
   border: 1px solid #D6D3CD;
