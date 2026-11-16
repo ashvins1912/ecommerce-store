@@ -1807,9 +1807,49 @@ async function startServer() {
         prepaidProviderBySeller.set(sellerId, activeProvider);
       }
     }
+    // Option 3: compute a fresh server-side separate delivery fee per seller.
+    // The browser never supplies or controls the amount charged.
+    const shippingBySeller: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode: string; serviceCode: string; estimatedTransitHours: number; quoteExpiresAt: string | null; policy: 'SEPARATE' }> = {};
+    try {
+      const sellerLines = new Map<string, typeof itemsToOrder>();
+      for (const line of itemsToOrder) sellerLines.set(line.sellerId, [...(sellerLines.get(line.sellerId) || []), line]);
+      for (const [sellerId, lines] of sellerLines) {
+        const products = lines.map(line => itemProducts.find(product => product && String(product._id) === String(line.productId))).filter(Boolean) as any[];
+        const weightGrams = 100 + lines.reduce((sum, line) => {
+          const product = products.find(p => String(p._id) === String(line.productId));
+          return sum + Math.max(1, Number(product?.shippingWeightGrams) || 500) * line.quantity;
+        }, 0);
+        const declaredValueMinor = lines.reduce((sum, line) => sum + Math.round(line.unitPrice * line.quantity * 100), 0);
+        const seller = await UserModel.findById(sellerId).select('sellerProfile.shippingMarkupPercent').lean() as any;
+        const markupPercent = Math.min(100, Math.max(0, Number(seller?.sellerProfile?.shippingMarkupPercent || 0)));
+        const quotes = await getSellerRateQuotes({
+          sellerId,
+          destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
+          weightGrams, codAmountMinor: requiresPrepaid ? 0 : declaredValueMinor, declaredValueMinor, currency: 'INR',
+        });
+        const quote = quotes[0];
+        if (!quote) return res.status(409).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', sellerId, retryable: true });
+        const carrierCost = Math.max(0, Number(quote.costMinor) || 0);
+        const markup = Math.round(carrierCost * markupPercent / 100);
+        shippingBySeller[sellerId] = {
+          actualCarrierCost: carrierCost / 100,
+          sellerMarkup: markup / 100,
+          customerCharge: (carrierCost + markup) / 100,
+          insuranceAmount: 0,
+          carrierCode: quote.providerCode,
+          serviceCode: quote.serviceCode,
+          estimatedTransitHours: quote.estimatedTransitHours,
+          quoteExpiresAt: quote.quote?.expiresAt || null,
+          policy: 'SEPARATE',
+        };
+      }
+    } catch (shippingError) {
+      const message = (shippingError as Error).message || 'DELIVERY_QUOTE_UNAVAILABLE';
+      return res.status(503).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', detail: message, retryable: true });
+    }
     let createdOrders;
     try {
-      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode, idempotencyKey });
+      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode, idempotencyKey, shippingBySeller });
       for (const order of createdOrders) {
         const prepaid = requiresPrepaid && order.items.some((item) => {
           const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
