@@ -229,7 +229,12 @@ export default function App() {
 
   const handleLogout = useCallback(async () => {
     // Preserve credentials and UI state unless the server confirms session revocation.
-    await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
+    try {
+      await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
+    } catch (error) {
+      showToast((error as Error).message || 'Unable to sign out. Please try again.');
+      throw error;
+    }
     clearClientSessionTokens();
 
     let guestSession: Pick<AuthSessionResponse, 'likedProductIds' | 'cart'> | null = null;
