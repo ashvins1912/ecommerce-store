@@ -49,8 +49,8 @@ async function processJob(job:any){
  };
  const result=await provider.createShipment(request,config.credentials);
  if(!result.providerShipmentId||!result.awbNumber)throw new Error('CARRIER_RESPONSE_MISSING_SHIPMENT_ID_OR_AWB');
- await updateShipmentFromCarrier({shipmentId:p.shipmentId,providerShipmentId:result.providerShipmentId,awbNumber:result.awbNumber,labelUrl:result.labelUrl,estimatedDeliveryAt:result.estimatedDeliveryAt,statusCode:10});
- return {shipmentId:p.shipmentId,providerCode:provider.code,awbNumber:result.awbNumber,labelUrl:result.labelUrl,estimatedDeliveryAt:result.estimatedDeliveryAt};
+ await updateShipmentFromCarrier({shipmentId:p.shipmentId,providerShipmentId:result.providerShipmentId,awbNumber:result.awbNumber,labelUrl:result.labelUrl,manifestUrl:result.manifestUrl,estimatedDeliveryAt:result.estimatedDeliveryAt,pickupScheduled:result.pickupScheduled,statusCode:10});
+ return {shipmentId:p.shipmentId,providerCode:provider.code,awbNumber:result.awbNumber,labelUrl:result.labelUrl,manifestUrl:result.manifestUrl,pickupScheduled:result.pickupScheduled,estimatedDeliveryAt:result.estimatedDeliveryAt};
 }
 export async function runLogisticsWorker(){
  const pollMs=Math.max(500,Number(process.env.LOGISTICS_WORKER_POLL_MS||1500));
