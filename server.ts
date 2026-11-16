@@ -7,7 +7,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
-import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -441,10 +441,10 @@ async function startServer() {
       const pin = String(address.pincode || '').trim();
       if (!pin || !address.street || !address.city || !address.state || !address.fullName || !address.phone) return res.status(422).json({ error: 'ORDER_SHIPPING_ADDRESS_INCOMPLETE' });
       const buyer = await findUserById(String(order.buyerId));
-      const sellerCarriers = await listSellerCarrierConfigs(String(order.sellerId));
+      const sellerCarriers = (await listSellerCarrierConfigs(String(order.sellerId))) || [];
       const selectedCarrier = sellerCarriers.find((carrier: any) => String(carrier.id) === parsed.data.carrierConfigId);
       if (!selectedCarrier) return res.status(422).json({ error: 'SELLER_CARRIER_CONFIGURATION_NOT_FOUND' });
-      if (String(selectedCarrier.logistics_providers?.code || '').toLowerCase() === 'shiprocket' && !buyer?.email) return res.status(422).json({ error: 'SHIPROCKET_CUSTOMER_EMAIL_REQUIRED' });
+      if (String(selectedCarrier.logistics_providers?.[0]?.code || '').toLowerCase() === 'shiprocket' && !buyer?.email) return res.status(422).json({ error: 'SHIPROCKET_CUSTOMER_EMAIL_REQUIRED' });
       const result = await createShipmentIntent({
         orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
         warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
@@ -486,7 +486,7 @@ async function startServer() {
       if (!shipment) return res.status(202).json({ accepted: true, applied: false, reason: 'SHIPMENT_NOT_FOUND' });
       if (!adapter.verifyWebhook(raw, signature, shipment.webhookSecret)) return res.status(401).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
       const applied = await applyLogisticsWebhook({
-        shipmentId: shipment.shipmentId, eventHash: event.eventHash, statusCode: STATUS_CODE[event.status],
+        shipmentId: shipment.shipmentId, eventHash: event.eventHash, statusCode: STATUS_CODE[event.status as keyof typeof STATUS_CODE],
         locationCode: event.locationCode, eventTimestamp: event.occurredAt,
         expectedStatusCode: shipment.currentStatusCode, expectedLastEventAt: shipment.lastEventAt,
       });
@@ -1055,6 +1055,7 @@ async function startServer() {
       inStockOnly: req.query.inStockOnly === 'true',
       sort: (req.query.sort as SortOption) || 'most_demanding',
       page: req.query.page ? Number(req.query.page) : 1,
+      cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
       limit: 20, // Strictly 20 products per page
       sellerId: typeof req.query.sellerId === 'string' ? req.query.sellerId : undefined,
       includeDisabled: allowDisabled,
@@ -1724,14 +1725,38 @@ async function startServer() {
     }
 
     const cart = await loadCartForActor({ userId: user._id, guestToken });
-    const itemsToOrder = cart.length > 0 ? cart : (req.body?.items as CartItem[]) || [];
-    if (itemsToOrder.length === 0) {
+    const submittedItems = cart.length > 0 ? cart : (req.body?.items as CartItem[]) || [];
+    if (submittedItems.length === 0) {
       return res.status(400).json({ error: 'Your shopping bag is empty.' });
     }
 
+    const suppliedIdempotencyKey = String(req.get('Idempotency-Key') || req.body?.idempotencyKey || '').trim();
+    if (suppliedIdempotencyKey && (suppliedIdempotencyKey.length < 8 || suppliedIdempotencyKey.length > 120)) {
+      return res.status(400).json({ error: 'INVALID_CHECKOUT_IDEMPOTENCY_KEY' });
+    }
+    const idempotencyKey = suppliedIdempotencyKey || undefined;
     const couponCode = typeof req.body?.couponCode === 'string' ? req.body.couponCode.trim() : undefined;
-    const itemProducts = await Promise.all(itemsToOrder.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+    const itemProducts = await Promise.all(submittedItems.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+    if (itemProducts.some((product) => !product)) return res.status(409).json({ error: 'PRODUCT_NO_LONGER_AVAILABLE' });
     if (itemProducts.some((product) => product?.visibility === 'ASSIGNED' && (!product.assignedCustomerIds || !product.assignedCustomerIds.map(String).includes(user._id)))) return res.status(403).json({ error: 'PRODUCT_NOT_ASSIGNED_TO_BUYER' });
+    const itemsToOrder = submittedItems.map((item, index) => {
+      const product = itemProducts[index]!;
+      const variant = (product.variants || []).find((entry) => entry.variantSku === item.variantSku);
+      if ((product.variants || []).length && !variant) throw new Error('PRODUCT_VARIANT_UNAVAILABLE');
+      return {
+        ...item,
+        sellerId: String(product.sellerId),
+        title: product.title,
+        slug: product.slug,
+        category: product.category,
+        basePrice: product.basePrice,
+        unitPrice: variant?.priceOverride ?? product.salePrice,
+        size: variant?.size ?? item.size,
+        colorName: variant?.colorName ?? item.colorName,
+        colorHex: variant?.colorHex ?? item.colorHex,
+        imageUrl: variant?.variantImageUrl || product.images?.[0]?.url || item.imageUrl,
+      };
+    });
     const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
     const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
     const prepaidProviderBySeller = new Map<string, 'razorpay' | 'stripe'>();
@@ -1748,7 +1773,7 @@ async function startServer() {
     }
     let createdOrders;
     try {
-      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode });
+      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode, idempotencyKey });
       for (const order of createdOrders) {
         const prepaid = requiresPrepaid && order.items.some((item) => {
           const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
@@ -1759,40 +1784,77 @@ async function startServer() {
           const product = idx >= 0 ? itemProducts[idx] : null;
           return { ...item, isReturnable: product?.isReturnable !== false, returnWindowDays: product?.returnWindowDays ?? 7 };
         });
-        const providerForOrder = prepaidProviderBySeller.get(String(order.sellerId)) || requestedProvider;
-        order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
-        order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
-        order.status = 'PENDING_SELLER_CONFIRMATION';
-        order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
-        await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } });
+        if (order.status === 'Pending') {
+          const providerForOrder = prepaidProviderBySeller.get(String(order.sellerId)) || requestedProvider;
+          order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
+          order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
+          order.status = 'PENDING_SELLER_CONFIRMATION';
+          order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
+          await OrderModel.updateOne(
+            { _id: order._id, status: 'Pending' },
+            { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } }
+          );
+        } else {
+          await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items } });
+        }
       }
     } catch (err) {
-      return res.status(400).json({ error: (err as Error).message });
+      const code = (err as Error).message;
+      const status = code === 'MONGODB_TRANSACTIONAL_CHECKOUT_REQUIRED' ? 503
+        : ['INVENTORY_RESERVATION_CONFLICT', 'COUPON_USAGE_LIMIT_REACHED', 'CART_PRICE_CHANGED', 'CART_SELLER_MISMATCH', 'PRODUCT_VARIANT_UNAVAILABLE', 'IDEMPOTENCY_KEY_CONFLICT'].includes(code) ? 409 : 400;
+      return res.status(status).json({ error: code, retryable: status === 503 });
     }
 
-    // Notify each seller with the complete fulfilment summary and a login-protected Seller Hub deep link.
+    // A durable lease lets a retried checkout finish a notification after a process crash.
+    // Delivery is at-least-once across the external WhatsApp call/DB acknowledgement boundary.
     for (const order of createdOrders) {
-      const seller = await findUserById(order.sellerId);
-      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
-      const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
-      const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
-      const msg = [
-        'New order ' + order.orderNumber,
-        'Items: ' + itemSummary,
-        'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
-        'Contact: ' + order.shippingAddress.phone,
-        'Payment: ' + order.paymentMode,
-        'Total: INR ' + order.totalAmount,
-        'Confirm after checking stock: ' + confirmationUrl,
-      ].join('\\n');
-      if (sellerPhone) {
-        order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
-        await OrderModel.updateOne({ _id: order._id }, { $set: { whatsappDispatch: order.whatsappDispatch } });
+      const leaseUntil = new Date(Date.now() + 60_000);
+      const claim = await OrderModel.findOneAndUpdate(
+        {
+          _id: order._id, sellerNotificationSentAt: null,
+          $or: [{ sellerNotificationLeaseUntil: null }, { sellerNotificationLeaseUntil: { $lte: new Date() } }],
+        },
+        { $set: { sellerNotificationLeaseUntil: leaseUntil } },
+        { new: true }
+      );
+      if (!claim) continue;
+      try {
+        const seller = await findUserById(order.sellerId);
+        const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
+        const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
+        const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
+        const msg = [
+          'New order ' + order.orderNumber,
+          'Items: ' + itemSummary,
+          'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
+          'Contact: ' + order.shippingAddress.phone,
+          'Payment: ' + order.paymentMode,
+          'Total: INR ' + order.totalAmount,
+          'Confirm after checking stock: ' + confirmationUrl,
+        ].join('\\n');
+        if (sellerPhone) {
+          order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
+          await OrderModel.updateOne(
+            { _id: order._id, sellerNotificationLeaseUntil: leaseUntil },
+            {
+              $set: {
+                whatsappDispatch: order.whatsappDispatch,
+                ...(order.whatsappDispatch?.delivered ? { sellerNotificationSentAt: new Date() } : {}),
+              },
+              $unset: { sellerNotificationLeaseUntil: 1 },
+            }
+          );
+        } else {
+          await OrderModel.updateOne({ _id: order._id, sellerNotificationLeaseUntil: leaseUntil }, { $unset: { sellerNotificationLeaseUntil: 1 } });
+        }
+      } catch (error) {
+        await OrderModel.updateOne({ _id: order._id, sellerNotificationLeaseUntil: leaseUntil }, { $unset: { sellerNotificationLeaseUntil: 1 } });
+        console.warn('Seller order notification deferred:', (error as Error).message);
       }
     }
 
     await saveCartForActor({ userId: user._id, guestToken }, []);
-    res.status(201).json({ orders: createdOrders });
+    res.status(201).json({ orders: createdOrders, replayed: Boolean((createdOrders as any).replayed) });
   });
 
   app.patch('/api/orders/:id/status', async (req, res) => {
@@ -2201,17 +2263,46 @@ async function startServer() {
     const parsed = z.object({ settlementIds: z.array(z.string().min(1)).min(1).max(100), utrReference: z.string().trim().min(4).max(120) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_SETTLEMENT_BATCH' });
     const filter = { _id: { $in: parsed.data.settlementIds }, status: 'READY_FOR_SETTLEMENT', ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) };
-    const records = await ProviderSettlementModel.find(filter);
-    if (records.length !== parsed.data.settlementIds.length) return res.status(409).json({ error: 'ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE' });
     const settledAt = new Date();
-    for (const record of records) {
-      const receipt = JSON.stringify({ settlementId: String(record._id), orderId: record.orderId, sellerId: record.sellerId, providerId: record.providerId, amountPaise: record.amountPaise, utrReference: parsed.data.utrReference, settledAt: settledAt.toISOString() });
-      record.status = 'SETTLED'; record.utrReference = parsed.data.utrReference; record.settledAt = settledAt;
-      record.encryptedReceipt = encryptField(receipt);
-      await record.save();
-      await providerAudit(user, 'PROVIDER_SETTLEMENT_MARKED_SETTLED', record.providerId, String(record._id), { amountPaise: record.amountPaise });
+    const session = await mongoose.startSession();
+    const settledRecords: any[] = [];
+    try {
+      await session.withTransaction(async () => {
+        settledRecords.length = 0;
+        const records = await ProviderSettlementModel.find(filter).session(session);
+        if (records.length !== parsed.data.settlementIds.length) throw new Error('ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE');
+        for (const record of records) {
+          const receipt = JSON.stringify({
+            settlementId: String(record._id), orderId: record.orderId, sellerId: record.sellerId,
+            providerId: record.providerId, amountPaise: record.amountPaise,
+            utrReference: parsed.data.utrReference, settledAt: settledAt.toISOString(),
+          });
+          const updated = await ProviderSettlementModel.updateOne(
+            { _id: record._id, status: 'READY_FOR_SETTLEMENT', ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) },
+            { $set: {
+              status: 'SETTLED', utrReference: parsed.data.utrReference, settledAt,
+              encryptedReceipt: encryptField(receipt),
+            } },
+            { session }
+          );
+          if (updated.modifiedCount !== 1) throw new Error('ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE');
+          settledRecords.push({ ...record.toObject(), status: 'SETTLED' });
+        }
+      });
+    } catch (err) {
+      const code = (err as Error).message;
+      return res.status(code === 'ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE' ? 409 : 503).json({ error: code, retryable: code !== 'ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE' });
+    } finally {
+      await session.endSession();
     }
-    res.json({ settledCount: records.length, utrReference: parsed.data.utrReference });
+    for (const record of settledRecords) {
+      try {
+        await providerAudit(user, 'PROVIDER_SETTLEMENT_MARKED_SETTLED', record.providerId, String(record._id), { amountPaise: record.amountPaise });
+      } catch (error) {
+        console.warn('Settlement committed but audit event could not be written:', (error as Error).message);
+      }
+    }
+    res.json({ settledCount: settledRecords.length, utrReference: parsed.data.utrReference });
   });
 
   app.get('/api/seller/provider-settlements/:id/receipt', async (req, res) => {
@@ -2325,22 +2416,57 @@ async function startServer() {
         ...(order.paymentCheckoutUrl ? { url: order.paymentCheckoutUrl } : {}),
       }});
     }
+    const attemptKey = crypto.randomUUID();
+    const now = new Date();
+    const claimedOrder = await OrderModel.findOneAndUpdate(
+      {
+        _id: order._id, buyerId: user._id, status: 'CONFIRMED_AWAITING_PAYMENT',
+        paymentStatus: { $ne: 'PAID' }, paymentReference: { $in: [null, ''] },
+        $or: [{ paymentIntentLeaseUntil: null }, { paymentIntentLeaseUntil: { $lte: now } }],
+      },
+      { $set: { paymentIntentRequestKey: attemptKey, paymentIntentLeaseUntil: new Date(now.getTime() + 60_000) } },
+      { new: true }
+    );
+    if (!claimedOrder) {
+      const latest = await OrderModel.findOne({ _id: order._id, buyerId: user._id }).lean();
+      if (latest?.paymentReference && latest.paymentProvider === parsed.data.provider) {
+        const existingGateway = parsed.data.provider === 'razorpay' ? await getGatewaySecrets(String(order.sellerId), 'razorpay') : null;
+        return res.json({ checkout: {
+          provider: parsed.data.provider, reference: latest.paymentReference,
+          amountPaise: Math.max(0, Math.round(Number(latest.totalAmount) * 100) - Number(latest.walletAppliedPaise || 0)),
+          currency: 'INR', ...(existingGateway ? { keyId: existingGateway.keyId } : {}),
+          ...(latest.paymentCheckoutUrl ? { url: latest.paymentCheckoutUrl } : {}),
+        }});
+      }
+      return res.status(409).json({ error: 'PAYMENT_INTENT_IN_PROGRESS', retryable: true });
+    }
     try {
       const checkout = await createGatewayCheckout({
-        sellerId: String(order.sellerId), provider: parsed.data.provider,
-        orderId: String(order._id), orderNumber: order.orderNumber,
-        amountPaise: Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0)),
+        sellerId: String(claimedOrder.sellerId), provider: parsed.data.provider,
+        orderId: String(claimedOrder._id), orderNumber: claimedOrder.orderNumber,
+        amountPaise: Math.max(0, Math.round(Number(claimedOrder.totalAmount) * 100) - Number(claimedOrder.walletAppliedPaise || 0)),
+        idempotencyKey: `checkout:${String(claimedOrder._id)}:${parsed.data.provider}`,
       });
-      order.paymentProvider = checkout.provider;
-      order.paymentReference = checkout.reference;
-      order.paymentCheckoutUrl = checkout.url || null;
-      order.paymentMode = checkout.provider === 'razorpay' ? 'RAZORPAY' : 'STRIPE';
-      order.paymentStatus = 'PENDING';
-      await order.save();
+      const persisted = await OrderModel.findOneAndUpdate(
+        { _id: claimedOrder._id, buyerId: user._id, paymentIntentRequestKey: attemptKey, paymentReference: { $in: [null, ''] } },
+        {
+          $set: {
+            paymentProvider: checkout.provider, paymentReference: checkout.reference,
+            paymentCheckoutUrl: checkout.url || null,
+            paymentMode: checkout.provider === 'razorpay' ? 'RAZORPAY' : 'STRIPE',
+            paymentStatus: 'PENDING',
+          },
+          $unset: { paymentIntentRequestKey: 1, paymentIntentLeaseUntil: 1 },
+        },
+        { new: true }
+      );
+      if (!persisted) throw new Error('PAYMENT_INTENT_LEASE_LOST');
       res.setHeader('Cache-Control', 'no-store');
       res.json({ checkout });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      // Keep the lease until expiry after an ambiguous provider error; this avoids
+      // immediately creating a second external intent when the first response was lost.
+      res.status(503).json({ error: (err as Error).message, retryable: true });
     }
   });
 
@@ -2361,15 +2487,28 @@ async function startServer() {
     if (!order) return res.json({ received: true, ignored: true });
     const eventId = String(event.id || payment?.id || refundEntity?.id || '');
     if (!eventId) return res.status(400).json({ error: 'WEBHOOK_EVENT_ID_REQUIRED' });
+    const isCapture = event.event === 'payment.captured';
+    const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+    if (isCapture && (!payment?.id || order.paymentProvider !== 'razorpay' || Number(payment.amount) !== expectedAmount || String(payment.currency).toUpperCase() !== 'INR')) {
+      return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
+    }
     const claimed = await claimPaymentEvent('razorpay', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
-    if (!claimed) return res.json({ received: true, duplicate: true });
-    if (event.event === 'payment.captured' && payment?.id) {
-      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
-      if (order.paymentProvider !== 'razorpay' || Number(payment.amount) !== expectedAmount || String(payment.currency).toUpperCase() !== 'INR') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
-      order.paymentTransactionId = String(payment.id);
-      order.paymentStatus = 'PAID';
-      order.status = 'PAID_AND_PROCESSING';
-      order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+    if (!claimed) {
+      const state = await getPaymentEventState('razorpay', eventId);
+      return state === 'PROCESSED'
+        ? res.json({ received: true, duplicate: true })
+        : res.status(503).json({ error: 'WEBHOOK_PROCESSING_RETRY', retryable: true });
+    }
+    if (isCapture) {
+      if (order.paymentStatus !== 'PAID') {
+        order.paymentTransactionId = String(payment.id);
+        order.paymentStatus = 'PAID';
+        order.status = 'PAID_AND_PROCESSING';
+        order.statusTimeline.push({ status: order.status, note: 'Razorpay payment verified by signed webhook.', timestamp: new Date() });
+      } else if (String(order.paymentTransactionId) !== String(payment.id)) {
+        await releasePaymentEvent('razorpay', eventId, 'Payment order already captured by a different transaction.');
+        return res.status(409).json({ error: 'PAYMENT_TRANSACTION_CONFLICT' });
+      }
     } else if (event.event === 'refund.processed') {
       const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
       if (hasReturnRefund) {
@@ -2381,6 +2520,7 @@ async function startServer() {
       }
     }
     await order.save();
+    await markPaymentEventProcessed('razorpay', eventId);
     res.json({ received: true });
   });
 
@@ -2398,15 +2538,30 @@ async function startServer() {
         ? await OrderModel.findOne({ sellerId: req.params.sellerId, paymentTransactionId: object?.payment_intent })
         : null;
     if (!order) return res.json({ received: true, ignored: true });
-    const claimed = await claimPaymentEvent('stripe', String(event.id), String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
-    if (!claimed) return res.json({ received: true, duplicate: true });
-    if (event.type === 'checkout.session.completed') {
-      const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
-      if (order.paymentProvider !== 'stripe' || Number(object.amount_total) !== expectedAmount || String(object.currency).toLowerCase() !== 'inr' || object.payment_status !== 'paid') return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
-      order.paymentTransactionId = String(object.payment_intent);
-      order.paymentStatus = 'PAID';
-      order.status = 'PAID_AND_PROCESSING';
-      order.statusTimeline.push({ status: order.status, note: 'Stripe Checkout payment verified by signed webhook.', timestamp: new Date() });
+    const eventId = String(event.id || '');
+    if (!eventId) return res.status(400).json({ error: 'WEBHOOK_EVENT_ID_REQUIRED' });
+    const isCheckoutComplete = event.type === 'checkout.session.completed';
+    const expectedAmount = Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0));
+    if (isCheckoutComplete && (order.paymentProvider !== 'stripe' || Number(object?.amount_total) !== expectedAmount || String(object?.currency).toLowerCase() !== 'inr' || object?.payment_status !== 'paid' || !object?.payment_intent)) {
+      return res.status(400).json({ error: 'PAYMENT_AMOUNT_OR_CURRENCY_MISMATCH' });
+    }
+    const claimed = await claimPaymentEvent('stripe', eventId, String(order._id), crypto.createHash('sha256').update(rawBody).digest('hex'));
+    if (!claimed) {
+      const state = await getPaymentEventState('stripe', eventId);
+      return state === 'PROCESSED'
+        ? res.json({ received: true, duplicate: true })
+        : res.status(503).json({ error: 'WEBHOOK_PROCESSING_RETRY', retryable: true });
+    }
+    if (isCheckoutComplete) {
+      if (order.paymentStatus !== 'PAID') {
+        order.paymentTransactionId = String(object.payment_intent);
+        order.paymentStatus = 'PAID';
+        order.status = 'PAID_AND_PROCESSING';
+        order.statusTimeline.push({ status: order.status, note: 'Stripe Checkout payment verified by signed webhook.', timestamp: new Date() });
+      } else if (String(order.paymentTransactionId) !== String(object.payment_intent)) {
+        await releasePaymentEvent('stripe', eventId, 'Payment order already captured by a different transaction.');
+        return res.status(409).json({ error: 'PAYMENT_TRANSACTION_CONFLICT' });
+      }
     } else if (event.type === 'charge.refunded') {
       const hasReturnRefund = await ReturnRequestModel.exists({ orderId: String(order._id), status: 'REFUND_PENDING' });
       if (hasReturnRefund) {
@@ -2418,6 +2573,7 @@ async function startServer() {
       }
     }
     await order.save();
+    await markPaymentEventProcessed('stripe', eventId);
     res.json({ received: true });
   });
 

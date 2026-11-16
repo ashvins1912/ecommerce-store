@@ -61,6 +61,7 @@ import { encryptField } from './fieldEncryption.js';
 import type { AuthSessionRecord } from './session.js';
 import { deleteStoredImageAssets } from './storage.js';
 import { purgeProductFromCartCaches } from './redis.js';
+import { aggregateInventoryLines } from '../../../packages/hybrid-engine/src/index.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
@@ -704,6 +705,7 @@ export interface ProductFilterQuery {
   includeInactive?: boolean;
   includeDisabled?: boolean;
   viewerId?: string;
+  cursor?: string;
 }
 
 function computeCategoryTop10Thresholds(products: Product[]): Record<string, number> {
@@ -724,6 +726,97 @@ function computeCategoryTop10Thresholds(products: Product[]): Record<string, num
   return thresholds;
 }
 
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
+function encodeProductCursor(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+function decodeProductCursor(cursor: string): { sort: string; value: number | string; id: string } | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (!parsed || typeof parsed.sort !== 'string' ||
+      !['createdAt', 'trendScore', 'salesCount', 'salePrice'].includes(parsed.sort) ||
+      !mongoose.isValidObjectId(parsed.id) ||
+      !(typeof parsed.value === 'number' || typeof parsed.value === 'string')) return null;
+    return parsed;
+  } catch { return null; }
+}
+async function queryMongoProductsPage(filters: ProductFilterQuery, page: number, limit: number, disabledSet: Set<string>) {
+  const filter: Record<string, any> = filters.includeInactive ? { isDeleted: { $ne: true } } : { ...MONGO_PUBLIC_PRODUCT_FILTER };
+  if (filters.sellerId) {
+    if (!mongoose.isValidObjectId(filters.sellerId)) return null;
+    filter.sellerId = new mongoose.Types.ObjectId(filters.sellerId);
+  }
+  if (filters.category && filters.category !== 'All') filter.category = new RegExp('^' + escapeRegexLiteral(filters.category) + '$', 'i');
+  if (filters.occasion && filters.occasion !== 'All') filter.occasions = filters.occasion;
+  if (filters.season && filters.season !== 'All') filter.seasons = filters.season;
+  if (filters.inStockOnly) filter.totalStock = { $gt: 0 };
+  if (typeof filters.minPrice === 'number' || typeof filters.maxPrice === 'number') {
+    filter.salePrice = {
+      ...(typeof filters.minPrice === 'number' ? { $gte: filters.minPrice } : {}),
+      ...(typeof filters.maxPrice === 'number' ? { $lte: filters.maxPrice } : {}),
+    };
+  }
+  if (typeof filters.minDiscount === 'number' && filters.minDiscount > 0) filter.discountPercent = { $gte: filters.minDiscount };
+  filter.visibility = filters.viewerId && mongoose.isValidObjectId(filters.viewerId)
+    ? { $ne: 'ASSIGNED' } : { $ne: 'ASSIGNED' };
+  if (filters.viewerId && mongoose.isValidObjectId(filters.viewerId)) {
+    filter.$or = [{ visibility: { $ne: 'ASSIGNED' } }, { assignedCustomerIds: new mongoose.Types.ObjectId(filters.viewerId) }];
+    delete filter.visibility;
+  }
+  if (!filters.includeDisabled && disabledSet.size) {
+    filter.$nor = [...disabledSet].map((name) => ({ category: new RegExp('^' + escapeRegexLiteral(name) + '$', 'i') }));
+  }
+  const sortMap: Record<string, { field: string; direction: 1 | -1 }> = {
+    newly_added: { field: 'createdAt', direction: -1 },
+    fast_selling: { field: 'salesCount', direction: -1 },
+    price_asc: { field: 'salePrice', direction: 1 },
+    price_desc: { field: 'salePrice', direction: -1 },
+    most_demanding: { field: 'trendScore', direction: -1 },
+  };
+  const selectedSort = sortMap[filters.sort || 'most_demanding'] || sortMap.most_demanding;
+  const baseFilter = { ...filter };
+  let queryFilter = { ...filter };
+  if (filters.cursor) {
+    const decoded = decodeProductCursor(filters.cursor);
+    if (!decoded || decoded.sort !== selectedSort.field) throw new Error('INVALID_PRODUCT_CURSOR');
+    const value = selectedSort.field === 'createdAt' ? new Date(decoded.value) : Number(decoded.value);
+    if (selectedSort.field === 'createdAt' && !Number.isFinite((value as Date).getTime())) throw new Error('INVALID_PRODUCT_CURSOR');
+    const operator = selectedSort.direction === -1 ? '$lt' : '$gt';
+    queryFilter = { ...filter, $and: [{ $or: [
+      { [selectedSort.field]: { [operator]: value } },
+      { [selectedSort.field]: value, _id: { [operator]: new mongoose.Types.ObjectId(decoded.id) } },
+    ] }] };
+  }
+  const [docs, total, thresholdRows] = await Promise.all([
+    ProductModel.find(queryFilter).sort({ [selectedSort.field]: selectedSort.direction, _id: selectedSort.direction })
+      .skip(filters.cursor ? 0 : (page - 1) * limit).limit(limit + 1).lean(),
+    ProductModel.countDocuments(baseFilter),
+    ProductModel.aggregate(([
+      { $match: MONGO_PUBLIC_PRODUCT_FILTER },
+      { $setWindowFields: { partitionBy: '$category', sortBy: { trendScore: -1 }, output: {
+        rank: { $documentNumber: {} },
+        categoryCount: { $count: { window: { documents: ['unbounded', 'unbounded'] } } },
+      } } },
+      { $match: { $expr: { $lte: ['$rank', { $max: [1, { $ceil: { $multiply: ['$categoryCount', 0.1] } }] }] } } },
+      { $group: { _id: '$category', threshold: { $min: { $ifNull: ['$trendScore', 0] } } } },
+    ] as any)),
+  ]);
+  const hasMore = docs.length > limit, pageDocs = hasMore ? docs.slice(0, limit) : docs;
+  const products = pageDocs.map((doc: any) => normalizeProductDoc(doc));
+  const last = pageDocs[pageDocs.length - 1] as any;
+  const nextCursor = hasMore && last ? encodeProductCursor({
+    sort: selectedSort.field,
+    value: selectedSort.field === 'createdAt' ? new Date(last.createdAt).toISOString() : Number(last[selectedSort.field] || 0),
+    id: String(last._id),
+  }) : null;
+  const categoryTop10Thresholds: Record<string, number> = {};
+  for (const row of thresholdRows as Array<{ _id: string; threshold: number }>) categoryTop10Thresholds[row._id] = row.threshold;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  return { products, total, page: Math.min(page, totalPages), limit, totalPages, didYouMean: null, categoryTop10Thresholds, nextCursor };
+}
+
 export async function queryProducts(filters: ProductFilterQuery): Promise<{
   products: Product[];
   total: number;
@@ -732,17 +825,23 @@ export async function queryProducts(filters: ProductFilterQuery): Promise<{
   totalPages: number;
   didYouMean?: string | null;
   categoryTop10Thresholds: Record<string, number>;
+  nextCursor?: string | null;
 }> {
   const page = Math.max(1, filters.page || 1);
   // Strict limit(20) pagination rule for storefront listings
   const limit = Math.min(20, Math.max(1, filters.limit || 20));
-  const [allProducts, allCategories] = await Promise.all([
-    getAllProductsRaw({ includeControlled: Boolean(filters.includeInactive) }),
-    getAllCategoriesRaw(),
-  ]);
-  const disabledSet = new Set(
-    allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase())
-  );
+  const allCategories = await getAllCategoriesRaw();
+  const disabledSet = new Set(allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase()));
+  if (filters.cursor && (filters.q?.trim() || filters.color?.trim() || filters.campaignId ||
+      ['special_offers', 'occasion_favorites', 'highest_rated'].includes(filters.sort || 'most_demanding'))) {
+    throw new Error('CURSOR_UNSUPPORTED_FOR_FILTER');
+  }
+  if (mongoConnected && !filters.q?.trim() && !filters.color?.trim() && !filters.campaignId &&
+      !['special_offers', 'occasion_favorites', 'highest_rated'].includes(filters.sort || 'most_demanding')) {
+    const result = await queryMongoProductsPage(filters, page, limit, disabledSet);
+    if (result) return result;
+  }
+  const allProducts = await getAllProductsRaw({ includeControlled: Boolean(filters.includeInactive) });
   const categoryTop10Thresholds = computeCategoryTop10Thresholds(allProducts);
 
   let items = allProducts.filter((p) => {
@@ -2147,43 +2246,61 @@ export async function createOrder(input: {
   buyer: User;
   items: CartItem[];
   couponCode?: string;
-}): Promise<Order[]> {
-  if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) {
-    throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
+  idempotencyKey?: string;
+}): Promise<Order[] & { replayed?: boolean }> {
+  if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
+  if (!input.items.length) throw new Error('EMPTY_CART');
+  const idempotencyKey = input.idempotencyKey?.trim();
+  if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 120)) throw new Error('INVALID_CHECKOUT_IDEMPOTENCY_KEY');
+
+  const buyerObjectId = mongoose.isValidObjectId(input.buyer._id) ? new mongoose.Types.ObjectId(input.buyer._id) : null;
+  const checkoutPayloadHash = idempotencyKey ? crypto.createHash('sha256').update(JSON.stringify({
+    items: input.items.map((item) => ({
+      productId: item.productId, variantSku: item.variantSku, sellerId: item.sellerId,
+      quantity: item.quantity, unitPrice: item.unitPrice,
+    })).sort((a, b) => a.productId.localeCompare(b.productId) || a.variantSku.localeCompare(b.variantSku)),
+    couponCode: input.couponCode?.trim().toUpperCase() || '',
+  })).digest('hex') : undefined;
+
+  const replayOrders = async () => {
+    if (!buyerObjectId || !idempotencyKey) return null;
+    const previous = await OrderModel.find({ buyerId: buyerObjectId, checkoutIdempotencyKey: idempotencyKey }).sort({ createdAt: 1 }).lean();
+    if (!previous.length) return null;
+    if (previous.some((doc: any) => doc.checkoutPayloadHash !== checkoutPayloadHash)) throw new Error('IDEMPOTENCY_KEY_CONFLICT');
+    const replay = previous.map((doc: any) => ({
+      ...doc, _id: String(doc._id), buyerId: String(doc.buyerId), sellerId: String(doc.sellerId),
+    })) as Order[] & { replayed?: boolean };
+    replay.replayed = true;
+    return replay;
+  };
+  if (mongoConnected && buyerObjectId && idempotencyKey) {
+    const replay = await replayOrders();
+    if (replay) return replay;
   }
-  const addr =
-    input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
 
-  // Validate product availability & stock (reject unpublished, unlisted, discontinued, removed, or 0-stock items)
-  for (const item of input.items) {
-    const prod = await getProductByIdOrSlug(item.productId, { includeControlled: true });
-    if (!prod || !isProductPubliclyVisible(prod)) {
-      throw new Error(`"${item.title}" is no longer available for purchase.`);
-    }
-    if (prod.totalStock < item.quantity) {
-      throw new Error(`"${item.title}" is currently out of stock or has insufficient units.`);
-    }
+  const addr = input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
+  const products = await Promise.all(input.items.map((item) => getProductByIdOrSlug(item.productId, { includeControlled: true })));
+  for (let i = 0; i < input.items.length; i++) {
+    const item = input.items[i], prod = products[i];
+    if (!prod || !isProductPubliclyVisible(prod)) throw new Error(`"${item.title}" is no longer available for purchase.`);
+    if (String(prod.sellerId) !== String(item.sellerId)) throw new Error('CART_SELLER_MISMATCH');
+    if (!Number.isSafeInteger(item.quantity) || item.quantity < 1) throw new Error('INVALID_CART_QUANTITY');
+    const variant = (prod.variants || []).find((v) => v.variantSku === item.variantSku);
+    if ((prod.variants || []).length && !variant) throw new Error('PRODUCT_VARIANT_UNAVAILABLE');
+    if (prod.totalStock < item.quantity || (variant && variant.stock < item.quantity)) throw new Error(`"${item.title}" is currently out of stock or has insufficient units.`);
+    const authoritativePrice = variant?.priceOverride ?? prod.salePrice;
+    if (Number(item.unitPrice) !== Number(authoritativePrice)) throw new Error('CART_PRICE_CHANGED');
   }
 
-  let appliedCouponRecord: Coupon | null = null;
-  let totalCouponDiscount = 0;
-  let eligibleTotalBasis = 0;
-
+  let appliedCouponRecord: Coupon | null = null, totalCouponDiscount = 0, eligibleTotalBasis = 0;
   if (input.couponCode && input.couponCode.trim()) {
-    const validation = await validateCouponForCart({
-      code: input.couponCode.trim(),
-      user: input.buyer,
-      items: input.items,
-    });
-    if (!validation.valid || !validation.coupon) {
-      throw new Error(validation.reason || 'INVALID_COUPON');
-    }
+    const validation = await validateCouponForCart({ code: input.couponCode.trim(), user: input.buyer, items: input.items });
+    if (!validation.valid || !validation.coupon) throw new Error(validation.reason || 'INVALID_COUPON');
     appliedCouponRecord = validation.coupon;
     totalCouponDiscount = validation.discountAmount;
     eligibleTotalBasis = validation.eligibleSubtotal || 1;
   }
 
-  // Group cart items by sellerId
   const bySeller = new Map<string, CartItem[]>();
   for (const item of input.items) {
     const list = bySeller.get(item.sellerId) || [];
@@ -2191,122 +2308,125 @@ export async function createOrder(input: {
     bySeller.set(item.sellerId, list);
   }
 
-  const createdOrders: Order[] = [];
-  const nowIso = new Date().toISOString();
+  const nowIso = new Date().toISOString(), sellerEntries = Array.from(bySeller.entries());
+  const orders: Order[] = [];
   let remainingDiscount = totalCouponDiscount;
-  const sellerEntries = Array.from(bySeller.entries());
-
   for (let idx = 0; idx < sellerEntries.length; idx++) {
     const [sellerId, sellerItems] = sellerEntries[idx];
-    const orderNumber = `ORD-2026-${Math.floor(10000 + Math.random() * 89999)}`;
-    const subtotal = sellerItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-
+    const subtotal = sellerItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
     let sellerCouponDiscount = 0;
     if (appliedCouponRecord && remainingDiscount > 0) {
-      const sellerEligibleSubtotal = sellerItems
-        .filter((item) => isCouponEligibleForProduct(appliedCouponRecord!, item.productId, item.sellerId))
-        .reduce((s, i) => s + i.unitPrice * i.quantity, 0);
-
-      if (sellerEligibleSubtotal > 0) {
-        if (idx === sellerEntries.length - 1) {
-          sellerCouponDiscount = Math.min(subtotal, remainingDiscount);
-        } else {
-          sellerCouponDiscount = Math.min(
-            subtotal,
-            Math.round((sellerEligibleSubtotal / Math.max(1, eligibleTotalBasis)) * totalCouponDiscount)
-          );
-        }
+      const eligibleSubtotal = sellerItems.filter((item) => isCouponEligibleForProduct(appliedCouponRecord!, item.productId, item.sellerId))
+        .reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+      if (eligibleSubtotal > 0) {
+        sellerCouponDiscount = idx === sellerEntries.length - 1
+          ? Math.min(subtotal, remainingDiscount)
+          : Math.min(subtotal, Math.round((eligibleSubtotal / Math.max(1, eligibleTotalBasis)) * totalCouponDiscount));
         remainingDiscount = Math.max(0, remainingDiscount - sellerCouponDiscount);
       }
     }
-
-    const totalAmount = Math.max(1, subtotal - sellerCouponDiscount);
-
-    const order: Order = {
-      _id: `ord_${crypto.randomBytes(5).toString('hex')}`,
-      orderNumber,
-      buyerId: input.buyer._id,
-      buyerName: input.buyer.name,
-      sellerId,
-      items: sellerItems.map((i) => ({
-        productId: i.productId,
-        variantSku: i.variantSku,
-        title: i.title,
-        size: i.size,
-        colorName: i.colorName,
-        imageUrl: i.imageUrl,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
+    orders.push({
+      _id: `ord_${crypto.randomBytes(8).toString('hex')}`,
+      orderNumber: `ORD-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+      buyerId: input.buyer._id, buyerName: input.buyer.name, sellerId,
+      items: sellerItems.map((item) => ({
+        productId: item.productId, variantSku: item.variantSku, title: item.title,
+        size: item.size, colorName: item.colorName, imageUrl: item.imageUrl,
+        quantity: item.quantity, unitPrice: item.unitPrice,
       })),
-      totalAmount,
-      ...(appliedCouponRecord && sellerCouponDiscount > 0
-        ? {
-            appliedCoupon: {
-              couponId: appliedCouponRecord._id,
-              code: appliedCouponRecord.code,
-              discountAmount: sellerCouponDiscount,
-            },
-          }
-        : {}),
+      totalAmount: Math.max(1, subtotal - sellerCouponDiscount),
+      ...(appliedCouponRecord && sellerCouponDiscount > 0 ? {
+        appliedCoupon: { couponId: appliedCouponRecord._id, code: appliedCouponRecord.code, discountAmount: sellerCouponDiscount },
+      } : {}),
       status: 'Pending',
-      shippingAddress: {
-        fullName: addr.fullName,
-        phone: addr.phone,
-        street: addr.street,
-        city: addr.city,
-        state: addr.state,
-        pincode: addr.pincode,
-      },
-      statusTimeline: [
-        {
-          status: 'Pending',
-          note: appliedCouponRecord && sellerCouponDiscount > 0
-            ? `Order placed via Kala & Karat (Coupon ${appliedCouponRecord.code} saved ₹${sellerCouponDiscount})`
-            : 'Order placed via Kala & Karat',
-          timestamp: nowIso,
-        },
-      ],
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
+      shippingAddress: { fullName: addr.fullName, phone: addr.phone, street: addr.street, city: addr.city, state: addr.state, pincode: addr.pincode },
+      statusTimeline: [{
+        status: 'Pending',
+        note: appliedCouponRecord && sellerCouponDiscount > 0
+          ? `Order placed via Kala & Karat (Coupon ${appliedCouponRecord.code} saved ₹${sellerCouponDiscount})`
+          : 'Order placed via Kala & Karat',
+        timestamp: nowIso,
+      }],
+      createdAt: nowIso, updatedAt: nowIso,
+    });
+  }
 
-    if (mongoConnected && mongoose.isValidObjectId(input.buyer._id)) {
-      const doc = await OrderModel.create({
-        ...order,
-        _id: new mongoose.Types.ObjectId(),
-        buyerId: new mongoose.Types.ObjectId(input.buyer._id),
-        sellerId: new mongoose.Types.ObjectId(sellerId),
+  if (mongoConnected && buyerObjectId) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const reservations = aggregateInventoryLines(input.items).sort((a, b) => a.productId.localeCompare(b.productId));
+        for (const reservation of reservations) {
+          if (!mongoose.isValidObjectId(reservation.productId)) throw new Error('INVALID_PRODUCT_ID');
+          const firstLine = input.items.find((line) => line.productId === reservation.productId)!;
+          const filter: Record<string, any> = {
+            _id: new mongoose.Types.ObjectId(reservation.productId),
+            sellerId: new mongoose.Types.ObjectId(firstLine.sellerId),
+            isDeleted: { $ne: true }, isActive: true, isPublished: true,
+            isUnlisted: { $ne: true }, isDiscontinued: { $ne: true },
+            totalStock: { $gte: reservation.quantity },
+          };
+          const arrayFilters: Record<string, any>[] = [], and: Record<string, any>[] = [];
+          const inc: Record<string, number> = {
+            totalStock: -reservation.quantity, salesCount: reservation.quantity, trendScore: reservation.quantity * 5,
+          };
+          reservation.variants.forEach((variant, index) => {
+            const identifier = `variant${index}`;
+            and.push({ variants: { $elemMatch: { variantSku: variant.variantSku, stock: { $gte: variant.quantity } } } });
+            inc[`variants.$[${identifier}].stock`] = -variant.quantity;
+            arrayFilters.push({ [`${identifier}.variantSku`]: variant.variantSku, [`${identifier}.stock`]: { $gte: variant.quantity } });
+          });
+          if (and.length) filter.$and = and;
+          const result = await ProductModel.updateOne(filter, { $inc: inc }, { session, ...(arrayFilters.length ? { arrayFilters } : {}) });
+          if (result.modifiedCount !== 1) throw new Error('INVENTORY_RESERVATION_CONFLICT');
+        }
+        const docs = orders.map((order) => ({
+          ...order, _id: new mongoose.Types.ObjectId(), buyerId: buyerObjectId,
+          sellerId: new mongoose.Types.ObjectId(order.sellerId),
+          ...(idempotencyKey ? { checkoutIdempotencyKey: idempotencyKey, checkoutPayloadHash } : {}),
+        }));
+        const inserted = await OrderModel.insertMany(docs, { session, ordered: true });
+        inserted.forEach((doc: any, index: number) => { orders[index]._id = String(doc._id); });
+        if (appliedCouponRecord && totalCouponDiscount > 0) {
+          const couponFilter: Record<string, any> = {
+            _id: appliedCouponRecord._id, isActive: true, expiresAt: { $gt: new Date() },
+            $or: [
+              { usageLimit: { $exists: false } }, { usageLimit: null },
+              { $expr: { $lt: ['$usedCount', '$usageLimit'] } },
+            ],
+          };
+          const couponUpdate = await CouponModel.updateOne(couponFilter, { $inc: { usedCount: 1 } }, { session });
+          if (couponUpdate.modifiedCount !== 1) throw new Error('COUPON_USAGE_LIMIT_REACHED');
+        }
       });
-      order._id = String(doc._id);
-      for (const item of sellerItems) {
-        if (mongoose.isValidObjectId(item.productId)) {
-          await ProductModel.updateOne(
-            { _id: item.productId },
-            { $inc: { salesCount: item.quantity, totalStock: -item.quantity, trendScore: item.quantity * 5 } }
-          );
-        }
+      return orders;
+    } catch (error) {
+      if (idempotencyKey && (error as { code?: number }).code === 11000) {
+        const replay = await replayOrders();
+        if (replay) return replay;
       }
-    } else {
-      localState.orders.unshift(order);
-      for (const item of sellerItems) {
-        const prod = localState.products.find((p) => p._id === item.productId);
-        if (prod) {
-          prod.salesCount += item.quantity;
-          prod.totalStock = Math.max(0, prod.totalStock - item.quantity);
-          prod.trendScore = prod.likesCount + prod.cartAddsCount * 3 + prod.salesCount * 5;
-        }
-      }
-      saveLocalStore(localState);
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    createdOrders.push(order);
   }
 
-  if (appliedCouponRecord && totalCouponDiscount > 0) {
-    await incrementCouponUsage(appliedCouponRecord._id);
+  if (process.env.NODE_ENV === 'production') throw new Error('MONGODB_TRANSACTIONAL_CHECKOUT_REQUIRED');
+  for (const order of orders) {
+    localState.orders.unshift(order);
+    for (const item of order.items) {
+      const prod = localState.products.find((p) => p._id === item.productId);
+      if (prod) {
+        prod.salesCount += item.quantity; prod.totalStock -= item.quantity;
+        const variant = (prod.variants || []).find((v) => v.variantSku === item.variantSku);
+        if (variant) variant.stock -= item.quantity;
+        prod.trendScore = prod.likesCount + prod.cartAddsCount * 3 + prod.salesCount * 5;
+      }
+    }
   }
-
-  return createdOrders;
+  saveLocalStore(localState);
+  if (appliedCouponRecord && totalCouponDiscount > 0) await incrementCouponUsage(appliedCouponRecord._id);
+  return orders;
 }
 
 export async function updateOrderStatusOrTracking(

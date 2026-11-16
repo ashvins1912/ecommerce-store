@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { encryptField, decryptField } from './fieldEncryption.js';
 import { getLogisticsRateCache, setLogisticsRateCache } from './redis.js';
-import { CircuitBreaker, scoreCarriers, withTimeout, STATUS_CODE } from '../../../packages/logistics-core/src/index.js';
+import { CircuitBreaker, withTimeout, STATUS_CODE } from '../../../packages/logistics-core/src/index.js';
+import { rankCarriersHybrid, SingleFlight } from '../../../packages/hybrid-engine/src/index.js';
 import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
 import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
 
@@ -177,14 +178,24 @@ export async function findShipmentForWebhook(providerCode:string,awbNumber:strin
  return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:decryptField(row.seller_carrier_configs.webhook_secret)};
 }
 export async function applyLogisticsWebhook(input:{shipmentId:string;eventHash:string;statusCode:number;locationCode?:string;eventTimestamp:string;expectedStatusCode:number;expectedLastEventAt:string|null}) {
- return unwrap(await db().rpc('apply_logistics_webhook',{
+ const applied=unwrap(await db().rpc('apply_logistics_webhook',{
   p_shipment_id:input.shipmentId,p_event_hash:input.eventHash,p_status_code:input.statusCode,
   p_location_code:input.locationCode||null,p_event_timestamp:input.eventTimestamp,
   p_expected_status:input.expectedStatusCode,p_expected_last_event_at:input.expectedLastEventAt,
- }));
+ })) as boolean;
+ if(input.statusCode===50||input.statusCode===80){
+  try{
+   // SQL verifies that the exact event was accepted and deduplicates outcome increments.
+   await db().rpc('record_carrier_outcome',{
+    p_shipment_id:input.shipmentId,p_event_hash:input.eventHash,p_status_code:input.statusCode,
+   });
+  }catch(error){console.warn('Carrier outcome feedback write deferred:',(error as Error).message);}
+ }
+ return applied;
 }
 
 const quoteBreakers = new Map<string,CircuitBreaker>();
+const rateQuoteFlights = new SingleFlight();
 const carrierHttp = { async request<T>(url:string,init:{method:string;headers:Record<string,string>;body?:unknown}):Promise<T>{
  const response=await fetch(url,{method:init.method,headers:init.headers,signal:AbortSignal.timeout(15000),...(init.body===undefined?{}:{body:JSON.stringify(init.body)})});
  const raw=await response.text();let payload:any={};try{payload=raw?JSON.parse(raw):{};}catch{payload={message:raw};}
@@ -201,10 +212,39 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
   .eq('seller_id',input.sellerId).eq('is_active',true).eq('logistics_providers.is_active',true)) as any[];
  const warehouse=unwrap(await db().from('warehouses').select('id,postal_code,country_code').eq('seller_id',input.sellerId).eq('is_active',true).order('is_default',{ascending:false}).limit(1).maybeSingle()) as any;
  if(!warehouse||!configs.length)return [];
- const cacheKey='svc:'+crypto.createHash('sha256').update(JSON.stringify({origin:warehouse.postal_code,destination:input.destinationPostalCode,weightGrams:input.weightGrams,codAmountMinor:input.codAmountMinor,declaredValueMinor:input.declaredValueMinor,currency:input.currency,configs:configs.map(x=>[x.id,x.priority_rank,x.updated_at]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))})).digest('hex');
+
+ const regionCode=input.destinationPostalCode.slice(0,3)||'GLOBAL';
+ let feedbackRows:any[]=[];
+ const feedbackCacheKey=`carrier-feedback:${input.sellerId}:${regionCode}`;
+ try{
+  const cachedFeedback=await getLogisticsRateCache<any[]>(feedbackCacheKey);
+  if(cachedFeedback)feedbackRows=cachedFeedback;
+  else{
+   feedbackRows=unwrap(await db().from('carrier_performance_feedback')
+    .select('provider_code,service_code,attempts,delivered_count,rto_count,updated_at')
+    .eq('seller_id',input.sellerId).eq('region_code',regionCode)) as any[];
+   await setLogisticsRateCache(feedbackCacheKey,feedbackRows,60);
+  }
+ }catch(error){
+  // Backward-compatible rollout: until the SQL migration is applied, use a neutral prior.
+  console.warn('Adaptive carrier feedback unavailable; using neutral prior:',(error as Error).message);
+  feedbackRows=[];
+  await setLogisticsRateCache(feedbackCacheKey,[],30);
+ }
+ const feedbackByService=new Map<string,any>();
+ for(const row of feedbackRows)feedbackByService.set(`${row.provider_code}:${row.service_code}`,row);
+ const feedbackVersion=crypto.createHash('sha256').update(JSON.stringify(feedbackRows.map(row=>[row.provider_code,row.service_code,row.attempts,row.delivered_count,row.rto_count,row.updated_at]))).digest('hex');
+ const cacheKey='svc:'+crypto.createHash('sha256').update(JSON.stringify({
+  origin:warehouse.postal_code,destination:input.destinationPostalCode,weightGrams:input.weightGrams,
+  codAmountMinor:input.codAmountMinor,declaredValueMinor:input.declaredValueMinor,currency:input.currency,
+  feedbackVersion,configs:configs.map(x=>[x.id,x.priority_rank,x.updated_at]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
+ })).digest('hex');
  const cached=await getLogisticsRateCache<any[]>(cacheKey);if(cached)return cached;
+ return rateQuoteFlights.run(cacheKey,async()=>{
+ const secondCached=await getLogisticsRateCache<any[]>(cacheKey);if(secondCached)return secondCached;
  const settled=await Promise.allSettled(configs.map(async config=>{
-  const provider=rateAdapter(config.logistics_providers.code);
+  const providerCode=String(config.logistics_providers.code);
+  const provider=rateAdapter(providerCode);
   const credentials=JSON.parse(decryptField(config.encrypted_credentials));
   let breaker=quoteBreakers.get(config.id);if(!breaker){breaker=new CircuitBreaker(3,15000);quoteBreakers.set(config.id,breaker);}
   const quotes=await breaker.execute(()=>withTimeout(provider.getRates({
@@ -212,18 +252,44 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
    destination:{warehouseId:'destination',postalCode:input.destinationPostalCode,countryCode:'IN'},
    weightGrams:input.weightGrams,codAmountMinor:input.codAmountMinor,declaredValueMinor:input.declaredValueMinor,currency:input.currency,
   },credentials),4500));
-  return quotes.map(quote=>({configId:config.id,priorityRank:config.priority_rank,quote}));
+  return quotes.filter(quote=>quote.currency===input.currency).map(quote=>({
+   id:`${config.id}:${quote.serviceCode}`,configId:config.id,priorityRank:config.priority_rank,providerCode,quote,
+  }));
  }));
  const candidates=settled.flatMap(result=>result.status==='fulfilled'?result.value:[]);
- const scored=scoreCarriers(candidates.map(x=>({providerCode:x.quote.providerCode,serviceCode:x.quote.serviceCode,costMinor:x.quote.amountMinor,
-  estimatedTransitHours:x.quote.estimatedTransitHours,historicalRtoRate:0.5,sellerPriority:x.priorityRank,serviceable:x.quote.serviceable,currency:x.quote.currency})),
-  {cost:0.45,transit:0.35,rto:0,priority:0.20});
- const result=scored.map(score=>{const match=candidates.find(x=>x.quote.providerCode===score.providerCode&&x.quote.serviceCode===score.serviceCode);return{...score,carrierConfigId:match?.configId,quote:match?.quote};});
+ const banditFeedback:Record<string,{attempts:number;successful:number;rto:number}>={};
+ const ranked=rankCarriersHybrid(candidates.map(candidate=>{
+  const row=feedbackByService.get(`${candidate.providerCode}:${candidate.quote.serviceCode}`);
+  const attempts=Number(row?.attempts||0),delivered=Number(row?.delivered_count||0),rto=Number(row?.rto_count||0);
+  banditFeedback[candidate.id]={attempts:attempts>=5?attempts:0,successful:attempts>=5?delivered:0,rto:attempts>=5?rto:0};
+  return {
+   id:candidate.id,cost:candidate.quote.amountMinor,transitHours:candidate.quote.estimatedTransitHours,
+   rtoRate:attempts>=5?rto/attempts:0.15,sellerPriority:Number(candidate.priorityRank||100),
+   serviceable:candidate.quote.serviceable,
+  };
+ }),{cost:0.4,transit:0.3,rto:0.2,sellerPriority:0.1},banditFeedback,{
+  epsilon:(()=>{const raw=Number(process.env.CARRIER_EPSILON||0.08);return Number.isFinite(raw)?Math.max(0,Math.min(0.25,raw)):0.08;})(),
+ });
+ const result=ranked.map(score=>{
+  const match=candidates.find(candidate=>candidate.id===score.id);
+  return {
+   ...score,
+   providerCode:match?.quote.providerCode,
+   serviceCode:match?.quote.serviceCode,
+   costMinor:match?.quote.amountMinor,
+   estimatedTransitHours:match?.quote.estimatedTransitHours,
+   currency:match?.quote.currency,
+   score:score.selectionScore,
+   carrierConfigId:match?.configId,
+   quote:match?.quote,
+  };
+ });
  const earliestExpiry=result.reduce((min,x)=>Math.min(min,Date.parse(x.quote?.expiresAt||new Date(Date.now()+60000).toISOString())),Date.now()+86400000);
- await setLogisticsRateCache(cacheKey,result,Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))));
+ const cacheTtl=result.length?Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))):15;
+ await setLogisticsRateCache(cacheKey,result,cacheTtl);
  return result;
+ });
 }
-
 export async function retrySellerShipment(sellerId:string,shipmentId:string) {
  return unwrap(await db().rpc('retry_shipment_booking',{p_shipment_id:shipmentId,p_seller_id:sellerId}));
 }

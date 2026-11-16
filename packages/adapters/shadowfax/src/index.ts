@@ -24,7 +24,8 @@ export class ShadowfaxAdapter implements ICarrierProvider {
   return [{providerCode:this.code,serviceCode:'Regular',amountMinor:Math.round(total*100),currency:r.currency,estimatedTransitHours:120,serviceable:true,codSupported:false,fetchedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60*1000).toISOString()}];
  }
  async createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>{
-  if(r.declaredValueMinor>=5000000)throw new Error('SHADOWFAX_EWAY_BILL_AND_SELLER_GSTIN_REQUIRED_FOR_ORDERS_50000_PLUS');\n  const origin=r.origin;if(!origin?.name||!origin.contact||!origin.addressLine1||!origin.city||!origin.postalCode)throw new Error('SHADOWFAX_PICKUP_ADDRESS_INCOMPLETE');
+  if(r.declaredValueMinor>=5000000)throw new Error('SHADOWFAX_EWAY_BILL_AND_SELLER_GSTIN_REQUIRED_FOR_ORDERS_50000_PLUS');
+  const origin=r.origin;if(!origin?.name||!origin.contact||!origin.addressLine1||!origin.city||!origin.postalCode)throw new Error('SHADOWFAX_PICKUP_ADDRESS_INCOMPLETE');
   const destination=r.destination;if(!destination.name||!destination.contact||!destination.addressLine1||!destination.city||!destination.postalCode)throw new Error('SHADOWFAX_DELIVERY_ADDRESS_INCOMPLETE');
   const body={
    customer_details:{name:destination.name,contact:destination.contact,address_line_1:destination.addressLine1,address2:destination.addressLine2||'',city:destination.city,pincode:Number(destination.postalCode),state:destination.state||''},

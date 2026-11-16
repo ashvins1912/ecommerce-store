@@ -1,5 +1,6 @@
 import { Redis } from '@upstash/redis';
 import type { CartItem } from '../../shared/types.js';
+import { LRUKCache, TOKEN_BUCKET_LUA } from '../../../packages/hybrid-engine/src/index.js';
 
 const hasUpstash =
   Boolean(process.env.UPSTASH_REDIS_REST_URL) && Boolean(process.env.UPSTASH_REDIS_REST_TOKEN);
@@ -14,7 +15,7 @@ const upstashClient = hasUpstash
 const memoryCarts = new Map<string, CartItem[]>();
 const memoryOtp = new Map<string, { code: string; expiresAt: number }>();
 const memoryRateLimits = new Map<string, { count: number; resetAt: number }>();
-const memoryLogisticsRates = new Map<string,{value:unknown;expiresAt:number}>();
+const memoryLogisticsRates = new LRUKCache<unknown>(500, 2);
 
 export async function getCartCache(key: string): Promise<CartItem[] | null> {
   if (upstashClient) {
@@ -105,13 +106,19 @@ export async function checkRateLimit(
   if (upstashClient) {
     try {
       const rateKey = `rl:${identifier}`;
-      const count = await upstashClient.incr(rateKey);
-      if (count === 1) {
-        await upstashClient.expire(rateKey, windowSeconds);
-      }
-      return { allowed: count <= maxRequests, remaining: Math.max(0, maxRequests - count) };
+      const nowSeconds = Date.now() / 1000;
+      const capacity = Math.max(1, maxRequests);
+      const refillPerSecond = capacity / Math.max(1, windowSeconds);
+      const raw = await upstashClient.eval(
+        TOKEN_BUCKET_LUA,
+        [rateKey],
+        [nowSeconds, capacity, refillPerSecond, 1, Math.max(2, windowSeconds * 2)]
+      ) as number[];
+      const allowed = Number(raw?.[0]) === 1;
+      const remaining = Math.max(0, Math.floor(Number(raw?.[1] || 0)));
+      return { allowed, remaining };
     } catch {
-      // Fall through to memory limiter
+      // Fall through to the bounded process-local limiter if Redis is unavailable.
     }
   }
   const now = Date.now();
@@ -125,10 +132,23 @@ export async function checkRateLimit(
 }
 
 export async function getLogisticsRateCache<T>(key:string):Promise<T|null>{
- if(upstashClient){try{return await upstashClient.get<T>('logistics:'+key)??null;}catch{/* memory fallback */}}
- const item=memoryLogisticsRates.get(key);if(!item)return null;if(item.expiresAt<Date.now()){memoryLogisticsRates.delete(key);return null;}return item.value as T;
+ if(upstashClient){
+  try{
+   const cached=await upstashClient.get<T>('logistics:'+key);
+   if(cached!==null&&cached!==undefined){
+    let ttlMs=5_000;
+    if(Array.isArray(cached)){
+     const expiries=cached.map((entry:any)=>Date.parse(entry?.quote?.expiresAt||'')).filter((value:number)=>Number.isFinite(value));
+     if(expiries.length)ttlMs=Math.max(1,Math.min(ttlMs,Math.min(...expiries)-Date.now()));
+    }
+    memoryLogisticsRates.set(key,cached,ttlMs);return cached;
+   }
+  }catch{/* fall back to L1 */}
+ }
+ return (memoryLogisticsRates.get(key) as T|undefined)??null;
 }
 export async function setLogisticsRateCache(key:string,value:unknown,ttlSeconds=86400):Promise<void>{
- const now=Date.now();for(const [cacheKey,item] of memoryLogisticsRates){if(item.expiresAt<=now)memoryLogisticsRates.delete(cacheKey);}while(memoryLogisticsRates.size>=500){const oldest=memoryLogisticsRates.keys().next().value;if(!oldest)break;memoryLogisticsRates.delete(oldest);}const ttl=Math.max(1,Math.min(86400,Math.floor(ttlSeconds)));memoryLogisticsRates.set(key,{value,expiresAt:now+ttl*1000});
- if(upstashClient){try{await upstashClient.set('logistics:'+key,value,{ex:ttl});}catch{/* memory cache remains available */}}
+ const ttl=Math.max(1,Math.min(86400,Math.floor(ttlSeconds)));
+ memoryLogisticsRates.set(key,value,ttl*1000);
+ if(upstashClient){try{await upstashClient.set('logistics:'+key,value,{ex:ttl});}catch{/* L1 cache remains available */}}
 }

@@ -160,6 +160,10 @@ ProductSchema.index({
   isDiscontinued: 1,
   isDeleted: 1,
 });
+ProductSchema.index({ category: 1, trendScore: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, createdAt: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, salesCount: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, salePrice: 1, _id: 1 });
 
 const LikeSchema = new Schema(
   {
@@ -204,6 +208,8 @@ const OrderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true, index: true },
     buyerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    checkoutIdempotencyKey: { type: String, default: undefined, immutable: true },
+    checkoutPayloadHash: { type: String, default: undefined, immutable: true },
     sellerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     items: [
       {
@@ -224,6 +230,10 @@ const OrderSchema = new Schema(
     paymentStatus: { type: String, enum: ['NOT_REQUIRED', 'PENDING', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'], default: 'NOT_REQUIRED', index: true },
     paymentProvider: { type: String, enum: ['razorpay', 'stripe'], default: null },
     paymentReference: { type: String, default: null, index: true },
+    paymentIntentRequestKey: { type: String, default: null },
+    paymentIntentLeaseUntil: { type: Date, default: null, index: true },
+    sellerNotificationSentAt: { type: Date, default: null },
+    sellerNotificationLeaseUntil: { type: Date, default: null, index: true },
     paymentCheckoutUrl: { type: String, default: null },
     paymentTransactionId: { type: String, default: null, index: true },
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
@@ -266,6 +276,10 @@ const OrderSchema = new Schema(
     ],
   },
   { timestamps: true }
+);
+OrderSchema.index(
+  { buyerId: 1, checkoutIdempotencyKey: 1, sellerId: 1 },
+  { unique: true, partialFilterExpression: { checkoutIdempotencyKey: { $type: 'string' } } }
 );
 
 export const ATLAS_SEARCH_INDEX_DEFINITION = {
@@ -454,10 +468,15 @@ const PaymentEventSchema = new Schema({
   provider: { type: String, enum: ['razorpay', 'stripe'], required: true },
   eventId: { type: String, required: true },
   orderId: { type: String, required: true, index: true },
-  processedAt: Date,
+  status: { type: String, enum: ['PROCESSING', 'PROCESSED', 'FAILED'], default: 'PROCESSING', index: true },
+  processingLeaseUntil: { type: Date, default: null, index: true },
+  attempts: { type: Number, default: 1, min: 1 },
+  lastError: { type: String, default: null },
+  processedAt: { type: Date, default: null },
   payloadHash: { type: String, required: true },
 }, { timestamps: true });
 PaymentEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
+PaymentEventSchema.index({ status: 1, processingLeaseUntil: 1 });
 
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);

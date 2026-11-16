@@ -38,16 +38,17 @@ export class ShiprocketAdapter implements ICarrierProvider {
    const shipment=Array.isArray(order.shipments)?order.shipments[0]:order.shipment||{};
    const shipmentId=shipment.id||shipment.shipment_id||order.shipment_id;
    if(!shipmentId)return null;
-   const statusCode=Number(shipment.status_code||shipment.status||order.status_code||order.status||0);\n   return{shipmentId:String(shipmentId),awb:shipment.awb||shipment.awb_code||shipment.awb_number||order.awb_code,pickupScheduled:statusCode>=3};
+   const statusCode=Number(shipment.status_code||shipment.status||order.status_code||order.status||0);
+   return{shipmentId:String(shipmentId),awb:shipment.awb||shipment.awb_code||shipment.awb_number||order.awb_code,pickupScheduled:statusCode>=3};
   }catch{return null;}
  }
  async createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>{
   const o=r.origin,d=r.destination;
   if(!o?.name||!o.postalCode)throw new Error('SHIPROCKET_PICKUP_LOCATION_REQUIRED');
   if(!d.name||!d.contact||!d.addressLine1||!d.city||!d.state||!d.postalCode||!d.email)throw new Error('SHIPROCKET_DELIVERY_DETAILS_INCOMPLETE');
-  const [firstName,...lastParts]=d.name.trim().split(/\\s+/);const lastName=lastParts.join(' ')||'Customer';
-  const phoneDigits=d.contact.replace(/\\D/g,'');const phone=phoneDigits.length===12&&phoneDigits.startsWith('91')?phoneDigits.slice(2):phoneDigits;const pin=Number(d.postalCode);
-  if(!/^\\d{10}$/.test(phone)||!/^\\d{6}$/.test(String(pin)))throw new Error('SHIPROCKET_PHONE_OR_PINCODE_INVALID');
+  const [firstName,...lastParts]=d.name.trim().split(/\s+/);const lastName=lastParts.join(' ')||'Customer';
+  const phoneDigits=d.contact.replace(/\D/g,'');const phone=phoneDigits.length===12&&phoneDigits.startsWith('91')?phoneDigits.slice(2):phoneDigits;const pin=Number(d.postalCode);
+  if(!/^\d{10}$/.test(phone)||!/^\d{6}$/.test(String(pin)))throw new Error('SHIPROCKET_PHONE_OR_PINCODE_INVALID');
   const orderId=r.orderId.slice(0,50);const headers=await this.headers(c);
   let existing=await this.findExistingOrder(orderId,headers);
   let shipmentId=existing?.shipmentId;let awb=existing?.awb;let pickupScheduled=existing?.pickupScheduled===true;

@@ -220,6 +220,7 @@ export default function App() {
 
   const heroRef = useRef<HTMLElement | null>(null);
   const catalogRef = useRef<HTMLElement | null>(null);
+  const catalogCursorRef = useRef<{ signature: string; cursors: Record<number, string> }>({ signature: '', cursors: {} });
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -585,6 +586,15 @@ export default function App() {
   const fetchCatalog = useCallback(async () => {
     setCatalogLoading(true);
     try {
+      const cursorSignature = JSON.stringify({
+        category, occasion, season, sort, debouncedQuery, selectedCampaignId,
+        minPrice, maxPrice, minDiscount, inStockOnly, colorFilter, viewerId: user?._id || '',
+      });
+      if (catalogCursorRef.current.signature !== cursorSignature) {
+        catalogCursorRef.current = { signature: cursorSignature, cursors: {} };
+      }
+      const cursorEligible = !debouncedQuery && !selectedCampaignId && !colorFilter.trim() &&
+        ['most_demanding', 'newly_added', 'fast_selling', 'price_asc', 'price_desc'].includes(sort);
       const params = new URLSearchParams({
         category,
         occasion,
@@ -599,8 +609,17 @@ export default function App() {
       if (minDiscount) params.set('minDiscount', minDiscount);
       if (inStockOnly) params.set('inStockOnly', 'true');
       if (colorFilter.trim()) params.set('color', colorFilter.trim());
+      if (cursorEligible && page > 1) {
+        const cursor = catalogCursorRef.current.cursors[page];
+        if (cursor) params.set('cursor', cursor);
+      }
 
       const data = await apiFetch<ProductListResponse>(`/api/products?${params}`);
+      if (cursorEligible && data.nextCursor) {
+        catalogCursorRef.current.cursors[page + 1] = data.nextCursor;
+      } else {
+        delete catalogCursorRef.current.cursors[page + 1];
+      }
       setCatalog(data);
     } finally {
       setCatalogLoading(false);
@@ -618,6 +637,7 @@ export default function App() {
     minDiscount,
     inStockOnly,
     colorFilter,
+    user?._id,
   ]);
 
   useEffect(() => {
