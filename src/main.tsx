@@ -1,4 +1,5 @@
 import {createRoot} from 'react-dom/client';
+import './i18n/config';
 import App from './App.tsx';
 import {LanguageProvider} from './lib/i18n.tsx';
 import './index.css';

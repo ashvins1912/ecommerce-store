@@ -140,6 +140,32 @@
       "shippingAddresses": [],
       "createdAt": "2026-11-15T15:06:15.463Z",
       "updatedAt": "2026-11-15T15:06:15.463Z"
+    },
+    {
+      "_id": "usr_provider_1",
+      "role": "PROVIDER",
+      "name": "Aarav Artisan Supply",
+      "email": "provider.aarav@example.com",
+      "authProvider": "demo",
+      "oauthAccounts": [],
+      "mobileNumber": "+919876540001",
+      "isWhatsappVerified": false,
+      "shippingAddresses": [],
+      "createdAt": "2026-09-17T15:13:01.404Z",
+      "updatedAt": "2026-11-15T15:13:01.404Z"
+    },
+    {
+      "_id": "usr_provider_2",
+      "role": "PROVIDER",
+      "name": "Nisha Craft Works",
+      "email": "provider.nisha@example.com",
+      "authProvider": "demo",
+      "oauthAccounts": [],
+      "mobileNumber": "+919876540002",
+      "isWhatsappVerified": false,
+      "shippingAddresses": [],
+      "createdAt": "2026-10-12T15:13:01.404Z",
+      "updatedAt": "2026-11-15T15:13:01.404Z"
     }
   ],
   "products": [
@@ -214,7 +240,7 @@
       "viewsCount": 1922,
       "cartAddsCount": 74,
       "salesCount": 52,
-      "trendScore": 666,
+      "trendScore": 670,
       "averageRating": 4.9,
       "reviewCount": 3,
       "badges": [
@@ -230,7 +256,7 @@
       "seasons": [
         "Diwali"
       ],
-      "sharesCount": 0,
+      "sharesCount": 2,
       "isPublished": true,
       "isUnlisted": false,
       "isDiscontinued": false,
@@ -3602,6 +3628,21 @@
   ],
   "sessions": [
     {
+      "sessionId": "sess_93413888596edf0be3d1b8cf",
+      "userId": "usr_seller_1",
+      "role": "SELLER",
+      "provider": "demo",
+      "tokenFingerprint": "tls_a00a557969f9",
+      "csrfToken": "csrf_8d3ea6b5ff208d12ccde2c46",
+      "tlsSecure": false,
+      "protocol": "http",
+      "userAgent": "node",
+      "createdAt": "2026-11-16T15:56:40.557Z",
+      "lastActiveAt": "2026-11-16T15:56:40.557Z",
+      "expiresAt": "2026-12-16T15:56:40.557Z",
+      "revokedAt": null
+    },
+    {
       "sessionId": "sess_f9f552da370e6563ccbb1bf7",
       "userId": "usr_buyer_1",
       "role": "BUYER",
@@ -4015,5 +4056,22 @@
     }
   ],
   "authSessions": [],
-  "shareEvents": []
+  "shareEvents": [
+    {
+      "_id": "shr_c3be7fbd5c69",
+      "productId": "prd_01",
+      "channel": "whatsapp",
+      "userId": null,
+      "guestToken": "gst_539d7d1ef65997fdb5bc",
+      "createdAt": "2026-11-16T15:56:05.838Z"
+    },
+    {
+      "_id": "shr_6403764da626",
+      "productId": "prd_01",
+      "channel": "whatsapp",
+      "userId": null,
+      "guestToken": "gst_e4b16826b3b2298dcfd1",
+      "createdAt": "2026-11-16T15:56:05.829Z"
+    }
+  ]
 }

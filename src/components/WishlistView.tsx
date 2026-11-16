@@ -45,10 +45,10 @@ export function WishlistView({
   const visibleItems = items.filter((item) => likedIds.has(item._id));
 
   return (
-    <main className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <main className="mx-auto max-w-7xl min-w-0 px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#E8E6E1] pb-6">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413]">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold text-[#141413]">
             {t('wishlist.title')}
           </h1>
           <p className="mt-1 text-xs text-[#6B6A65] tabular-nums">
@@ -62,7 +62,7 @@ export function WishlistView({
         <button
           type="button"
           onClick={onBrowseCatalog}
-          className="rounded-md border border-[#D6D3CD] bg-white px-4 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] self-start cursor-pointer"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-[#D6D3CD] bg-white px-4 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] self-start cursor-pointer"
         >
           {t('wishlist.continue')}
         </button>
@@ -156,7 +156,7 @@ export function WishlistView({
                         onClick={() =>
                           defaultVariant && onAddToCart(product, defaultVariant, 1)
                         }
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-[#881337] px-3 py-2 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-40 cursor-pointer"
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-md bg-[#881337] px-3 py-2 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-40 cursor-pointer"
                       >
                         <ShoppingBag className="h-3.5 w-3.5" />
                         <span>
@@ -168,9 +168,9 @@ export function WishlistView({
                         type="button"
                         aria-label={product.title}
                         onClick={() => onRemoveFromWishlist(product._id)}
-                        className="inline-flex items-center justify-center rounded-md border border-[#D6D3CD] p-2 text-[#57534E] hover:border-red-300 hover:text-red-700 cursor-pointer"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[#D6D3CD] text-[#57534E] hover:border-red-300 hover:text-red-700 cursor-pointer"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
 
@@ -178,7 +178,7 @@ export function WishlistView({
                       <button
                         type="button"
                         onClick={() => onToggleCompare(product)}
-                        className={`w-full inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                        className={`w-full min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
                           isCompared
                             ? 'border-[#141413] bg-[#141413] text-white'
                             : 'border-[#E8E6E1] text-[#44403C] hover:border-[#141413]'

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -14,23 +14,29 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  Compass,
   Copy,
   ExternalLink,
   Eye,
   EyeOff,
   Flame,
   FolderCog,
+  Globe,
   Image as ImageIcon,
   Link2,
   Lock,
   LogOut,
   Mail,
+  Menu,
   Package,
   PackageX,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCw,
   Share2,
   ShieldCheck,
+  Store,
   Tag,
   Trash2,
   Truck,
@@ -38,6 +44,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type {
   CartItem,
   CategoryControl,
@@ -61,7 +68,9 @@ import type {
   User,
 } from '../shared/types';
 import { apiFetch, compressAndUploadImage, formatINR, setClientSessionTokens } from '../lib/api';
-import { useI18n } from '../lib/i18n';
+import { useI18n, type Language } from '../lib/i18n';
+import { useI18nTutorial } from '../hooks/useI18nTutorial';
+import { ActionButton } from './ActionButton';
 import { CustomerSearchModal, type AssignableCustomer } from './CustomerSearchModal';
 import { ProviderManagementPanel } from './ProviderManagementPanel';
 import { LogisticsManagementPanel } from './LogisticsManagementPanel';
@@ -161,10 +170,19 @@ export function SellerHubView({
   onReturnToStore,
   onLogout,
 }: SellerHubViewProps) {
-  const { t, tc, to, tseason, tr, ts, totab, locale } = useI18n();
+  const { t, tc, to, tseason, tr, ts, totab, locale, lang, setLang } = useI18n();
+  const { t: i18nT } = useTranslation();
   const isAdmin = user?.role === 'ADMIN';
+  const tutorialRole = isAdmin ? 'ADMIN' : 'SELLER';
+  const { startRoleTour } = useI18nTutorial(tutorialRole);
+
   const [loggingOut, setLoggingOut] = useState(false);
   const [sellerTab, setSellerTab] = useState<SellerTab>(isAdmin ? 'invites' : 'analytics');
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
+  const prevDrawerOpenRef = useRef(false);
 
   useEffect(() => {
     if (user?.role === 'ADMIN') {
@@ -173,6 +191,29 @@ export function SellerHubView({
       setSellerTab('analytics');
     }
   }, [user?.role]);
+
+  useEffect(() => {
+    if (navDrawerOpen) {
+      prevDrawerOpenRef.current = true;
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      window.requestAnimationFrame(() => drawerCloseRef.current?.focus());
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setNavDrawerOpen(false);
+        }
+      };
+      window.addEventListener('keydown', onKeyDown);
+      return () => {
+        document.body.style.overflow = previousOverflow;
+        window.removeEventListener('keydown', onKeyDown);
+      };
+    } else if (prevDrawerOpenRef.current) {
+      prevDrawerOpenRef.current = false;
+      menuButtonRef.current?.focus();
+    }
+  }, [navDrawerOpen]);
 
   // Invited Seller Onboarding state (strictly requires Admin-issued ?sellerInvite=<token>)
   const [inviteCheckLoading, setInviteCheckLoading] = useState(false);
@@ -206,6 +247,8 @@ export function SellerHubView({
   // Analytics state
   const [granularity, setGranularity] = useState<TimeGranularity>('month');
   const [analytics, setAnalytics] = useState<SellerAnalyticsResponse | null>(null);
+  const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
+  const [analyticsProdSort, setAnalyticsProdSort] = useState<'sales' | 'shares' | 'views'>('sales');
   const [cronNotice, setCronNotice] = useState<string | null>(null);
 
   // Seller Catalog & Dynamic Offers / Lifecycle Control state
@@ -391,10 +434,15 @@ export function SellerHubView({
 
   const loadAnalytics = useCallback(async () => {
     if (!isVerifiedSellerOrAdmin) return;
-    const data = await apiFetch<SellerAnalyticsResponse>(
-      `/api/seller/analytics?granularity=${granularity}`
-    );
-    setAnalytics(data);
+    setAnalyticsRefreshing(true);
+    try {
+      const data = await apiFetch<SellerAnalyticsResponse>(
+        `/api/seller/analytics?granularity=${granularity}`
+      );
+      setAnalytics(data);
+    } finally {
+      setAnalyticsRefreshing(false);
+    }
   }, [isVerifiedSellerOrAdmin, granularity]);
 
   const loadSellerCatalog = useCallback(async () => {
@@ -562,6 +610,9 @@ export function SellerHubView({
     if (isAdmin && sellerTab === 'invites') {
       loadAdminInvites();
     }
+    if (isVerifiedSellerOrAdmin && sellerTab === 'analytics') {
+      loadAnalytics();
+    }
     if (isVerifiedSellerOrAdmin && sellerTab === 'categories') {
       loadSellerCategories();
     }
@@ -586,6 +637,7 @@ export function SellerHubView({
     sellerTab,
     orderTab,
     loadAdminInvites,
+    loadAnalytics,
     loadSellerCategories,
     loadSellerCampaigns,
     loadSellerCoupons,
@@ -598,7 +650,7 @@ export function SellerHubView({
   if (!isVerifiedSellerOrAdmin && inviteToken) {
     if (inviteCheckLoading) {
       return (
-        <section className="mx-auto max-w-lg px-4 py-16 text-center text-sm text-[#6B6A65]">
+        <section className="min-h-dvh w-full overflow-x-clip mx-auto max-w-lg px-4 py-16 text-center text-sm text-[#6B6A65]">
           {t('detail.loadingProduct')}
         </section>
       );
@@ -606,12 +658,12 @@ export function SellerHubView({
 
     if (inviteInvalid || !validatedInvite) {
       return (
-        <section className="mx-auto max-w-lg px-4 py-14">
-          <div className="rounded-lg border border-[#E8E6E1] bg-white p-8 text-center space-y-4">
+        <section className="min-h-dvh w-full overflow-x-clip mx-auto max-w-lg px-4 py-14">
+          <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 sm:p-8 text-center space-y-4">
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#FAF9F6] text-[#881337]">
               <Lock className="h-5 w-5" />
             </div>
-            <h1 className="font-display text-3xl font-semibold text-[#141413]">
+            <h1 className="font-display text-2xl sm:text-3xl font-semibold text-[#141413]">
               {t('seller.invitedInvalidTitle')}
             </h1>
             <p className="text-xs leading-relaxed text-[#6B6A65]">
@@ -623,7 +675,7 @@ export function SellerHubView({
                 onInviteConsumed?.();
                 onReturnToStore?.();
               }}
-              className="rounded-md bg-[#141413] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#292524] cursor-pointer"
+              className="min-h-[44px] rounded-md bg-[#141413] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#292524] cursor-pointer"
             >
               {t('seller.backToStore')}
             </button>
@@ -839,19 +891,19 @@ export function SellerHubView({
   // --- Non-Seller & Non-Admin Gate: Strictly Invite-Only (NO Self-Onboarding Option) ---
   if (!user) {
     return (
-      <section className="mx-auto max-w-[1200px] px-4 sm:px-6 lg:px-8 py-16 text-center">
-        <div className="mx-auto max-w-md rounded-lg border border-[#E8E6E1] bg-white p-8 space-y-4">
+      <section className="min-h-dvh w-full overflow-x-clip mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16 text-center">
+        <div className="mx-auto max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 sm:p-8 space-y-4">
           <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#FAF9F6] text-[#881337]">
             <Lock className="h-5 w-5" />
           </div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413]">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold text-[#141413]">
             {t('seller.title')}
           </h1>
           <p className="text-sm leading-relaxed text-[#6B6A65]">{t('seller.guestDesc')}</p>
           <button
             type="button"
             onClick={onOpenAuth}
-            className="rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
+            className="min-h-[44px] w-full sm:w-auto rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
           >
             {t('seller.signInCta')}
           </button>
@@ -862,12 +914,12 @@ export function SellerHubView({
 
   if (!isVerifiedSellerOrAdmin) {
     return (
-      <section className="mx-auto max-w-lg px-4 py-14">
-        <div className="rounded-lg border border-[#E8E6E1] bg-white p-8 text-center space-y-4">
+      <section className="min-h-dvh w-full overflow-x-clip mx-auto max-w-lg px-4 py-14">
+        <div className="rounded-lg border border-[#E8E6E1] bg-white p-6 sm:p-8 text-center space-y-4">
           <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#FAF9F6] text-[#881337]">
             <Lock className="h-5 w-5" />
           </div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413]">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold text-[#141413]">
             {t('seller.inviteOnlyTitle')}
           </h1>
           <p className="text-xs leading-relaxed text-[#57534E]">{t('seller.inviteOnlyDesc')}</p>
@@ -882,7 +934,7 @@ export function SellerHubView({
               <button
                 type="button"
                 onClick={onReturnToStore}
-                className="rounded-md bg-[#141413] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#292524] cursor-pointer"
+                className="min-h-[44px] w-full sm:w-auto rounded-md bg-[#141413] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#292524] cursor-pointer"
               >
                 {t('seller.backToStore')}
               </button>
@@ -890,7 +942,7 @@ export function SellerHubView({
             <button
               type="button"
               onClick={onOpenAuth}
-              className="rounded-md border border-[#D6D3CD] bg-white px-4 py-2.5 text-xs font-medium text-[#141413] hover:border-[#881337] cursor-pointer"
+              className="min-h-[44px] w-full sm:w-auto rounded-md border border-[#D6D3CD] bg-white px-4 py-2.5 text-xs font-medium text-[#141413] hover:border-[#881337] cursor-pointer"
             >
               {t('seller.signInCta')}
             </button>
@@ -1446,98 +1498,366 @@ ${inv.note ? `Admin note: ${inv.note}
     { id: 'orders', label: t('seller.tabOrders') },
   ];
 
-  return (
-    <main className="mx-auto max-w-[1320px] px-4 sm:px-6 lg:px-8 py-10 space-y-8">
-      {user?.isRootSuperuser === true && <RootSuperuserPanel />}
-      {/* Top Seller / Admin Breadcrumb & Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E8E6E1] pb-6">
-        <div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6A65]">
-            <span>{user?.isRootSuperuser === true ? 'Root Super Admin · Level 0' : isAdmin ? 'Platform Administrator · Level 1' : 'Seller workspace'}</span>
-            <span>/</span>
-            <span className="font-medium text-[#141413]">
-              {user.sellerProfile?.storeName || user.name}
-            </span>
-            {user.whatsappNumber && (
-              <>
-                <span>·</span>
-                <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  {t('seller.waVerified')} ({user.whatsappNumber})
-                </span>
-              </>
-            )}
-          </div>
-          <h1 className="mt-1 font-display text-3xl font-semibold text-[#141413]">
-            {isAdmin ? t('seller.adminPerfTitle') : t('seller.perfTitle')}
-          </h1>
-        </div>
+  const handleTriggerSignOut = () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    void onLogout().catch(() => setLoggingOut(false));
+  };
 
-        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+  return (
+    <div className="min-h-dvh w-full overflow-x-clip flex flex-col md:flex-row bg-[#FAF9F6]">
+      {/* Desktop Persistent / Collapsible Sidebar (md: to 2xl:) */}
+      <aside
+        aria-label={isAdmin ? 'Administrator navigation' : 'Seller workspace navigation'}
+        className={`hidden md:flex ${
+          sidebarCollapsed ? 'md:w-20' : 'md:w-64 lg:w-72'
+        } shrink-0 flex-col border-r border-[#E8E6E1] bg-white sticky top-0 h-dvh transition-[width] duration-200`}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-[#E8E6E1] px-4 py-4">
+          {!sidebarCollapsed && (
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#881337] truncate">
+                {user?.isRootSuperuser === true
+                  ? 'Root Super Admin · L0'
+                  : isAdmin
+                    ? 'Platform Admin · L1'
+                    : 'Seller Workspace'}
+              </div>
+              <div className="mt-0.5 truncate font-display text-lg font-semibold text-[#141413]">
+                {user.sellerProfile?.storeName || user.name}
+              </div>
+            </div>
+          )}
           <button
             type="button"
-            onClick={() => {
-              if (loggingOut) return;
-              if (window.confirm('Sign out of your account? Your current session will be revoked.')) {
-                setLoggingOut(true);
-                void onLogout().catch(() => setLoggingOut(false));
-              }
-            }}
-            disabled={loggingOut}
-            aria-label={loggingOut ? 'Signing out' : 'Sign out'}
-            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs font-semibold text-[#57534E] hover:border-red-300 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#881337] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md border border-[#E8E6E1] bg-white text-[#44403C] hover:border-[#881337] hover:text-[#881337] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] cursor-pointer"
           >
-            <LogOut className="h-3.5 w-3.5" />
-            <span>{loggingOut ? 'Signing out…' : 'Sign out'}</span>
-          </button>
-          <div className="inline-flex max-w-full overflow-x-auto items-center gap-1 rounded-lg bg-[#F0EEE9] p-1">
-            {user?.role === 'SELLER' && onReturnToStore && (
-              <button
-                type="button"
-                onClick={onReturnToStore}
-                className="rounded-md px-3 sm:px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 bg-[#881337] text-white hover:bg-[#9F1239] cursor-pointer"
-              >
-                Storefront
-              </button>
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
             )}
-            {tabOptions.map((tabItem) => (
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+          {user?.role === 'SELLER' && onReturnToStore && (
+            <button
+              type="button"
+              onClick={onReturnToStore}
+              title="Storefront"
+              className="w-full min-h-[44px] inline-flex items-center gap-3 rounded-md bg-[#FAF9F6] border border-[#E8E6E1] px-3 py-2 text-xs font-semibold text-[#881337] hover:border-[#881337] transition-colors cursor-pointer mb-2"
+            >
+              <Store className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {!sidebarCollapsed && <span className="truncate">Storefront</span>}
+            </button>
+          )}
+
+          {tabOptions.map((tabItem) => {
+            const active = sellerTab === tabItem.id;
+            return (
               <button
                 key={tabItem.id}
                 type="button"
                 onClick={() => setSellerTab(tabItem.id)}
-                className={`rounded-md px-3 sm:px-3.5 py-1.5 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer ${
-                  sellerTab === tabItem.id
-                    ? 'bg-white text-[#141413] shadow-xs'
-                    : 'text-[#57534E] hover:text-[#141413]'
+                title={tabItem.label}
+                aria-current={active ? 'page' : undefined}
+                className={`w-full min-h-[44px] inline-flex items-center ${
+                  sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3'
+                } gap-2 rounded-md py-2 text-xs font-medium transition-colors cursor-pointer ${
+                  active
+                    ? 'bg-[#881337] text-white shadow-xs'
+                    : 'text-[#44403C] hover:bg-[#FAF9F6] hover:text-[#141413]'
                 }`}
               >
-                {tabItem.label}
+                {sidebarCollapsed ? (
+                  <span className="font-semibold uppercase">
+                    {tabItem.label.slice(0, 2)}
+                  </span>
+                ) : (
+                  <span className="truncate text-left">{tabItem.label}</span>
+                )}
               </button>
-            ))}
-          </div>
+            );
+          })}
+        </nav>
+
+        <div className="border-t border-[#E8E6E1] p-3 space-y-2.5">
+          {!sidebarCollapsed && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6B6A65] px-1">
+                <Globe className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{t('nav.language')}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { code: 'en', label: 'EN' },
+                    { code: 'hi', label: 'हिन्दी' },
+                    { code: 'bn', label: 'বাংলা' },
+                  ] as Array<{ code: Language; label: string }>
+                ).map((item) => (
+                  <button
+                    key={item.code}
+                    type="button"
+                    onClick={() => setLang(item.code)}
+                    className={`min-h-[36px] rounded border text-[11px] font-medium cursor-pointer ${
+                      lang === item.code
+                        ? 'border-[#881337] bg-[#881337] text-white'
+                        : 'border-[#E8E6E1] text-[#44403C] hover:border-[#881337]'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
-            onClick={handleRunTrendingCron}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] whitespace-nowrap cursor-pointer"
+            onClick={handleTriggerSignOut}
+            disabled={loggingOut}
+            aria-label={loggingOut ? 'Signing out' : 'Sign out'}
+            className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold text-[#57534E] hover:border-red-300 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>{t('seller.syncTrending')}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setSellerTab('catalog');
-              setShowNewModal(true);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white hover:bg-[#9F1239] whitespace-nowrap cursor-pointer"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>{t('seller.addListing')}</span>
+            <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {!sidebarCollapsed && <span>{loggingOut ? 'Signing out…' : 'Sign out'}</span>}
           </button>
         </div>
-      </div>
+      </aside>
+
+      {/* Mobile Header (< 768px) */}
+      <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-[#E8E6E1] bg-white px-4 py-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <button
+            ref={menuButtonRef}
+            type="button"
+            onClick={() => setNavDrawerOpen(true)}
+            aria-label={i18nT('a11y.open_menu')}
+            aria-expanded={navDrawerOpen}
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md border border-[#D6D3CD] bg-white text-[#141413] hover:border-[#881337] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] cursor-pointer"
+          >
+            <Menu className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#881337] truncate">
+              {isAdmin ? 'Admin' : 'Seller'}
+            </div>
+            <div className="text-sm font-semibold text-[#141413] truncate">
+              {tabOptions.find((x) => x.id === sellerTab)?.label}
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => startRoleTour()}
+          aria-label={i18nT('a11y.start_tour')}
+          className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-[#D6D3CD] bg-white px-3 text-xs font-medium text-[#141413] hover:border-[#881337] cursor-pointer"
+        >
+          <Compass className="h-4 w-4 text-[#881337]" aria-hidden="true" />
+          <span className="hidden xs:inline">{i18nT('actions.start_tour')}</span>
+        </button>
+      </header>
+
+      {/* Mobile Accessible Slide-Over Drawer */}
+      {navDrawerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex md:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label={user.sellerProfile?.storeName || user.name}
+        >
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-[1px]"
+            onClick={() => setNavDrawerOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="relative z-10 flex h-dvh w-72 max-w-[85vw] flex-col border-r border-[#E8E6E1] bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-2 border-b border-[#E8E6E1] px-4 py-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[#881337]">
+                  {isAdmin ? 'Platform Admin' : 'Seller Workspace'}
+                </div>
+                <div className="truncate font-display text-lg font-semibold text-[#141413]">
+                  {user.sellerProfile?.storeName || user.name}
+                </div>
+              </div>
+              <button
+                ref={drawerCloseRef}
+                type="button"
+                onClick={() => setNavDrawerOpen(false)}
+                aria-label={i18nT('a11y.close_menu')}
+                className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md text-[#57534E] hover:bg-[#FAF9F6] hover:text-[#141413] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] cursor-pointer"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+              {user?.role === 'SELLER' && onReturnToStore && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNavDrawerOpen(false);
+                    onReturnToStore();
+                  }}
+                  className="w-full min-h-[44px] inline-flex items-center gap-2.5 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] px-3.5 py-2 text-sm font-semibold text-[#881337] mb-2 cursor-pointer"
+                >
+                  <Store className="h-4 w-4" aria-hidden="true" />
+                  <span>Storefront</span>
+                </button>
+              )}
+
+              {tabOptions.map((tabItem) => {
+                const active = sellerTab === tabItem.id;
+                return (
+                  <button
+                    key={tabItem.id}
+                    type="button"
+                    onClick={() => {
+                      setSellerTab(tabItem.id);
+                      setNavDrawerOpen(false);
+                    }}
+                    className={`w-full min-h-[44px] flex items-center justify-between rounded-md px-3.5 py-2 text-sm font-medium cursor-pointer ${
+                      active
+                        ? 'bg-[#881337] text-white'
+                        : 'text-[#141413] hover:bg-[#FAF9F6]'
+                    }`}
+                  >
+                    <span>{tabItem.label}</span>
+                  </button>
+                );
+              })}
+
+              <div className="pt-4 mt-4 border-t border-[#E8E6E1] space-y-2">
+                <div className="px-1 text-xs font-medium text-[#6B6A65]">{t('nav.language')}</div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(
+                    [
+                      { code: 'en', label: 'EN' },
+                      { code: 'hi', label: 'हिन्दी' },
+                      { code: 'bn', label: 'বাংলা' },
+                    ] as Array<{ code: Language; label: string }>
+                  ).map((item) => (
+                    <button
+                      key={item.code}
+                      type="button"
+                      onClick={() => setLang(item.code)}
+                      className={`min-h-[44px] rounded-md border text-xs font-medium cursor-pointer ${
+                        lang === item.code
+                          ? 'border-[#881337] bg-[#881337] text-white'
+                          : 'border-[#E8E6E1] text-[#44403C]'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </nav>
+
+            <div className="border-t border-[#E8E6E1] p-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNavDrawerOpen(false);
+                  window.setTimeout(() => startRoleTour(), 100);
+                }}
+                className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-md border border-[#881337]/30 bg-[#FAF9F6] px-4 py-2 text-xs font-semibold text-[#881337] cursor-pointer"
+              >
+                <Compass className="h-4 w-4" aria-hidden="true" />
+                <span>{i18nT('actions.start_tour')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNavDrawerOpen(false);
+                  handleTriggerSignOut();
+                }}
+                disabled={loggingOut}
+                className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-4 py-2 text-xs font-semibold text-[#57534E] cursor-pointer"
+              >
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+                <span>{loggingOut ? 'Signing out…' : 'Sign out'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area (min-w-0 prevents wide tables/charts from blowing out flex row) */}
+      <main className="flex-1 min-w-0">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-8">
+          {user?.isRootSuperuser === true && <RootSuperuserPanel />}
+
+          {/* Workspace Header & Primary Tutorial Action Buttons */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#E8E6E1] pb-6">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6A65]">
+                <span>
+                  {user?.isRootSuperuser === true
+                    ? 'Root Super Admin · Level 0'
+                    : isAdmin
+                      ? 'Platform Administrator · Level 1'
+                      : 'Seller workspace'}
+                </span>
+                <span>/</span>
+                <span className="font-medium text-[#141413]">
+                  {user.sellerProfile?.storeName || user.name}
+                </span>
+                {user.whatsappNumber && (
+                  <>
+                    <span>·</span>
+                    <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t('seller.waVerified')} ({user.whatsappNumber})
+                    </span>
+                  </>
+                )}
+              </div>
+              <h1 className="mt-1 font-display text-2xl sm:text-3xl font-semibold text-[#141413]">
+                {isAdmin ? t('seller.adminPerfTitle') : t('seller.perfTitle')}
+              </h1>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+              <ActionButton
+                actionKey="start_tour"
+                role={tutorialRole}
+                variant="outline"
+                onClick={() => startRoleTour()}
+                icon={<Compass className="h-4 w-4 text-[#881337]" aria-hidden="true" />}
+              />
+
+              <ActionButton
+                actionKey="sync_trending"
+                role={tutorialRole}
+                variant="outline"
+                showHelpIcon
+                onClick={handleRunTrendingCron}
+                labelOverride={t('seller.syncTrending')}
+                icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
+              />
+
+              <ActionButton
+                actionKey="add_listing"
+                role={tutorialRole}
+                variant="primary"
+                showHelpIcon
+                onClick={() => {
+                  setSellerTab('catalog');
+                  setShowNewModal(true);
+                }}
+                labelOverride={t('seller.addListing')}
+                icon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+              />
+            </div>
+          </div>
 
       {cronNotice && (
         <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-900">
@@ -1622,16 +1942,16 @@ ${inv.note ? `Admin note: ${inv.note}
                 </select>
               </div>
 
-              <button
+              <ActionButton
                 type="submit"
+                actionKey="create_invite"
+                role="ADMIN"
                 disabled={creatingInvite}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
-              >
-                <Link2 className="h-3.5 w-3.5" />
-                <span>
-                  {creatingInvite ? t('admin.creatingInvite') : t('admin.generateInviteCta')}
-                </span>
-              </button>
+                showHelpIcon
+                icon={<Link2 className="h-3.5 w-3.5" aria-hidden="true" />}
+                labelOverride={creatingInvite ? t('admin.creatingInvite') : t('admin.generateInviteCta')}
+                className="w-full"
+              />
             </form>
 
             {latestCreatedInvite && (
@@ -1731,7 +2051,7 @@ ${inv.note ? `Admin note: ${inv.note}
                           month: 'short',
                         })}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         {inv.status === 'pending' ? (
                           <div className="inline-flex items-center gap-2">
                             <button
@@ -1781,6 +2101,18 @@ ${inv.note ? `Admin note: ${inv.note}
       {/* TAB 1: RECHARTS SELLER ANALYTICS */}
       {sellerTab === 'analytics' && analytics && (
         <div className="space-y-8">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-[#6B6A65]">{t('seller.mostSharedSub')}</p>
+            <button
+              type="button"
+              disabled={analyticsRefreshing}
+              onClick={() => loadAnalytics()}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2 text-xs font-medium text-[#141413] hover:border-[#881337] disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${analyticsRefreshing ? 'animate-spin' : ''}`} />
+              <span>{analyticsRefreshing ? t('seller.saving') : 'Refresh Analytics'}</span>
+            </button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
             <div className="rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-5">
               <div className="text-xs text-[#6B6A65]">{t('seller.kpiRevenue')}</div>
@@ -1849,7 +2181,7 @@ ${inv.note ? `Admin note: ${inv.note}
                       key={g.id}
                       type="button"
                       onClick={() => setGranularity(g.id)}
-                      className={`rounded px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
+                      className={`min-h-[44px] min-w-[44px] rounded px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
                         granularity === g.id
                           ? 'bg-white text-[#141413] shadow-xs'
                           : 'text-[#57534E]'
@@ -1999,12 +2331,40 @@ ${inv.note ? `Admin note: ${inv.note}
           </div>
 
           <div className="rounded-lg border border-[#E8E6E1] bg-white overflow-hidden">
-            <div className="border-b border-[#E8E6E1] px-6 py-4">
-              <h3 className="font-display text-xl font-semibold text-[#141413]">
-                {t('seller.prodBreakdown')}
-              </h3>
+            <div className="border-b border-[#E8E6E1] px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-display text-xl font-semibold text-[#141413]">
+                  {t('seller.prodBreakdown')}
+                </h3>
+                <p className="text-xs text-[#6B6A65] tabular-nums">
+                  {analytics.topProducts.length} products · {(analytics.overview.totalShares || 0).toLocaleString()} total shares
+                </p>
+              </div>
+              <div className="inline-flex items-center gap-1 rounded-md bg-[#F0EEE9] p-1" role="group" aria-label="Sort product breakdown">
+                {(
+                  [
+                    { id: 'sales', label: t('seller.colSales') },
+                    { id: 'shares', label: t('seller.colShares') },
+                    { id: 'views', label: t('seller.colViews') },
+                  ] as const
+                ).map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    aria-pressed={analyticsProdSort === mode.id}
+                    onClick={() => setAnalyticsProdSort(mode.id)}
+                    className={`min-h-[44px] min-w-[44px] rounded px-3 py-1 text-[11px] font-medium cursor-pointer ${
+                      analyticsProdSort === mode.id
+                        ? 'bg-white text-[#141413] shadow-xs font-semibold'
+                        : 'text-[#57534E] hover:text-[#141413]'
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[660px] text-left text-xs">
                 <thead className="bg-[#FAF9F6] border-b border-[#E8E6E1] text-[#6B6A65]">
                   <tr>
@@ -2019,24 +2379,34 @@ ${inv.note ? `Admin note: ${inv.note}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#F0EEE9] tabular-nums">
-                  {analytics.topProducts.map((tp) => (
-                    <tr key={tp._id} className="hover:bg-[#FAF9F6]">
-                      <td className="px-5 py-3 font-medium text-[#141413] max-w-[260px] truncate">
-                        {tp.title}
-                      </td>
-                      <td className="px-4 py-3 text-right">{tp.viewsCount.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right">{tp.likesCount}</td>
-                      <td className="px-4 py-3 text-right font-medium text-[#166534]">
-                        {tp.sharesCount ?? 0}
-                      </td>
-                      <td className="px-4 py-3 text-right">{tp.cartAddsCount}</td>
-                      <td className="px-4 py-3 text-right font-semibold">{tp.salesCount}</td>
-                      <td className="px-4 py-3 text-right">{tp.conversionRate}%</td>
-                      <td className="px-5 py-3 text-right font-semibold text-[#141413]">
-                        {formatINR(tp.revenue)}
-                      </td>
-                    </tr>
-                  ))}
+                  {[...analytics.topProducts]
+                    .sort((a, b) => {
+                      if (analyticsProdSort === 'shares') {
+                        return (b.sharesCount ?? 0) - (a.sharesCount ?? 0) || b.salesCount - a.salesCount;
+                      }
+                      if (analyticsProdSort === 'views') {
+                        return b.viewsCount - a.viewsCount || (b.sharesCount ?? 0) - (a.sharesCount ?? 0);
+                      }
+                      return b.salesCount - a.salesCount || (b.sharesCount ?? 0) - (a.sharesCount ?? 0);
+                    })
+                    .map((tp) => (
+                      <tr key={tp._id} className="hover:bg-[#FAF9F6]">
+                        <td className="px-5 py-3 font-medium text-[#141413] max-w-[260px] truncate">
+                          {tp.title}
+                        </td>
+                        <td className="px-4 py-3 text-right">{tp.viewsCount.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">{tp.likesCount}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-[#166534]">
+                          {tp.sharesCount ?? 0}
+                        </td>
+                        <td className="px-4 py-3 text-right">{tp.cartAddsCount}</td>
+                        <td className="px-4 py-3 text-right font-semibold">{tp.salesCount}</td>
+                        <td className="px-4 py-3 text-right">{tp.conversionRate}%</td>
+                        <td className="px-5 py-3 text-right font-semibold text-[#141413]">
+                          {formatINR(tp.revenue)}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -2241,7 +2611,7 @@ ${inv.note ? `Admin note: ${inv.note}
                             <input type="number" min={1} max={100000} value={edit.shippingWeightGrams} onChange={(e) => setDiscountEdits((prev) => ({ ...prev, [p._id]: { ...edit, shippingWeightGrams: Number(e.target.value) } }))} className="mt-1 w-20 rounded border border-[#D6D3CD] px-2 py-1 text-xs tabular-nums"/>
                           </label>
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
                           <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
                             <button
                               type="button"
@@ -2408,14 +2778,16 @@ ${inv.note ? `Admin note: ${inv.note}
                   className="w-full rounded-md border border-[#D6D3CD] p-2.5 text-xs focus:border-[#881337] focus:outline-none"
                 />
               </div>
-              <button
+              <ActionButton
                 type="submit"
+                actionKey="save_category"
+                role={tutorialRole}
                 disabled={catBusy}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>{catBusy ? t('seller.catAdding') : t('seller.catAddBtn')}</span>
-              </button>
+                showHelpIcon
+                icon={<Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+                labelOverride={catBusy ? t('seller.catAdding') : t('seller.catAddBtn')}
+                className="w-full"
+              />
             </form>
           </div>
 
@@ -2673,13 +3045,16 @@ ${inv.note ? `Admin note: ${inv.note}
                 </div>
               </div>
 
-              <button
+              <ActionButton
                 type="submit"
+                actionKey="launch_campaign"
+                role={tutorialRole}
                 disabled={cmpBusy}
-                className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
-              >
-                {cmpBusy ? t('seller.saving') : t('seller.campaignLaunchBtn')}
-              </button>
+                showHelpIcon
+                icon={<Flame className="h-3.5 w-3.5" aria-hidden="true" />}
+                labelOverride={cmpBusy ? t('seller.saving') : t('seller.campaignLaunchBtn')}
+                className="w-full"
+              />
             </form>
           </div>
 
@@ -2977,13 +3352,16 @@ ${inv.note ? `Admin note: ${inv.note}
                 />
               </div>
 
-              <button
+              <ActionButton
                 type="submit"
+                actionKey="create_coupon"
+                role={tutorialRole}
                 disabled={cpnBusy}
-                className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
-              >
-                {cpnBusy ? t('seller.saving') : t('seller.couponCreateBtn')}
-              </button>
+                showHelpIcon
+                icon={<Tag className="h-3.5 w-3.5" aria-hidden="true" />}
+                labelOverride={cpnBusy ? t('seller.saving') : t('seller.couponCreateBtn')}
+                className="w-full"
+              />
             </form>
           </div>
 
@@ -3088,8 +3466,8 @@ ${inv.note ? `Admin note: ${inv.note}
         </section>
       )}
 
-      {returnForwardTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleForwardReturnToProvider} className="w-full max-w-md space-y-4 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Forward return to provider</h3><p className="mt-1 text-xs leading-5 text-[#6B6A65]">The linked provider will review the return and confirm its return-to address.</p></div><label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><input type="checkbox" checked={returnSharePickupAddress} onChange={e=>setReturnSharePickupAddress(e.target.checked)} className="mt-0.5"/><span><strong>Share buyer pickup address with provider</strong><br/>Required only if the provider is expected to arrange courier collection. Leave unchecked to keep the buyer’s address private.</span></label><div className="flex justify-end gap-2"><button type="button" onClick={()=>setReturnForwardTarget(null)} className="rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Forward for provider review</button></div></form></div>}
-      {returnPickupTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleRecordReturnPickup} className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Record return courier pickup</h3><p className="mt-1 text-xs text-[#6B6A65]">Enter the courier booking details after arranging the reverse pickup.</p></div><label className="block text-xs font-semibold">Courier name<input required value={returnPickupDraft.carrierName} onChange={e=>setReturnPickupDraft(v=>({...v,carrierName:e.target.value}))} className="mt-1 w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">AWB / tracking ID<input required value={returnPickupDraft.trackingId} onChange={e=>setReturnPickupDraft(v=>({...v,trackingId:e.target.value}))} className="mt-1 w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">Tracking URL (optional)<input type="url" value={returnPickupDraft.trackingUrl} onChange={e=>setReturnPickupDraft(v=>({...v,trackingUrl:e.target.value}))} className="mt-1 w-full rounded border px-3 py-2"/></label><div className="flex justify-end gap-2"><button type="button" onClick={()=>setReturnPickupTarget(null)} className="rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Save pickup booking</button></div></form></div>}
+      {returnForwardTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleForwardReturnToProvider} className="w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Forward return to provider</h3><p className="mt-1 text-xs leading-5 text-[#6B6A65]">The linked provider will review the return and confirm its return-to address.</p></div><label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><input type="checkbox" checked={returnSharePickupAddress} onChange={e=>setReturnSharePickupAddress(e.target.checked)} className="mt-0.5"/><span><strong>Share buyer pickup address with provider</strong><br/>Required only if the provider is expected to arrange courier collection. Leave unchecked to keep the buyer’s address private.</span></label><div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={()=>setReturnForwardTarget(null)} className="min-h-[44px] sm:min-h-[36px] rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="min-h-[44px] sm:min-h-[36px] rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Forward for provider review</button></div></form></div>}
+      {returnPickupTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleRecordReturnPickup} className="w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain space-y-3 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Record return courier pickup</h3><p className="mt-1 text-xs text-[#6B6A65]">Enter the courier booking details after arranging the reverse pickup.</p></div><label className="block text-xs font-semibold">Courier name<input required value={returnPickupDraft.carrierName} onChange={e=>setReturnPickupDraft(v=>({...v,carrierName:e.target.value}))} className="mt-1 min-h-[44px] w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">AWB / tracking ID<input required value={returnPickupDraft.trackingId} onChange={e=>setReturnPickupDraft(v=>({...v,trackingId:e.target.value}))} className="mt-1 min-h-[44px] w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">Tracking URL (optional)<input type="url" value={returnPickupDraft.trackingUrl} onChange={e=>setReturnPickupDraft(v=>({...v,trackingUrl:e.target.value}))} className="mt-1 min-h-[44px] w-full rounded border px-3 py-2"/></label><div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={()=>setReturnPickupTarget(null)} className="min-h-[44px] sm:min-h-[36px] rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="min-h-[44px] sm:min-h-[36px] rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Save pickup booking</button></div></form></div>}
       {isVerifiedSellerOrAdmin && sellerTab === 'payments' && (
         <section className="space-y-5">
           <div>
@@ -3098,25 +3476,32 @@ ${inv.note ? `Admin note: ${inv.note}
           </div>
           {(['razorpay', 'stripe'] as const).map((provider) => (
             <div key={provider} className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <h3 className="font-semibold capitalize">{provider}</h3>
-                <label className="flex items-center gap-2 text-xs">
+                <label className="flex min-h-[44px] items-center gap-2 text-xs cursor-pointer">
                   <input type="checkbox" checked={gatewayDrafts[provider].enabled} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], enabled: e.target.checked } }))} />
                   Active
                 </label>
               </div>
               <label className="block text-xs font-medium">Key ID / Publishable Key
-                <input value={gatewayDrafts[provider].keyId} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], keyId: e.target.value } }))} className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="off" />
+                <input value={gatewayDrafts[provider].keyId} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], keyId: e.target.value } }))} className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="off" />
               </label>
               <label className="block text-xs font-medium">API Secret
-                <input type="password" value={gatewayDrafts[provider].secret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], secret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
+                <input type="password" value={gatewayDrafts[provider].secret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], secret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
               </label>
               <label className="block text-xs font-medium">Webhook Signing Secret
-                <input type="password" value={gatewayDrafts[provider].webhookSecret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], webhookSecret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
+                <input type="password" value={gatewayDrafts[provider].webhookSecret} onChange={(e) => setGatewayDrafts((prev) => ({ ...prev, [provider]: { ...prev[provider], webhookSecret: e.target.value } }))} placeholder="Leave blank to keep existing secret" className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm" autoComplete="new-password" />
               </label>
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-[11px] text-[#78716C]">{gatewaySettings.find((item) => item.provider === provider)?.secretMasked || 'No secret configured'}</span>
-                <button type="button" disabled={gatewayBusy || !gatewayDrafts[provider].keyId.trim()} onClick={() => void savePaymentSettings(provider)} className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{gatewayBusy ? 'Saving…' : 'Save settings'}</button>
+                <ActionButton
+                  actionKey="save_payment_gateway"
+                  role={tutorialRole}
+                  disabled={gatewayBusy || !gatewayDrafts[provider].keyId.trim()}
+                  showHelpIcon={provider === 'razorpay'}
+                  onClick={() => void savePaymentSettings(provider)}
+                  labelOverride={gatewayBusy ? 'Saving…' : 'Save settings'}
+                />
               </div>
             </div>
           ))}
@@ -3209,36 +3594,40 @@ ${inv.note ? `Admin note: ${inv.note}
                 )}
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#F0EEE9]">
                   {['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(ord.status) && (
-                    <button
-                      type="button"
+                    <ActionButton
+                      actionKey="confirm_order"
+                      role={tutorialRole}
+                      variant="outline"
+                      fullWidthMobile={false}
+                      showHelpIcon
                       onClick={() => handleOrderStatusChange(ord, 'Confirmed')}
-                      className="rounded border border-[#D6D3CD] px-3 py-1 text-xs font-medium hover:border-[#141413] cursor-pointer"
-                    >
-                      {t('seller.confirmOrder')}
-                    </button>
+                      labelOverride={t('seller.confirmOrder')}
+                    />
                   )}
                   {(['Confirmed', 'PAID_AND_PROCESSING'].includes(ord.status)) && (
                     <button
                       type="button"
                       onClick={() => handleOrderStatusChange(ord, 'Packed')}
-                      className="rounded border border-[#D6D3CD] px-3 py-1 text-xs font-medium hover:border-[#141413] cursor-pointer"
+                      className="min-h-[44px] sm:min-h-[36px] rounded border border-[#D6D3CD] px-3 py-1.5 text-xs font-medium hover:border-[#141413] cursor-pointer"
                     >
                       {t('seller.markPacked')}
                     </button>
                   )}
                   {['Confirmed', 'PAID_AND_PROCESSING', 'Packed'].includes(ord.status) && (
-                    <button
-                      type="button"
+                    <ActionButton
+                      actionKey="ship_order"
+                      role={tutorialRole}
+                      variant="primary"
+                      fullWidthMobile={false}
+                      showHelpIcon
                       onClick={() => {
                         setShipOrderTarget(ord);
                         setTrackingId(`TRK${Math.floor(100000 + Math.random() * 899999)}`);
                         setTrackingUrl('https://www.bluedart.com/tracking');
                       }}
-                      className="inline-flex items-center gap-1.5 rounded bg-[#881337] px-3 py-1 text-xs font-medium text-white hover:bg-[#9F1239] cursor-pointer"
-                    >
-                      <Truck className="h-3.5 w-3.5" />
-                      <span>{t('seller.shipTracking')}</span>
-                    </button>
+                      icon={<Truck className="h-3.5 w-3.5" aria-hidden="true" />}
+                      labelOverride={t('seller.shipTracking')}
+                    />
                   )}
                   {['Shipped', 'Out for Delivery'].includes(ord.status) && (
                     <button
@@ -3280,8 +3669,8 @@ ${inv.note ? `Admin note: ${inv.note}
 
       {/* Attach Courier Tracking Modal */}
       {shipOrderTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain rounded-lg border border-[#E8E6E1] bg-white p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-[#F0EEE9] pb-3">
               <h3 className="font-display text-2xl font-semibold text-[#141413]">
                 {t('seller.shipTracking')}
@@ -3289,7 +3678,8 @@ ${inv.note ? `Admin note: ${inv.note}
               <button
                 type="button"
                 onClick={() => setShipOrderTarget(null)}
-                className="p-1 cursor-pointer"
+                aria-label={t('detail.close')}
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md hover:bg-[#FAF9F6] cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -3314,7 +3704,7 @@ ${inv.note ? `Admin note: ${inv.note}
                   required
                   value={courierCompany}
                   onChange={(e) => setCourierCompany(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
+                  className="min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
                 />
               </div>
               <div>
@@ -3326,7 +3716,7 @@ ${inv.note ? `Admin note: ${inv.note}
                   required
                   value={trackingId}
                   onChange={(e) => setTrackingId(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm font-mono"
+                  className="min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm font-mono"
                 />
               </div>
               <div>
@@ -3338,12 +3728,12 @@ ${inv.note ? `Admin note: ${inv.note}
                   required
                   value={trackingUrl}
                   onChange={(e) => setTrackingUrl(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
+                  className="min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
                 />
               </div>
               <button
                 type="submit"
-                className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
+                className="min-h-[44px] w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] cursor-pointer"
               >
                 {t('seller.shipTracking')}
               </button>
@@ -3354,8 +3744,8 @@ ${inv.note ? `Admin note: ${inv.note}
 
       {/* Permanent Product Removal Confirmation / Active Order Block Modal */}
       {removeTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-lg border border-[#E8E6E1] bg-white p-6 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain rounded-lg border border-[#E8E6E1] bg-white p-5 sm:p-6 space-y-4">
             <div className="flex items-start justify-between gap-3 border-b border-[#F0EEE9] pb-3">
               <div className="flex items-center gap-2.5">
                 <AlertTriangle
@@ -3373,7 +3763,7 @@ ${inv.note ? `Admin note: ${inv.note}
                 type="button"
                 aria-label={t('detail.close')}
                 onClick={() => setRemoveTarget(null)}
-                className="p-1 cursor-pointer"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md hover:bg-[#FAF9F6] cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -3439,8 +3829,8 @@ ${inv.note ? `Admin note: ${inv.note}
 
       {/* New Myntra-Style Product Listing Modal with WebP Compression (<120KB) */}
       {showNewModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-4">
-          <div className="mx-auto max-w-2xl rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 space-y-5 my-4 sm:my-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-2xl max-h-[90dvh] overflow-y-auto overscroll-contain rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 space-y-5">
             <div className="flex items-center justify-between border-b border-[#F0EEE9] pb-3">
               <div>
                 <h3 className="font-display text-2xl font-semibold text-[#141413]">
@@ -3452,7 +3842,7 @@ ${inv.note ? `Admin note: ${inv.note}
                 type="button"
                 onClick={() => setShowNewModal(false)}
                 aria-label={t('detail.close')}
-                className="p-1 cursor-pointer"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md hover:bg-[#FAF9F6] cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -3886,10 +4276,10 @@ ${inv.note ? `Admin note: ${inv.note}
 
       {/* Existing Product Multi-Image Manager Modal */}
       {editImagesTarget && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-4">
-          <div className="mx-auto max-w-xl rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 space-y-4 my-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-xl max-h-[90dvh] overflow-y-auto overscroll-contain rounded-lg border border-[#E8E6E1] bg-white p-4 sm:p-6 space-y-4">
             <div className="flex items-start justify-between gap-3 border-b border-[#F0EEE9] pb-3">
-              <div>
+              <div className="min-w-0">
                 <h3 className="font-display text-2xl font-semibold text-[#141413]">
                   {t('seller.imagesModalTitle')}
                 </h3>
@@ -3901,7 +4291,7 @@ ${inv.note ? `Admin note: ${inv.note}
                 type="button"
                 aria-label={t('detail.close')}
                 onClick={() => setEditImagesTarget(null)}
-                className="p-1 cursor-pointer"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md hover:bg-[#FAF9F6] cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -4020,6 +4410,8 @@ ${inv.note ? `Admin note: ${inv.note}
           </div>
         </div>
       )}
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }

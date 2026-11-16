@@ -3887,6 +3887,32 @@ async function startServer() {
     res.json(result);
   });
 
+  app.post('/api/analytics/share', async (req, res) => {
+    const { guestToken, user } = await resolveActor(req, res);
+    const rate = await checkRateLimit(`share:${user?._id || guestToken}`, 40, 60);
+    if (!rate.allowed) {
+      return res.status(429).json({ error: 'Too many share requests. Please wait a moment.' });
+    }
+    const schema = z.object({
+      productId: z.string().trim().min(1),
+      channel: z.string().trim().min(1).max(32).optional().default('whatsapp'),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'productId is required' });
+    }
+    const logged = await logShareEvent({
+      productId: parsed.data.productId,
+      channel: 'whatsapp',
+      userId: user?._id || null,
+      guestToken,
+    });
+    if (!logged) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    res.status(201).json({ ok: true, channel: parsed.data.channel, ...logged });
+  });
+
   app.post('/api/products/:id/share', async (req, res) => {
     const { guestToken, user } = await resolveActor(req, res);
     const rate = await checkRateLimit(`share:${user?._id || guestToken}`, 40, 60);

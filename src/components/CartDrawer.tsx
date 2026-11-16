@@ -3,6 +3,7 @@ import { CheckCircle2, ExternalLink, Minus, Plus, Tag, Trash2, X } from 'lucide-
 import type { CartItem, Coupon, CouponValidationResult, Order, User } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { ActionButton } from './ActionButton';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -207,9 +208,9 @@ export function CartDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-xs">
-      <div className="flex h-full w-full max-w-md flex-col bg-white border-l border-[#E8E6E1] shadow-2xl">
+      <div className="flex h-dvh max-h-dvh w-full max-w-md flex-col bg-white border-l border-[#E8E6E1] shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#E8E6E1] px-4 sm:px-6 py-4">
+        <div className="flex items-center justify-between border-b border-[#E8E6E1] px-4 sm:px-6 py-3.5">
           <h2 className="font-display text-2xl font-semibold text-[#141413]">
             {t('cart.title')}
           </h2>
@@ -220,7 +221,7 @@ export function CartDrawer({
               onClose();
             }}
             aria-label={t('detail.close')}
-            className="rounded-md p-1.5 text-[#57534E] hover:bg-[#F5F3EE] cursor-pointer"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[#57534E] hover:bg-[#F5F3EE] cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -310,23 +311,25 @@ export function CartDrawer({
                     <div className="inline-flex items-center rounded-md border border-[#D6D3CD]">
                       <button
                         type="button"
+                        aria-label="Decrease quantity"
                         onClick={() => onUpdateQty(item.variantSku, -1)}
-                        className="p-1.5 text-[#44403C] hover:bg-[#F5F3EE] cursor-pointer"
+                        className="inline-flex h-11 w-10 items-center justify-center text-[#44403C] hover:bg-[#F5F3EE] cursor-pointer"
                       >
-                        <Minus className="h-3 w-3" />
+                        <Minus className="h-3.5 w-3.5" />
                       </button>
                       <span className="px-2.5 text-xs font-semibold tabular-nums">
                         {item.quantity}
                       </span>
                       <button
                         type="button"
+                        aria-label="Increase quantity"
                         onClick={() => onUpdateQty(item.variantSku, 1)}
-                        className="p-1.5 text-[#44403C] hover:bg-[#F5F3EE] cursor-pointer"
+                        className="inline-flex h-11 w-10 items-center justify-center text-[#44403C] hover:bg-[#F5F3EE] cursor-pointer"
                       >
-                        <Plus className="h-3 w-3" />
+                        <Plus className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-[#141413] tabular-nums">
                         {formatINR(item.unitPrice * item.quantity)}
                       </span>
@@ -334,9 +337,9 @@ export function CartDrawer({
                         type="button"
                         aria-label={item.title}
                         onClick={() => onRemoveItem(item.variantSku)}
-                        className="text-[#A8A29E] hover:text-red-700 cursor-pointer"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[#78716C] hover:text-red-700 cursor-pointer"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
@@ -348,16 +351,16 @@ export function CartDrawer({
 
         {/* Footer Coupons, Totals & Proceed Button */}
         {cart.length > 0 && !confirmedOrders && (
-          <div className="border-t border-[#E8E6E1] bg-[#FAF9F6] p-5 space-y-4">
+          <div className="border-t border-[#E8E6E1] bg-[#FAF9F6] p-4 sm:p-5 space-y-4">
             {/* Checkout Coupon Selector & Code Input */}
             <div className="rounded-md border border-[#E8E6E1] bg-white p-3 space-y-2.5">
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
                   value={couponInput}
                   onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
                   placeholder={t('coupon.codePlaceholder')}
-                  className="flex-1 rounded border border-[#D6D3CD] px-2.5 py-1.5 text-xs font-mono uppercase focus:border-[#881337] focus:outline-none"
+                  className="flex-1 min-h-[44px] rounded border border-[#D6D3CD] px-3 py-2 text-xs font-mono uppercase focus:border-[#881337] focus:outline-none"
                 />
                 {appliedValidation?.valid ? (
                   <button
@@ -367,19 +370,20 @@ export function CartDrawer({
                       setCouponInput('');
                       setCouponError(null);
                     }}
-                    className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs font-medium text-[#57534E] hover:bg-[#F5F3EE] cursor-pointer"
+                    className="min-h-[44px] rounded border border-[#D6D3CD] px-3.5 py-2 text-xs font-medium text-[#57534E] hover:bg-[#F5F3EE] cursor-pointer"
                   >
                     {t('coupon.removeBtn')}
                   </button>
                 ) : (
-                  <button
-                    type="button"
+                  <ActionButton
+                    actionKey="apply_coupon"
+                    role="CUSTOMER"
+                    variant="secondary"
+                    showHelpIcon
                     disabled={validatingCoupon || !couponInput.trim()}
                     onClick={() => validateAndApplyCoupon(couponInput)}
-                    className="rounded bg-[#141413] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2A2927] disabled:opacity-40 cursor-pointer"
-                  >
-                    {validatingCoupon ? t('coupon.validating') : t('coupon.applyBtn')}
-                  </button>
+                    labelOverride={validatingCoupon ? t('coupon.validating') : t('coupon.applyBtn')}
+                  />
                 )}
               </div>
 
@@ -465,14 +469,15 @@ export function CartDrawer({
               </div>
             </div>
 
-            <button
-              type="button"
+            <ActionButton
+              actionKey="proceed_checkout"
+              role="CUSTOMER"
+              showHelpIcon
               disabled={submitting}
               onClick={handleProceedClick}
-              className="w-full rounded-md bg-[#881337] px-5 py-3 text-xs font-semibold text-white hover:bg-[#9F1239] disabled:opacity-50 transition-colors cursor-pointer"
-            >
-              {submitting ? t('cart.placing') : t('cart.proceed')}
-            </button>
+              className="sm:flex-1"
+              labelOverride={submitting ? t('cart.placing') : t('cart.proceed')}
+            />
           </div>
         )}
       </div>

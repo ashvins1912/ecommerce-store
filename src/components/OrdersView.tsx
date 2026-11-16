@@ -10,6 +10,7 @@ import type {
 } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { ActionButton } from './ActionButton';
 
 declare global {
   interface Window {
@@ -258,14 +259,14 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
   }
 
   return (
-    <main className="mx-auto max-w-[1200px] px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+    <main className="mx-auto max-w-7xl min-w-0 px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-8 sm:space-y-10">
       {/* Header + Segmented Tabs */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#E8E6E1] pb-6">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413]">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold text-[#141413]">
             {t('orders.title')}
           </h1>
-          <p className="mt-1 text-xs text-[#6B6A65]">{t('orders.sub')}</p>
+          <p className="mt-1 text-xs text-[#6B6A65] max-w-prose">{t('orders.sub')}</p>
         </div>
 
         <div className="inline-flex max-w-full overflow-x-auto items-center gap-1 rounded-lg bg-[#F0EEE9] p-1 self-start">
@@ -274,7 +275,7 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`rounded-md px-3 sm:px-4 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`min-h-[44px] sm:min-h-[36px] inline-flex items-center justify-center rounded-md px-3 sm:px-4 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 activeTab === tab
                   ? 'bg-white text-[#141413] shadow-xs'
                   : 'text-[#57534E] hover:text-[#141413]'
@@ -350,16 +351,24 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-4">
-                    <button type="button" onClick={() => void loadLogisticsTracking(order._id)} disabled={trackingLoadingId===order._id} className="inline-flex items-center gap-1.5 rounded-md border border-[#D6D3CD] px-3 py-1.5 text-xs font-medium disabled:opacity-50">
-                      <Truck className="h-3.5 w-3.5"/>{trackingLoadingId===order._id?'Loading…':'Live tracking'}
-                    </button>
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                    <ActionButton
+                      actionKey="track_order"
+                      role="CUSTOMER"
+                      variant="outline"
+                      showHelpIcon
+                      fullWidthMobile={false}
+                      disabled={trackingLoadingId === order._id}
+                      onClick={() => void loadLogisticsTracking(order._id)}
+                      icon={<Truck className="h-3.5 w-3.5" aria-hidden="true" />}
+                      labelOverride={trackingLoadingId === order._id ? 'Loading…' : undefined}
+                    />
                     {order.courierTracking && (
                       <a
                         href={order.courierTracking.trackingUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-md border border-[#881337] px-3 py-1.5 text-xs font-medium text-[#881337] hover:bg-[#881337] hover:text-white transition-colors whitespace-nowrap"
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-[#881337] px-3 py-2 text-xs font-medium text-[#881337] hover:bg-[#881337] hover:text-white transition-colors whitespace-nowrap"
                       >
                         <Truck className="h-3.5 w-3.5" />
                         <span>
@@ -416,24 +425,24 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                     {walletBalancePaise > 0 && (
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs text-[#57534E]">Wallet balance: {formatINR(walletBalancePaise / 100)}</span>
-                        <input type="number" min="1" step="0.01" max={walletBalancePaise / 100} value={walletAmounts[order._id] || ''} onChange={(e) => setWalletAmounts((prev) => ({ ...prev, [order._id]: e.target.value }))} placeholder="Amount ₹" className="w-28 rounded-md border border-[#D6D3CD] px-2 py-2 text-xs"/>
-                        <button type="button" disabled={walletBusyOrderId === order._id} onClick={() => void redeemWallet(order)} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-semibold disabled:opacity-50">{walletBusyOrderId === order._id ? 'Applying…' : 'Apply wallet'}</button>
+                        <input type="number" min="1" step="0.01" max={walletBalancePaise / 100} value={walletAmounts[order._id] || ''} onChange={(e) => setWalletAmounts((prev) => ({ ...prev, [order._id]: e.target.value }))} placeholder="Amount ₹" className="w-28 min-h-[44px] rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs"/>
+                        <button type="button" disabled={walletBusyOrderId === order._id} onClick={() => void redeemWallet(order)} className="min-h-[44px] rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-semibold disabled:opacity-50 cursor-pointer">{walletBusyOrderId === order._id ? 'Applying…' : 'Apply wallet'}</button>
                       </div>
                     )}
 
-                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'razorpay')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{payingOrderId === order._id ? 'Opening…' : 'Pay with Razorpay'}</button>
-                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'stripe')} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-semibold text-[#292524] disabled:opacity-50">Pay with Stripe</button>
+                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'razorpay')} className="min-h-[44px] rounded-md bg-[#881337] px-3.5 py-2 text-xs font-semibold text-white disabled:opacity-50 cursor-pointer">{payingOrderId === order._id ? 'Opening…' : 'Pay with Razorpay'}</button>
+                    <button type="button" disabled={payingOrderId === order._id} onClick={() => void payOrder(order, 'stripe')} className="min-h-[44px] rounded-md border border-[#D6D3CD] px-3.5 py-2 text-xs font-semibold text-[#292524] disabled:opacity-50 cursor-pointer">Pay with Stripe</button>
                   </div>
                 )}
 
                 {(order.status === 'Pending' || order.status === 'Confirmed' || order.status === 'Packed' || order.status === 'Shipped' || order.status === 'Out for Delivery' || order.status === 'PENDING_SELLER_CONFIRMATION' || order.status === 'CONFIRMED_AWAITING_PAYMENT' || order.status === 'PAID_AND_PROCESSING') && (
                   <div className="border-t border-[#F0EEE9] pt-3">
-                    <button type="button" disabled={busyOrderId === order._id} onClick={() => void requestCancellation(order)} className="rounded-md border border-[#D6D3CD] px-3 py-2 text-xs font-medium text-[#57534E] disabled:opacity-50">{busyOrderId === order._id ? 'Submitting…' : 'Request cancellation'}</button>
+                    <button type="button" disabled={busyOrderId === order._id} onClick={() => void requestCancellation(order)} className="min-h-[44px] rounded-md border border-[#D6D3CD] px-3.5 py-2 text-xs font-medium text-[#57534E] disabled:opacity-50 cursor-pointer">{busyOrderId === order._id ? 'Submitting…' : 'Request cancellation'}</button>
                   </div>
                 )}
                 {order.status === 'Delivered' && order.items.filter((item) => item.isReturnable !== false && Date.now() <= new Date(order.deliveredAt || order.updatedAt).getTime() + (item.returnWindowDays ?? 7) * 86400000).map((item) => (
                   <div key={item.productId} className="border-t border-[#F0EEE9] pt-2">
-                    <button type="button" onClick={() => { setReturnTarget({ order, productId: item.productId, title: item.title }); setReturnError(''); }} className="text-xs font-semibold text-[#881337] underline underline-offset-2">Return {item.title}</button>
+                    <button type="button" onClick={() => { setReturnTarget({ order, productId: item.productId, title: item.title }); setReturnError(''); }} className="inline-flex min-h-[44px] items-center text-xs font-semibold text-[#881337] underline underline-offset-2 cursor-pointer">Return {item.title}</button>
                   </div>
                 ))}
                 {/* Compact Timeline */}
@@ -473,24 +482,31 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
       </section>
 
       {returnTarget && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
-          <form onSubmit={submitReturn} className="w-full max-w-lg rounded-xl bg-white p-5 space-y-4">
-            <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Return {returnTarget.title}</h2><button type="button" onClick={() => setReturnTarget(null)} className="text-sm text-[#78716C]">Close</button></div>
-            <p className="text-xs text-[#78716C]">Upload clear photos of the product or packaging. The server checks order ownership, delivery status, returnability and the return window.</p>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <form onSubmit={submitReturn} className="w-full max-w-lg max-h-[90dvh] overflow-y-auto overscroll-contain rounded-xl bg-white p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-2"><h2 className="text-lg font-semibold">Return {returnTarget.title}</h2><button type="button" onClick={() => setReturnTarget(null)} className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md border border-[#E8E6E1] px-3 text-sm text-[#78716C] cursor-pointer">Close</button></div>
+            <p className="text-xs text-[#78716C] max-w-prose">Upload clear photos of the product or packaging. The server checks order ownership, delivery status, returnability and the return window.</p>
             <label className="block text-xs font-medium">Reason
-              <textarea required minLength={5} maxLength={1000} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} className="mt-1 w-full rounded-md border border-[#D6D3CD] p-2" rows={3}/>
+              <textarea required minLength={5} maxLength={1000} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} className="mt-1 w-full rounded-md border border-[#D6D3CD] p-2.5 text-sm" rows={3}/>
             </label>
             <label className="block text-xs font-medium">Evidence photos (1–8)
               <input required type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e) => setReturnFiles(Array.from(e.target.files || []).slice(0, 8))} className="mt-1 block w-full text-xs"/>
             </label>
-            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={selfCourier} onChange={(e) => setSelfCourier(e.target.checked)}/> I will self-ship the return</label>
+            <label className="flex min-h-[44px] items-center gap-2 text-xs cursor-pointer"><input type="checkbox" className="h-4 w-4 accent-[#881337]" checked={selfCourier} onChange={(e) => setSelfCourier(e.target.checked)}/> I will self-ship the return</label>
             {selfCourier && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input required value={courierName} onChange={(e) => setCourierName(e.target.value)} placeholder="Courier name" className="rounded-md border border-[#D6D3CD] p-2 text-xs"/>
-              <input required value={returnTrackingId} onChange={(e) => setReturnTrackingId(e.target.value)} placeholder="Tracking ID" className="rounded-md border border-[#D6D3CD] p-2 text-xs"/>
-              <input type="url" value={returnTrackingUrl} onChange={(e) => setReturnTrackingUrl(e.target.value)} placeholder="Tracking URL (optional)" className="sm:col-span-2 rounded-md border border-[#D6D3CD] p-2 text-xs"/>
+              <input required value={courierName} onChange={(e) => setCourierName(e.target.value)} placeholder="Courier name" className="min-h-[44px] rounded-md border border-[#D6D3CD] p-2.5 text-xs"/>
+              <input required value={returnTrackingId} onChange={(e) => setReturnTrackingId(e.target.value)} placeholder="Tracking ID" className="min-h-[44px] rounded-md border border-[#D6D3CD] p-2.5 text-xs"/>
+              <input type="url" value={returnTrackingUrl} onChange={(e) => setReturnTrackingUrl(e.target.value)} placeholder="Tracking URL (optional)" className="min-h-[44px] sm:col-span-2 rounded-md border border-[#D6D3CD] p-2.5 text-xs"/>
             </div>}
             {returnError && <p role="alert" className="text-xs text-red-700">{returnError}</p>}
-            <button disabled={returnBusy} className="w-full rounded-md bg-[#881337] px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-50">{returnBusy ? 'Submitting…' : 'Submit return request'}</button>
+            <ActionButton
+              type="submit"
+              actionKey="request_return"
+              role="CUSTOMER"
+              showHelpIcon
+              disabled={returnBusy}
+              labelOverride={returnBusy ? 'Submitting…' : undefined}
+            />
           </form>
         </div>
       )}
@@ -517,7 +533,7 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
                 key={g.id}
                 type="button"
                 onClick={() => setGranularity(g.id)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`min-h-[44px] sm:min-h-[36px] inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   granularity === g.id
                     ? 'bg-white text-[#141413] shadow-xs'
                     : 'text-[#57534E] hover:text-[#141413]'
@@ -529,7 +545,7 @@ export function OrdersView({ user, onOpenAuth }: OrdersViewProps) {
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-[#E8E6E1] bg-white">
+        <div className="w-full overflow-x-auto rounded-lg border border-[#E8E6E1] bg-white">
           <table className="w-full min-w-[440px] text-left text-xs">
             <thead className="border-b border-[#E8E6E1] bg-[#FAF9F6] text-[#6B6A65]">
               <tr>

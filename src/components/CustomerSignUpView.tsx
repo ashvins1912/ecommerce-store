@@ -111,11 +111,11 @@ export function AccountSignUpView({
   }
 
   return (
-    <section className="mx-auto max-w-[1120px] px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+    <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
       <button
         type="button"
         onClick={onNavigateStore}
-        className="mb-6 inline-flex min-h-[40px] items-center gap-1.5 text-xs font-medium text-[#57534E] hover:text-[#141413] cursor-pointer"
+        className="mb-6 inline-flex min-h-[44px] items-center gap-1.5 text-xs font-medium text-[#57534E] hover:text-[#141413] cursor-pointer"
       >
         <ArrowLeft className="h-4 w-4" />
         <span>{t('auth.backToStore')}</span>
@@ -259,7 +259,7 @@ export function AccountSignUpView({
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#78716C] hover:text-[#141413] cursor-pointer"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-10 w-10 items-center justify-center text-[#78716C] hover:text-[#141413] cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>

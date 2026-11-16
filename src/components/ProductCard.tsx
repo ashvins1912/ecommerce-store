@@ -117,32 +117,36 @@ export function ProductCard({
           </div>
         )}
 
-        {/* Top Bar over Image: Multi-Image Indicator Dots (left) + Share/Like (right) */}
-        <div className="relative z-20 flex items-start justify-between gap-2 p-3 pointer-events-none">
+        {/* Top Bar over Image: Multi-Image Cycle Button (left) + Share/Like (right) */}
+        <div className="relative z-20 flex items-start justify-between gap-2 p-2.5 sm:p-3 pointer-events-none">
           {product.images.length > 1 ? (
-            <div
-              className="pointer-events-auto inline-flex items-center gap-1 rounded bg-black/45 px-2 py-1.5 backdrop-blur-xs"
-              onClick={(e) => e.stopPropagation()}
+            <button
+              type="button"
+              aria-label={t('card.photoLabel', {
+                index: activeImgIdx + 1,
+                total: product.images.length,
+              })}
+              onClick={(e) => {
+                e.stopPropagation();
+                setImgError(false);
+                setActiveImgIdx((prev) => (prev + 1) % product.images.length);
+              }}
+              className="pointer-events-auto inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-full bg-black/55 px-3 text-[11px] font-medium text-white backdrop-blur-xs hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white cursor-pointer"
             >
-              {product.images.slice(0, 6).map((img, idx) => (
-                <button
-                  key={`${img.url}-${idx}`}
-                  type="button"
-                  aria-label={t('card.photoLabel', {
-                    index: idx + 1,
-                    total: product.images.length,
-                  })}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setImgError(false);
-                    setActiveImgIdx(idx);
-                  }}
-                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                    activeImgIdx === idx ? 'w-4 bg-white' : 'w-1.5 bg-white/60 hover:bg-white'
-                  }`}
-                />
-              ))}
-            </div>
+              <span className="inline-flex items-center gap-1" aria-hidden="true">
+                {product.images.slice(0, 6).map((_, idx) => (
+                  <span
+                    key={idx}
+                    className={`h-1.5 rounded-full transition-all ${
+                      activeImgIdx === idx ? 'w-3.5 bg-white' : 'w-1.5 bg-white/55'
+                    }`}
+                  />
+                ))}
+              </span>
+              <span className="tabular-nums text-[10px] opacity-90">
+                {activeImgIdx + 1}/{product.images.length}
+              </span>
+            </button>
           ) : (
             <span />
           )}
@@ -154,7 +158,7 @@ export function ProductCard({
               title={t('card.shareWhatsapp')}
               aria-label={`${t('card.shareWhatsapp')}: ${product.title}`}
               onClick={handleShareClick}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm backdrop-blur-xs transition-colors hover:bg-white hover:text-[#166534] cursor-pointer"
+              className="flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/95 text-[#141413] shadow-sm backdrop-blur-xs transition-colors hover:bg-white hover:text-[#166534] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] cursor-pointer"
             >
               <Share2 className="h-4 w-4" />
             </button>
@@ -166,7 +170,7 @@ export function ProductCard({
                 e.stopPropagation();
                 onToggleLike(product._id);
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm backdrop-blur-xs transition-colors hover:bg-white cursor-pointer"
+              className="flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/95 text-[#141413] shadow-sm backdrop-blur-xs transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] cursor-pointer"
             >
               <Heart
                 className={`h-4 w-4 transition-colors ${
@@ -205,7 +209,7 @@ export function ProductCard({
                   e.stopPropagation();
                   onSelect(product);
                 }}
-                className="inline-flex items-center gap-1 rounded bg-white px-2.5 py-1 text-[11px] font-semibold text-[#141413] hover:bg-[#FAF9F6] transition-colors whitespace-nowrap cursor-pointer"
+                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded bg-white px-3 py-2 text-[11px] font-semibold text-[#141413] hover:bg-[#FAF9F6] transition-colors whitespace-nowrap cursor-pointer"
               >
                 {t('card.viewDetails')}
               </button>
@@ -250,9 +254,32 @@ export function ProductCard({
             )}
           </div>
 
-          <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] font-medium">
-            {product.isReturnable !== false ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-800">Returnable · {product.returnWindowDays ?? 7} days</span> : <span className="rounded bg-[#F5F5F4] px-2 py-0.5 text-[#57534E]">Non-returnable</span>}
-            {(product.onlinePaymentRequired || product.codAllowed === false) && <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-800">Prepaid only</span>}{product.isQualityChecked && <span className="rounded bg-sky-50 px-2 py-0.5 text-sky-800">Quality checked</span>}{product.manufacturerWarrantyVerified && <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-800">Manufacturer warranty verified</span>}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#57534E]">
+            {product.isReturnable !== false ? (
+              <span className="font-medium text-emerald-800">
+                Returnable · {product.returnWindowDays ?? 7}d
+              </span>
+            ) : (
+              <span>Non-returnable</span>
+            )}
+            {(product.onlinePaymentRequired || product.codAllowed === false) && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="font-medium text-amber-800">Prepaid only</span>
+              </>
+            )}
+            {product.isQualityChecked && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-sky-800">Quality checked</span>
+              </>
+            )}
+            {product.manufacturerWarrantyVerified && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-indigo-800">Warranty verified</span>
+              </>
+            )}
           </div>
 
           {/* Product Title */}
@@ -328,7 +355,7 @@ export function ProductCard({
                 type="button"
                 title={t('card.compare')}
                 onClick={() => onToggleCompare(product)}
-                className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded border px-3 py-2 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   isCompared
                     ? 'border-[#141413] bg-[#141413] text-white'
                     : 'border-[#E8E6E1] bg-white text-[#44403C] hover:border-[#141413]'
@@ -345,7 +372,7 @@ export function ProductCard({
               type="button"
               onClick={() => (onQuickBuy ? onQuickBuy(product) : onSelect(product))}
               disabled={product.totalStock <= 0}
-              className="inline-flex items-center justify-center gap-1 rounded-md bg-[#141413] px-2.5 py-2 sm:py-1.5 text-[11px] sm:text-xs font-medium text-white transition-colors hover:bg-[#292524] disabled:opacity-40 whitespace-nowrap cursor-pointer min-w-0"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md bg-[#141413] px-2.5 py-2 text-[11px] sm:text-xs font-medium text-white transition-colors hover:bg-[#292524] disabled:opacity-40 whitespace-nowrap cursor-pointer"
             >
               <Zap className="h-3 w-3 shrink-0" />
               <span className="truncate">{t('card.quickBuy')}</span>
@@ -355,7 +382,7 @@ export function ProductCard({
               type="button"
               onClick={() => onQuickAdd(product)}
               disabled={product.totalStock <= 0}
-              className="inline-flex items-center justify-center gap-1 rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 sm:py-1.5 text-[11px] sm:text-xs font-medium text-[#141413] transition-colors hover:border-[#881337] hover:bg-[#881337] hover:text-white disabled:opacity-40 whitespace-nowrap cursor-pointer min-w-0"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 text-[11px] sm:text-xs font-medium text-[#141413] transition-colors hover:border-[#881337] hover:bg-[#881337] hover:text-white disabled:opacity-40 whitespace-nowrap cursor-pointer"
             >
               <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">

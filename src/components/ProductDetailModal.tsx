@@ -257,9 +257,9 @@ export function ProductDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-0 sm:p-4 md:p-6 backdrop-blur-xs">
-      <div className="mx-auto min-h-screen sm:min-h-0 max-w-[1160px] bg-[#FAF9F6] sm:rounded-xl border border-[#E8E6E1] shadow-2xl overflow-hidden">
+      <div className="mx-auto min-h-dvh sm:min-h-0 max-w-6xl bg-[#FAF9F6] sm:rounded-xl border border-[#E8E6E1] shadow-2xl overflow-hidden">
         {/* Top Modal Close Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[#E8E6E1] bg-white/95 px-4 sm:px-6 py-3 sm:py-4 backdrop-blur-sm">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[#E8E6E1] bg-white/95 px-4 sm:px-6 py-3 backdrop-blur-sm">
           <div className="text-xs font-medium text-[#6B6A65] truncate">
             {product ? `${tc(product.category)} · ${product.subCategory}` : t('detail.loadingProduct')}
           </div>
@@ -267,7 +267,7 @@ export function ProductDetailModal({
             type="button"
             onClick={onClose}
             aria-label={t('detail.close')}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#E8E6E1] bg-white px-3 py-1.5 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] shrink-0 cursor-pointer"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-[#E8E6E1] bg-white px-3 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] shrink-0 cursor-pointer"
           >
             <X className="h-4 w-4" />
             <span>{t('detail.close')}</span>
@@ -363,7 +363,7 @@ export function ProductDetailModal({
                                 openZoomViewer(idx, 2.2);
                               }}
                               aria-label={t('detail.zoomIn')}
-                              className="absolute bottom-3 left-3 z-20 inline-flex min-h-[40px] items-center gap-1.5 rounded-md bg-white/95 px-3 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
+                              className="absolute bottom-3 left-3 z-20 inline-flex min-h-[44px] items-center gap-1.5 rounded-md bg-white/95 px-3 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
                             >
                               <ZoomIn className="h-3.5 w-3.5 text-[#881337]" />
                               <span>
@@ -382,7 +382,7 @@ export function ProductDetailModal({
                                 openZoomViewer(idx, 1);
                               }}
                               aria-label={t('detail.fullscreen')}
-                              className="absolute bottom-3 right-3 z-20 inline-flex min-h-[40px] items-center gap-1.5 rounded-md bg-white/95 px-3 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
+                              className="absolute bottom-3 right-3 z-20 inline-flex min-h-[44px] items-center gap-1.5 rounded-md bg-white/95 px-3 py-1.5 text-[11px] font-medium text-[#141413] shadow-xs hover:bg-white cursor-pointer"
                             >
                               <Expand className="h-3.5 w-3.5" />
                               <span>{t('detail.fullscreen')}</span>
@@ -400,7 +400,7 @@ export function ProductDetailModal({
                         aria-label={t('pagination.prev')}
                         onMouseEnter={() => setHoverZoom(null)}
                         onClick={() => emblaApi?.scrollPrev()}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
                       >
                         <ChevronLeft className="h-4 w-4" />
                       </button>
@@ -409,7 +409,7 @@ export function ProductDetailModal({
                         aria-label={t('pagination.next')}
                         onMouseEnter={() => setHoverZoom(null)}
                         onClick={() => emblaApi?.scrollNext()}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-[#141413] shadow-sm hover:bg-white cursor-pointer"
                       >
                         <ChevronRight className="h-4 w-4" />
                       </button>
@@ -593,7 +593,7 @@ export function ProductDetailModal({
                                 ) || v;
                               setSelectedVariant(matched);
                             }}
-                            className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs transition-colors cursor-pointer ${
+                            className={`inline-flex min-h-[44px] sm:min-h-[38px] items-center gap-2 rounded-md border px-3 py-1.5 text-xs transition-colors cursor-pointer ${
                               active
                                 ? 'border-[#881337] bg-[#881337]/5 text-[#141413] font-medium'
                                 : 'border-[#E8E6E1] text-[#57534E] hover:border-[#A8A29E]'
@@ -622,7 +622,7 @@ export function ProductDetailModal({
                         <button
                           type="button"
                           onClick={() => setSizeGuideOpen(true)}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-[#881337] hover:underline cursor-pointer"
+                          className="inline-flex min-h-[44px] items-center gap-1 text-xs font-medium text-[#881337] hover:underline cursor-pointer"
                         >
                           <Ruler className="h-3.5 w-3.5" />
                           <span>{t('detail.sizeGuide')}</span>
@@ -645,7 +645,7 @@ export function ProductDetailModal({
                                 ) || product.variants.find((x) => x.size === sz);
                               if (matched) setSelectedVariant(matched);
                             }}
-                            className={`rounded-md border px-3 py-1.5 text-xs tabular-nums transition-colors cursor-pointer ${
+                            className={`min-h-[44px] sm:min-h-[38px] min-w-[44px] rounded-md border px-3 py-1.5 text-xs tabular-nums transition-colors cursor-pointer ${
                               active
                                 ? 'border-[#141413] bg-[#141413] text-white font-medium'
                                 : 'border-[#E8E6E1] text-[#44403C] hover:border-[#141413]'
@@ -660,20 +660,22 @@ export function ProductDetailModal({
                 )}
 
                 {/* Quantity & Primary CTAs */}
-                <div className="flex items-center gap-3 pt-1">
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 pt-1">
                   <div className="inline-flex items-center rounded-md border border-[#D6D3CD]">
                     <button
                       type="button"
+                      aria-label="Decrease quantity"
                       onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                      className="px-3 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
+                      className="inline-flex h-11 w-10 items-center justify-center text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
                     >
                       -
                     </button>
                     <span className="px-3 text-xs font-semibold tabular-nums">{quantity}</span>
                     <button
                       type="button"
+                      aria-label="Increase quantity"
                       onClick={() => setQuantity((q) => Math.min(10, q + 1))}
-                      className="px-3 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
+                      className="inline-flex h-11 w-10 items-center justify-center text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
                     >
                       +
                     </button>
@@ -685,7 +687,7 @@ export function ProductDetailModal({
                     onClick={() =>
                       selectedVariant && onAddToCart(product, selectedVariant, quantity)
                     }
-                    className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-[#881337] px-5 py-3 text-xs font-semibold text-white hover:bg-[#9F1239] disabled:opacity-40 transition-colors cursor-pointer"
+                    className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] disabled:opacity-40 transition-colors cursor-pointer"
                   >
                     <ShoppingBag className="h-4 w-4" />
                     <span>
@@ -697,7 +699,7 @@ export function ProductDetailModal({
                     type="button"
                     onClick={() => onToggleLike(product._id)}
                     aria-label={t('nav.wishlist')}
-                    className="inline-flex items-center justify-center rounded-md border border-[#D6D3CD] p-3 hover:border-[#881337] cursor-pointer"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[#D6D3CD] hover:border-[#881337] cursor-pointer"
                   >
                     <Heart
                       className={`h-4 w-4 ${

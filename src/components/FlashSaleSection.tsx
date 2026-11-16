@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { ArrowRight, Bell, BellRing, Flame, Sparkles, Timer } from 'lucide-react';
 import { formatINR } from '../lib/api';
 import { useI18n } from '../lib/i18n';
@@ -10,6 +10,8 @@ interface FlashSaleSectionProps {
   onSelectCampaign: (campaign: StorefrontCampaign) => void;
   onSelectSeason: (season: SeasonType) => void;
   onOpenProduct: (product: Product) => void;
+  sectionRef?: RefObject<HTMLElement | null>;
+  onViewOffersCatalog?: () => void;
 }
 
 interface TimeBreakdown {
@@ -98,6 +100,8 @@ export function FlashSaleSection({
   onSelectCampaign,
   onSelectSeason,
   onOpenProduct,
+  sectionRef,
+  onViewOffersCatalog,
 }: FlashSaleSectionProps) {
   const { t, tseason } = useI18n();
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -134,8 +138,13 @@ export function FlashSaleSection({
   };
 
   return (
-    <section aria-label={t('flash.title')} className="border-b border-[#E8E6E1] bg-white">
-      <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6">
+    <section
+      ref={sectionRef}
+      id="special-offers-section"
+      aria-label={t('flash.title')}
+      className="border-b border-[#E8E6E1] bg-white scroll-mt-20"
+    >
+      <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#881337]">
@@ -147,6 +156,16 @@ export function FlashSaleSection({
             </h2>
             <p className="mt-0.5 text-xs text-[#6B6A65]">{t('flash.sub')}</p>
           </div>
+          {onViewOffersCatalog && (
+            <button
+              type="button"
+              onClick={onViewOffersCatalog}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-[#D6D3CD] bg-[#FAF9F6] px-4 py-2 text-xs font-semibold text-[#141413] hover:border-[#881337] hover:text-[#881337] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] transition-colors cursor-pointer"
+            >
+              <span>{t('hero.ctaSecondary')}</span>
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -176,7 +195,7 @@ export function FlashSaleSection({
                       <button
                         type="button"
                         onClick={() => onSelectSeason(campaign.season)}
-                        className={`inline-flex items-center gap-1 hover:underline cursor-pointer ${theme.accent}`}
+                        className={`inline-flex min-h-[44px] min-w-[44px] items-center gap-1 hover:underline cursor-pointer ${theme.accent}`}
                       >
                         <Sparkles className="h-3 w-3" />
                         {tseason(campaign.season)}
@@ -223,16 +242,16 @@ export function FlashSaleSection({
                       >
                         {isUpcoming ? t('flash.startsIn') : t('flash.endsIn')}
                       </div>
-                      <div className="flex items-center gap-1.5 tabular-nums">
+                      <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 tabular-nums">
                         {[
                           { val: timer.days, lbl: t('flash.days') },
                           { val: timer.hrs, lbl: t('flash.hrs') },
                           { val: timer.min, lbl: t('flash.min') },
                           { val: timer.sec, lbl: t('flash.sec') },
                         ].map((unit, uIdx) => (
-                          <div key={unit.lbl} className="flex items-center gap-1.5">
+                          <div key={unit.lbl} className="flex items-center gap-1 sm:gap-1.5">
                             <div
-                              className={`min-w-[44px] rounded-md px-2 py-1.5 text-center ${theme.tileBg}`}
+                              className={`min-w-[40px] sm:min-w-[44px] rounded-md px-1.5 sm:px-2 py-1.5 text-center ${theme.tileBg}`}
                             >
                               <div
                                 className={`font-mono text-base font-bold leading-none ${theme.tileText}`}
@@ -307,12 +326,12 @@ export function FlashSaleSection({
                     {t('flash.itemsCount', { count: campaign.products.length })}
                   </span>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     {isUpcoming && (
                       <button
                         type="button"
                         onClick={() => toggleReminder(campaign._id)}
-                        className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                        className={`flex-1 sm:flex-initial inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border px-3.5 py-2 text-xs font-medium transition-colors cursor-pointer ${
                           isReminded
                             ? isDark
                               ? 'border-[#F3CE84] bg-[#F3CE84]/15 text-[#F3CE84]'
@@ -334,7 +353,7 @@ export function FlashSaleSection({
                     <button
                       type="button"
                       onClick={() => onSelectCampaign(campaign)}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${theme.btnBg}`}
+                      className={`flex-1 sm:flex-initial inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${theme.btnBg}`}
                     >
                       <span>{isUpcoming ? t('flash.previewSale') : t('flash.shopCampaign')}</span>
                       <ArrowRight className="h-3.5 w-3.5" />

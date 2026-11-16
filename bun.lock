@@ -6,6 +6,9 @@
       "name": "react-example",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.1169.0",
+        "@commerce/shared-types": "^1.0.0",
+        "@commerce/shared-ui": "^1.0.0",
+        "@commerce/shared-utils": "^1.0.0",
         "@google/genai": "^2.4.0",
         "@supabase/supabase-js": "^2.119.0",
         "@tailwindcss/vite": "^4.3.3",
@@ -16,14 +19,18 @@
         "browser-image-compression": "^2.0.2",
         "cookie-parser": "^1.4.7",
         "dotenv": "^17.2.3",
+        "driver.js": "^1.14.0",
         "embla-carousel-react": "^8.6.0",
         "express": "^4.21.2",
+        "i18next": "^27.1.3",
+        "i18next-browser-languagedetector": "^8.3.0",
         "lucide-react": "^0.546.0",
         "mongoose": "^9.12.1",
         "motion": "^12.23.24",
         "multer": "^2.5.0",
         "react": "^19.0.1",
         "react-dom": "^19.0.1",
+        "react-i18next": "^18.0.2",
         "react-inner-image-zoom": "^4.0.2",
         "recharts": "^3.10.1",
         "sharp": "^0.35.5",
@@ -42,6 +49,62 @@
         "tailwindcss": "^4.3.3",
         "tsx": "^4.21.0",
         "typescript": "^7.0.2",
+      },
+    },
+    "apps/customer-web": {
+      "name": "@commerce/customer-web",
+      "version": "1.0.0",
+      "dependencies": {
+        "@commerce/shared-types": "^1.0.0",
+        "@commerce/shared-ui": "^1.0.0",
+        "@commerce/shared-utils": "^1.0.0",
+      },
+    },
+    "apps/logistics-worker": {
+      "name": "@org/logistics-worker",
+      "version": "0.1.0",
+    },
+    "apps/provider-portal": {
+      "name": "@commerce/provider-portal",
+      "version": "1.0.0",
+      "dependencies": {
+        "@commerce/shared-types": "^1.0.0",
+        "@commerce/shared-ui": "^1.0.0",
+        "@commerce/shared-utils": "^1.0.0",
+      },
+    },
+    "packages/adapters/shadowfax": {
+      "name": "@org/logistics-adapter-shadowfax",
+      "version": "0.1.0",
+    },
+    "packages/adapters/shiprocket": {
+      "name": "@org/logistics-adapter-shiprocket",
+      "version": "0.1.0",
+    },
+    "packages/hybrid-engine": {
+      "name": "@commerce/hybrid-engine",
+      "version": "1.0.0",
+    },
+    "packages/logistics-core": {
+      "name": "@org/logistics-core",
+      "version": "0.1.0",
+    },
+    "packages/shared-types": {
+      "name": "@commerce/shared-types",
+      "version": "1.0.0",
+    },
+    "packages/shared-ui": {
+      "name": "@commerce/shared-ui",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "react": "^19.0.0",
+      },
+    },
+    "packages/shared-utils": {
+      "name": "@commerce/shared-utils",
+      "version": "1.0.0",
+      "dependencies": {
+        "zod": "^4.6.7",
       },
     },
   },
@@ -81,6 +144,20 @@
     "@aws-sdk/xml-builder": ["@aws-sdk/xml-builder@3.972.43", "", { "dependencies": { "@smithy/types": "^4.20.0", "tslib": "^2.6.2" } }, "sha512-rG8QVx4DOrJWptsogu1Aq+CDsnPKaBrAlJpKLxrJrIDXAq1ElnW0yQjjBnlWSXll0cDakCG6UDvaqwz0A9d9Og=="],
 
     "@aws/lambda-invoke-store": ["@aws/lambda-invoke-store@0.3.0", "", {}, "sha512-sl4Bm6yiMNYrZKkqqDFWN0UfnWhlS8ivKxrYl+6t0gCLrqr8y3B2IqZZbFRkfaVVp7C/baApyh71P+LeE1A2sQ=="],
+
+    "@babel/runtime": ["@babel/runtime@7.29.14", "", {}, "sha512-Y5tqevQaUAZhhj82BpYMNC1ssvLQTVAfwKdm8iy8qwmhvC2/CpcAu8OC+QEtjM7pMk7knx83u1Qj8gzkicyelw=="],
+
+    "@commerce/customer-web": ["@commerce/customer-web@workspace:apps/customer-web"],
+
+    "@commerce/hybrid-engine": ["@commerce/hybrid-engine@workspace:packages/hybrid-engine"],
+
+    "@commerce/provider-portal": ["@commerce/provider-portal@workspace:apps/provider-portal"],
+
+    "@commerce/shared-types": ["@commerce/shared-types@workspace:packages/shared-types"],
+
+    "@commerce/shared-ui": ["@commerce/shared-ui@workspace:packages/shared-ui"],
+
+    "@commerce/shared-utils": ["@commerce/shared-utils@workspace:packages/shared-utils"],
 
     "@emnapi/core": ["@emnapi/core@2.0.0-beta.2", "", { "dependencies": { "@emnapi/wasi-threads": "2.2.0", "tslib": "^2.4.0" } }, "sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A=="],
 
@@ -209,6 +286,14 @@
     "@mongodb-js/saslprep": ["@mongodb-js/saslprep@1.6.3", "", { "dependencies": { "sparse-bitfield": "^3.0.3" } }, "sha512-aHGFvT95c82CoQ7hb6qXpz8Hcc5PJb3ZtQ+P01QDBbyQday0mjcrJPeNJOHCgWe0pGX0zKmKP+1mWi/I/BCX9Q=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.2.6", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1 || 2.0.0-beta.2", "@emnapi/runtime": "^1.7.1 || 2.0.0-beta.2" } }, "sha512-mRyDmEw9/fCDXCGfL1sbgIw/GUK0PVxRW4YwgPN61F3LQ+fSyoBFarJVzgGyhF6kRzEQZ0FejDqm4WLXSeqQmw=="],
+
+    "@org/logistics-adapter-shadowfax": ["@org/logistics-adapter-shadowfax@workspace:packages/adapters/shadowfax"],
+
+    "@org/logistics-adapter-shiprocket": ["@org/logistics-adapter-shiprocket@workspace:packages/adapters/shiprocket"],
+
+    "@org/logistics-core": ["@org/logistics-core@workspace:packages/logistics-core"],
+
+    "@org/logistics-worker": ["@org/logistics-worker@workspace:apps/logistics-worker"],
 
     "@oxc-project/types": ["@oxc-project/types@0.156.0", "", {}, "sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw=="],
 
@@ -516,6 +601,8 @@
 
     "dotenv": ["dotenv@17.4.2", "", {}, "sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw=="],
 
+    "driver.js": ["driver.js@1.14.0", "", {}, "sha512-BnCFuNU8QO2rrYiDra43Ortx6D6chqMvEMF1q3fWQfsC3xNyCX4T1P1vZDTXTxGdtcXh2v5r11hxSpNLF3DJVw=="],
+
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 
     "ecdsa-sig-formatter": ["ecdsa-sig-formatter@1.0.11", "", { "dependencies": { "safe-buffer": "^5.0.1" } }, "sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ=="],
@@ -598,9 +685,15 @@
 
     "hasown": ["hasown@2.0.4", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A=="],
 
+    "html-parse-stringify": ["html-parse-stringify@4.0.1", "", {}, "sha512-0zHsZJrK7S3K2aucXWL6ycoYJ/iNtIcFHC/nYQgFklPtrv5LpJctIiSCroWZWeuoXvuyFdzp6KzjJQ+OT5MfFw=="],
+
     "http-errors": ["http-errors@2.0.1", "", { "dependencies": { "depd": "~2.0.0", "inherits": "~2.0.4", "setprototypeof": "~1.2.0", "statuses": "~2.0.2", "toidentifier": "~1.0.1" } }, "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ=="],
 
     "https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
+
+    "i18next": ["i18next@27.1.3", "", { "peerDependencies": { "typescript": "^5 || ^6 || ^7" }, "optionalPeers": ["typescript"] }, "sha512-Qih5Erw8m9qJPmuNUjoSiBctutYkfgg+mhzLaQ7xbn2Y9e2tsB8dNhYyMB00fUfBRt6v0UTFjPPCSROJPn93JQ=="],
+
+    "i18next-browser-languagedetector": ["i18next-browser-languagedetector@8.3.0", "", { "dependencies": { "@babel/runtime": "^7.29.2" } }, "sha512-t7FtF+VyQ+XSy+GI1O9TXWsMzP4U2u0m27yxJcCbG4LaAbTQa3CXFXgG3LvRivS+ZoYah8yPv5NhMl+Wg6I8Fg=="],
 
     "iceberg-js": ["iceberg-js@0.8.1", "", {}, "sha512-1dhVQZXhcHje7798IVM+xoo/1ZdVfzOMIc8/rgVSijRK38EDqOJoGula9N/8ZI5RD8QTxNQtK/Gozpr+qUqRRA=="],
 
@@ -733,6 +826,8 @@
     "react": ["react@19.3.1", "", {}, "sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw=="],
 
     "react-dom": ["react-dom@19.3.1", "", { "dependencies": { "scheduler": "^0.28.0" }, "peerDependencies": { "react": "^19.3.1" } }, "sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ=="],
+
+    "react-i18next": ["react-i18next@18.0.2", "", { "dependencies": { "html-parse-stringify": "^4.0.1" }, "peerDependencies": { "@types/react": "*", "i18next": ">= 27.0.1", "react": ">= 18.0.0", "typescript": "^5 || ^6 || ^7" }, "optionalPeers": ["@types/react", "typescript"] }, "sha512-g7YfBxTDC9dYdEsb3F7o0pRr6jg14f08U5G6N3DTUqSgGt/nq7AYf279ESRjE3Dy+Q/YG7OGVd7vtiylxTfV4w=="],
 
     "react-inner-image-zoom": ["react-inner-image-zoom@4.0.2", "", { "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-2Tar/8dxJkFSngg5dGQnk2XxNIQuRzmDun0z8Xj4/Tr0eqb3r+iZQq4QnR3vY1NNIVJbVESLwFvt1Q3/Gym+7Q=="],
 

@@ -301,7 +301,7 @@ export function AuthModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17120F]/55 p-4 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl border border-[#E8E6E1] bg-white p-5 shadow-2xl sm:p-7">
+      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-[#E8E6E1] bg-white p-5 shadow-2xl sm:p-7">
         <div className="flex items-start justify-between gap-4 border-b border-[#F0EEE9] pb-4">
           <div>
             {!user && <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#881337]">Kala &amp; Karat · Secure customer access</p>}
@@ -324,7 +324,7 @@ export function AuthModal({
             type="button"
             onClick={onClose}
             aria-label={t('detail.close')}
-            className="rounded-md p-1.5 text-[#57534E] hover:bg-[#F5F3EE] cursor-pointer"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[#57534E] hover:bg-[#F5F3EE] cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>
@@ -447,7 +447,7 @@ export function AuthModal({
               type="button"
               onClick={handleLogout}
               disabled={loading}
-              className="w-full rounded-md border border-[#D6D3CD] px-4 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
+              className="w-full min-h-[44px] rounded-md border border-[#D6D3CD] px-4 py-2.5 text-xs font-medium text-[#141413] hover:bg-[#F5F3EE] cursor-pointer"
             >
               {loading ? 'Signing out…' : t('auth.signOut')}
             </button>

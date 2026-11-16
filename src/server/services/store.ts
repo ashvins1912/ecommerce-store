@@ -2075,9 +2075,12 @@ export async function logShareEvent(input: {
   const channel: 'whatsapp' = input.channel || 'whatsapp';
   const nowIso = new Date().toISOString();
 
-  if (mongoConnected && mongoose.isValidObjectId(input.productId)) {
+  if (mongoConnected) {
+    const productQuery = mongoose.isValidObjectId(input.productId)
+      ? { _id: input.productId, ...MONGO_PUBLIC_PRODUCT_FILTER }
+      : { slug: input.productId, ...MONGO_PUBLIC_PRODUCT_FILTER };
     const updated = await ProductModel.findOneAndUpdate(
-      { _id: input.productId, ...MONGO_PUBLIC_PRODUCT_FILTER },
+      productQuery,
       { $inc: { sharesCount: 1, trendScore: 2 } },
       { returnDocument: 'after' }
     ).lean();
@@ -2783,8 +2786,7 @@ export async function getSellerAnalytics(
   ) as Record<ReviewClass, { avg: number; count: number }>;
 
   const topProducts = [...sellerProducts]
-    .sort((a, b) => b.salesCount - a.salesCount)
-    .slice(0, 6)
+    .sort((a, b) => b.salesCount - a.salesCount || (b.sharesCount || 0) - (a.sharesCount || 0))
     .map((p) => ({
       _id: p._id,
       title: p.title,
@@ -2799,7 +2801,7 @@ export async function getSellerAnalytics(
 
   const mostSharedProducts = [...sellerProducts]
     .sort((a, b) => (b.sharesCount || 0) - (a.sharesCount || 0) || b.salesCount - a.salesCount)
-    .slice(0, 6)
+    .slice(0, 12)
     .map((p) => ({
       _id: p._id,
       title: p.title,

@@ -46,7 +46,7 @@ export function RecentlyViewedCarousel({
 
   return (
     <section className="border-t border-[#E8E6E1] bg-white">
-      <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-10 space-y-5">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-wider text-[#881337]">
@@ -64,7 +64,7 @@ export function RecentlyViewedCarousel({
             <button
               type="button"
               onClick={onClearHistory}
-              className="text-xs font-medium text-[#6B6A65] hover:text-[#881337] mr-2 cursor-pointer"
+              className="min-h-[44px] px-2 text-xs font-medium text-[#6B6A65] hover:text-[#881337] mr-1 cursor-pointer"
             >
               {t('recent.clear')}
             </button>
@@ -72,7 +72,7 @@ export function RecentlyViewedCarousel({
               type="button"
               aria-label={t('recent.prev')}
               onClick={() => emblaApi?.scrollPrev()}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-[#D6D3CD] bg-white text-[#141413] hover:border-[#881337] cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-md border border-[#D6D3CD] bg-white text-[#141413] hover:border-[#881337] cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -80,7 +80,7 @@ export function RecentlyViewedCarousel({
               type="button"
               aria-label={t('recent.next')}
               onClick={() => emblaApi?.scrollNext()}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-[#D6D3CD] bg-white text-[#141413] hover:border-[#881337] cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-md border border-[#D6D3CD] bg-white text-[#141413] hover:border-[#881337] cursor-pointer"
             >
               <ChevronRight className="h-4 w-4" />
             </button>

@@ -87,23 +87,23 @@ export function JewelleryCompareModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-xs">
-      <div className="mx-auto max-w-[1160px] rounded-xl border border-[#E8E6E1] bg-white shadow-2xl overflow-hidden my-4">
-        <div className="flex items-center justify-between border-b border-[#E8E6E1] px-6 py-4">
-          <div>
-            <h2 className="font-display text-2xl font-semibold text-[#141413]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+      <div className="w-full max-w-6xl max-h-[90dvh] overflow-y-auto overscroll-contain rounded-xl border border-[#E8E6E1] bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[#E8E6E1] bg-white px-4 sm:px-6 py-4">
+          <div className="min-w-0">
+            <h2 className="font-display text-xl sm:text-2xl font-semibold text-[#141413]">
               {t('jcmp.title')}
             </h2>
             <p className="text-xs text-[#6B6A65] tabular-nums">
               {t('jcmp.subtitle', { count: items.length })}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 shrink-0">
             {items.length > 0 && (
               <button
                 type="button"
                 onClick={onClearAll}
-                className="text-xs font-medium text-[#6B6A65] hover:text-[#881337] cursor-pointer"
+                className="min-h-[44px] px-2 text-xs font-medium text-[#6B6A65] hover:text-[#881337] cursor-pointer"
               >
                 {t('jcmp.clearAll')}
               </button>
@@ -112,7 +112,7 @@ export function JewelleryCompareModal({
               type="button"
               onClick={onClose}
               aria-label={t('detail.close')}
-              className="rounded-md border border-[#E8E6E1] p-1.5 text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-[#E8E6E1] text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>

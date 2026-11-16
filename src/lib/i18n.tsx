@@ -1917,7 +1917,7 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Language>(() => {
     if (typeof window === 'undefined') return 'en';
-    const stored = localStorage.getItem('kk_lang');
+    const stored = localStorage.getItem('kk_lang') || localStorage.getItem('i18nextLng');
     if (stored === 'hi' || stored === 'bn' || stored === 'en') return stored;
     return 'en';
   });
@@ -1926,14 +1926,36 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     setLangState(next);
     if (typeof window !== 'undefined') {
       localStorage.setItem('kk_lang', next);
-      document.documentElement.lang = next;
+      localStorage.setItem('i18nextLng', next);
     }
+    import('../i18n/config').then(({ default: i18nextInstance, syncHtmlLangDir }) => {
+      if (i18nextInstance.language !== next) {
+        void i18nextInstance.changeLanguage(next);
+      }
+      syncHtmlLangDir(next);
+    }).catch(() => {});
   };
 
   useEffect(() => {
-    if (typeof document !== 'undefined') {
-      document.documentElement.lang = lang;
-    }
+    let cleanup: (() => void) | undefined;
+    import('../i18n/config').then(({ default: i18nextInstance, syncHtmlLangDir }) => {
+      if (i18nextInstance.language !== lang) {
+        void i18nextInstance.changeLanguage(lang);
+      }
+      syncHtmlLangDir(lang);
+      const onChanged = (lng: string) => {
+        const short = (lng || 'en').split('-')[0];
+        if (short === 'en' || short === 'hi' || short === 'bn') {
+          setLangState((prev) => (prev === short ? prev : short));
+        }
+        syncHtmlLangDir(short);
+      };
+      i18nextInstance.on('languageChanged', onChanged);
+      cleanup = () => i18nextInstance.off('languageChanged', onChanged);
+    }).catch(() => {});
+    return () => {
+      cleanup?.();
+    };
   }, [lang]);
 
   const t = (key: TranslationKey, vars?: Record<string, string | number>): string => {

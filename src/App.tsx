@@ -6,8 +6,6 @@ import {
   ChevronRight,
   ExternalLink,
   GitCompare,
-  Search,
-  SlidersHorizontal,
   X,
 } from 'lucide-react';
 import type {
@@ -41,6 +39,9 @@ import { AccountSignUpView } from './components/CustomerSignUpView';
 import { JewelleryCompareModal } from './components/JewelleryCompareModal';
 import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
 import { FlashSaleSection } from './components/FlashSaleSection';
+import { CatalogFilterBar } from './components/CatalogFilterBar';
+import { ActionButton } from './components/ActionButton';
+import { useI18nTutorial } from './hooks/useI18nTutorial';
 import ProviderPortal from '../apps/provider-portal/src/ProviderPortal';
 
 const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
@@ -155,7 +156,8 @@ function upsertJsonLdScript(payload: Record<string, unknown>): void {
 }
 
 export default function App() {
-  const { t, tc, to, tseason, tsort } = useI18n();
+  const { t, tc, tseason } = useI18n();
+  const { startRoleTour } = useI18nTutorial('CUSTOMER');
   const [activePage, setActivePage] = useState<ActivePage>('store');
   const [user, setUser] = useState<User | null>(null);
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
@@ -217,6 +219,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
 
   const heroRef = useRef<HTMLElement | null>(null);
+  const flashSaleRef = useRef<HTMLElement | null>(null);
   const catalogRef = useRef<HTMLElement | null>(null);
   const catalogCursorRef = useRef<{ signature: string; cursors: Record<number, string> }>({ signature: '', cursors: {} });
 
@@ -870,6 +873,54 @@ export default function App() {
     return () => window.removeEventListener('commerce:navigate-signup', openCustomerSignup);
   }, []);
 
+  const clearCatalogFilters = useCallback(() => {
+    setSearchInput('');
+    setDebouncedQuery('');
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setCategory('All');
+    setOccasion('All');
+    setSeason('All');
+    setSelectedCampaignId(null);
+    setMinPrice('');
+    setMaxPrice('');
+    setMinDiscount('');
+    setInStockOnly(false);
+    setColorFilter('');
+    setShowMoreFilters(false);
+  }, []);
+
+  const scrollToRef = useCallback((ref: { current: HTMLElement | null }) => {
+    window.requestAnimationFrame(() => {
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
+
+  const handleExploreFestiveEdit = useCallback(() => {
+    setActivePage('store');
+    clearCatalogFilters();
+    setOccasion('Festive');
+    setSort('most_demanding');
+    setPage(1);
+    scrollToRef(catalogRef);
+  }, [clearCatalogFilters, scrollToRef]);
+
+  const handleViewSpecialOffers = useCallback(
+    (target: 'auto' | 'catalog' = 'auto') => {
+      setActivePage('store');
+      clearCatalogFilters();
+      setSort('special_offers');
+      setMinDiscount('15');
+      setPage(1);
+      if (target === 'auto' && campaigns.length > 0 && flashSaleRef.current) {
+        scrollToRef(flashSaleRef);
+      } else {
+        scrollToRef(catalogRef);
+      }
+    },
+    [campaigns.length, clearCatalogFilters, scrollToRef]
+  );
+
   const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
     setActivePage('store');
     if (cat) {
@@ -885,13 +936,15 @@ export default function App() {
   const isSellerDashboard = isSellerWorkspace && activePage === 'seller';
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FAF9F6] text-[#141413] overflow-x-clip">
+    <div className="min-h-dvh w-full flex flex-col bg-[#FAF9F6] text-[#141413] overflow-x-clip">
       {!isSellerDashboard && <TopBar
         activePage={activePage}
         activeCategory={category}
+        categories={storeCategories.map((c) => c.name)}
         onNavigateStore={navigateToStore}
         onNavigateWishlist={() => setActivePage('wishlist')}
         onNavigateOrders={() => setActivePage('orders')}
+        onNavigateSeller={isSellerWorkspace ? () => setActivePage('seller') : undefined}
         wishlistCount={likedIds.size}
         cartCount={cartCount}
         onOpenCart={() => setCartOpen(true)}
@@ -899,6 +952,10 @@ export default function App() {
         onOpenAuth={() => {
           setAuthInitialMode('signin');
           setAuthOpen(true);
+        }}
+        onStartTour={() => {
+          setActivePage('store');
+          window.requestAnimationFrame(() => startRoleTour());
         }}
       />}
 
@@ -976,40 +1033,32 @@ export default function App() {
       )}
 
       {activePage === 'store' && (
-        <main className="flex-1">
+        <main className="flex-1 min-w-0">
           {/* Storefront Campaign Hero */}
           <section ref={heroRef} className="border-b border-[#E8E6E1] bg-white">
-            <div className="mx-auto max-w-[1360px] grid grid-cols-1 lg:grid-cols-12 items-stretch">
-              <div className="lg:col-span-5 flex flex-col justify-center px-4 py-8 sm:px-10 sm:py-10 lg:py-14 space-y-4 sm:space-y-5">
+            <div className="mx-auto max-w-7xl grid grid-cols-1 lg:grid-cols-12 items-stretch">
+              <div className="lg:col-span-5 flex flex-col justify-center px-4 py-8 sm:px-8 lg:px-10 sm:py-10 lg:py-14 space-y-4 sm:space-y-5 min-w-0">
                 <div className="text-xs font-medium tracking-wide text-[#881337]">
                   {t('hero.kicker')}
                 </div>
-                <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-semibold leading-[1.08] text-[#141413] text-balance">
+                <h1 className="font-display text-2xl sm:text-4xl lg:text-5xl font-semibold leading-[1.08] text-[#141413] text-balance">
                   {t('hero.title')}
                 </h1>
-                <p className="text-sm leading-relaxed text-[#57534E] max-w-md">
+                <p className="text-sm leading-relaxed text-[#57534E] max-w-prose">
                   {t('hero.subtitle')}
                 </p>
-                <div className="flex flex-wrap items-center gap-3 pt-1">
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <ActionButton
+                    actionKey="explore_festive"
+                    role="CUSTOMER"
+                    showHelpIcon
+                    labelOverride={t('hero.ctaPrimary')}
+                    onClick={handleExploreFestiveEdit}
+                  />
                   <button
                     type="button"
-                    onClick={() => {
-                      setOccasion('Festive');
-                      setPage(1);
-                      catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className="rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] transition-colors whitespace-nowrap cursor-pointer"
-                  >
-                    {t('hero.ctaPrimary')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSort('special_offers');
-                      setPage(1);
-                      catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className="rounded-md border border-[#D6D3CD] bg-white px-5 py-2.5 text-xs font-medium text-[#141413] hover:border-[#141413] transition-colors whitespace-nowrap cursor-pointer"
+                    onClick={() => handleViewSpecialOffers('auto')}
+                    className="w-full sm:w-auto min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md border border-[#D6D3CD] bg-white px-5 py-2.5 text-xs font-medium text-[#141413] hover:border-[#141413] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#881337] focus-visible:ring-offset-2 transition-colors whitespace-nowrap cursor-pointer"
                   >
                     {t('hero.ctaSecondary')}
                   </button>
@@ -1029,374 +1078,140 @@ export default function App() {
 
           {/* Seasonal Flash Sales Countdown Section */}
           <FlashSaleSection
+            sectionRef={flashSaleRef}
             campaigns={campaigns}
             activeCampaignId={selectedCampaignId}
             onSelectCampaign={(campaign) => {
-              setSelectedCampaignId((prev) => (prev === campaign._id ? null : campaign._id));
+              const nextId = selectedCampaignId === campaign._id ? null : campaign._id;
+              clearCatalogFilters();
+              setSelectedCampaignId(nextId);
               setPage(1);
-              catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
+              scrollToRef(catalogRef);
             }}
             onSelectSeason={(ssn) => {
+              clearCatalogFilters();
               setSeason(ssn);
-              setSelectedCampaignId(null);
               setPage(1);
-              catalogRef.current?.scrollIntoView({ behavior: 'smooth' });
+              scrollToRef(catalogRef);
             }}
+            onViewOffersCatalog={() => handleViewSpecialOffers('catalog')}
             onOpenProduct={handleSelectProduct}
           />
 
-          {/* Hybrid Search, Occasion & Season Segmented Filters & Strict 20-Item Catalog */}
+          {/* Hybrid Search, Unified Filter Studio & Strict 20-Item Catalog */}
           <section
             ref={catalogRef}
-            className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-10 space-y-6"
+            id="catalog-section"
+            className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-6 scroll-mt-20"
           >
-            {/* Search + Sort Bar */}
-            <div className="space-y-2.5">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="relative flex-1 max-w-xl">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#78716C]" />
-                  <input
-                    type="search"
-                    value={searchInput}
-                    onFocus={() => setShowSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowSuggestions(false), 180)}
-                    onChange={(e) => {
-                      setSearchInput(e.target.value);
-                      setShowSuggestions(true);
-                    }}
-                    placeholder={t('search.placeholder')}
-                    className="w-full min-h-[44px] rounded-md border border-[#D6D3CD] bg-white py-2.5 pl-10 pr-12 text-sm text-[#141413] placeholder:text-[#A8A29E] focus:border-[#881337] focus:outline-none"
-                  />
-                  {searchInput && (
-                    <button
-                      type="button"
-                      aria-label={t('search.clear')}
-                      onClick={() => {
-                        setSearchInput('');
-                        setDebouncedQuery('');
-                        setSuggestions([]);
-                      }}
-                      className="absolute right-0 top-1/2 -translate-y-1/2 flex min-h-[44px] min-w-[44px] items-center justify-center text-[#78716C] hover:text-[#141413] cursor-pointer"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-
-                  {showSuggestions && suggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-md border border-[#E8E6E1] bg-white py-1 shadow-lg">
-                      {suggestions.map((sug) => (
-                        <button
-                          key={sug}
-                          type="button"
-                          onMouseDown={() => {
-                            setSearchInput(sug);
-                            setDebouncedQuery(sug);
-                            setShowSuggestions(false);
-                          }}
-                          className="flex w-full min-h-[44px] items-center gap-2 px-4 py-2.5 text-left text-xs text-[#141413] hover:bg-[#FAF9F6] cursor-pointer"
-                        >
-                          <Search className="h-3.5 w-3.5 text-[#881337]" />
-                          <span>{sug}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Sort & Attribute Filter Toggle */}
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowMoreFilters((v) => !v)}
-                    className={`inline-flex min-h-[44px] min-w-[44px] items-center gap-1.5 rounded-md border px-4 py-2.5 text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
-                      showMoreFilters ||
-                      minPrice ||
-                      maxPrice ||
-                      minDiscount ||
-                      inStockOnly ||
-                      colorFilter
-                        ? 'border-[#881337] bg-[#881337]/5 text-[#881337]'
-                        : 'border-[#D6D3CD] bg-white text-[#141413]'
-                    }`}
-                  >
-                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                    <span>{t('filter.priceColor')}</span>
-                  </button>
-
-                  <select
-                    aria-label={t('filter.sortPrefix')}
-                    value={sort}
-                    onChange={(e) => {
-                      setSort(e.target.value as SortOption);
-                      setPage(1);
-                    }}
-                    className="min-h-[44px] rounded-md border border-[#D6D3CD] bg-white px-3.5 py-2.5 text-xs font-medium text-[#141413] focus:border-[#881337] focus:outline-none cursor-pointer"
-                  >
-                    {SORT_OPTION_VALUES.map((val) => (
-                      <option key={val} value={val}>
-                        {t('filter.sortPrefix')}: {tsort(val)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Flexible Search Hints & Quick Chips */}
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#6B6A65]">
-                <span>{t('search.quickLabel')}</span>
-                {QUICK_SEARCH_CHIPS.map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    onClick={() => {
-                      setSearchInput(chip);
-                      setDebouncedQuery(chip);
-                      setPage(1);
-                    }}
-                    className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded border px-3.5 py-2 transition-colors cursor-pointer ${
-                      searchInput.toLowerCase() === chip.toLowerCase()
-                        ? 'border-[#881337] bg-[#881337]/5 text-[#881337] font-medium'
-                        : 'border-[#E8E6E1] bg-white text-[#57534E] hover:border-[#141413]'
-                    }`}
-                  >
-                    {chip}
-                  </button>
-                ))}
-                <span className="hidden sm:inline text-[#A8A29E]">· {t('search.flexibleHint')}</span>
-              </div>
-
-              {catalog.didYouMean && (
-                <div className="text-xs text-[#57534E]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchInput(catalog.didYouMean!);
-                      setDebouncedQuery(catalog.didYouMean!);
-                      setPage(1);
-                    }}
-                    className="inline-flex min-h-[44px] items-center px-2 font-semibold text-[#881337] hover:underline cursor-pointer"
-                  >
-                    {t('search.didYouMean', { term: catalog.didYouMean })}
-                  </button>
-                </div>
-              )}
-
-              {selectedCampaignId && (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-[#881337]/25 bg-[#881337]/5 px-3.5 py-1.5 text-xs">
-                  <span className="font-semibold text-[#881337]">
-                    {t('flash.filteringCampaign', {
-                      name:
-                        campaigns.find((c) => c._id === selectedCampaignId)?.name ||
-                        selectedCampaignId,
-                    })}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCampaignId(null);
-                      setPage(1);
-                    }}
-                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center px-3 font-medium text-[#141413] hover:underline cursor-pointer"
-                  >
-                    {t('flash.clearCampaign')}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Expandable Price / Discount / Color / Stock Filter Bar */}
-            {showMoreFilters && (
-              <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-end gap-3 sm:gap-4 rounded-lg border border-[#E8E6E1] bg-white p-4 text-xs">
-                <div className="w-full sm:w-auto">
-                  <label className="block font-medium text-[#44403C] mb-1">
-                    {t('search.minPrice')}
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="500"
-                    value={minPrice}
-                    onChange={(e) => {
-                      setMinPrice(e.target.value);
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-28 min-h-[44px] rounded border border-[#D6D3CD] px-3 py-2 text-xs tabular-nums"
-                  />
-                </div>
-                <div className="w-full sm:w-auto">
-                  <label className="block font-medium text-[#44403C] mb-1">
-                    {t('filter.maxPrice')}
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="3000"
-                    value={maxPrice}
-                    onChange={(e) => {
-                      setMaxPrice(e.target.value);
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-28 min-h-[44px] rounded border border-[#D6D3CD] px-3 py-2 text-xs tabular-nums"
-                  />
-                </div>
-                <div className="w-full sm:w-auto">
-                  <label className="block font-medium text-[#44403C] mb-1">
-                    {t('search.minDiscount')}
-                  </label>
-                  <select
-                    value={minDiscount}
-                    onChange={(e) => {
-                      setMinDiscount(e.target.value);
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-auto min-h-[44px] rounded border border-[#D6D3CD] bg-white px-3 py-2 text-xs"
-                  >
-                    <option value="">{t('search.anyDiscount')}</option>
-                    <option value="10">10%+</option>
-                    <option value="15">15%+</option>
-                    <option value="25">25%+</option>
-                  </select>
-                </div>
-                <div className="w-full sm:w-auto">
-                  <label className="block font-medium text-[#44403C] mb-1">
-                    {t('filter.finishColor')}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={t('filter.colorPlaceholder')}
-                    value={colorFilter}
-                    onChange={(e) => {
-                      setColorFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-36 min-h-[44px] rounded border border-[#D6D3CD] px-3 py-2 text-xs"
-                  />
-                </div>
-                <label className="inline-flex min-h-[44px] items-center gap-2 px-1 py-2 text-xs font-medium text-[#44403C] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={inStockOnly}
-                    onChange={(e) => {
-                      setInStockOnly(e.target.checked);
-                      setPage(1);
-                    }}
-                    className="h-4 w-4"
-                  />
-                  <span>{t('search.inStockOnly')}</span>
-                </label>
-                {(minPrice ||
-                  maxPrice ||
-                  minDiscount ||
-                  inStockOnly ||
-                  colorFilter ||
-                  category !== 'All' ||
-                  occasion !== 'All' ||
-                  season !== 'All' ||
-                  selectedCampaignId) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCategory('All');
-                      setOccasion('All');
-                      setSeason('All');
-                      setSelectedCampaignId(null);
-                      setMinPrice('');
-                      setMaxPrice('');
-                      setMinDiscount('');
-                      setInStockOnly(false);
-                      setColorFilter('');
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center rounded border border-[#D6D3CD] px-4 py-2 text-xs font-medium text-[#881337] hover:bg-[#FAF9F6] cursor-pointer"
-                  >
-                    {t('filter.reset')}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Dynamic Category + Occasion + Season Segmented Filter Tabs */}
-            <div className="space-y-3 border-b border-[#E8E6E1] pb-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCategory('All');
-                      setPage(1);
-                    }}
-                    className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      category === 'All'
-                        ? 'bg-white text-[#141413] shadow-xs'
-                        : 'text-[#57534E] hover:text-[#141413]'
-                    }`}
-                  >
-                    {t('filter.allCategories')}
-                  </button>
-                  {(storeCategories.length > 0
-                    ? storeCategories.map((c) => c.name)
-                    : ['Artificial Jewellery', 'Clothing', 'Accessories']
-                  ).map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => {
-                        setCategory(cat);
-                        setPage(1);
-                      }}
-                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        category === cat
-                          ? 'bg-white text-[#141413] shadow-xs'
-                          : 'text-[#57534E] hover:text-[#141413]'
-                      }`}
-                    >
-                      {tc(cat)}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="text-xs text-[#6B6A65] tabular-nums">
-                  {t('catalog.showing', {
-                    shown: catalog.products.length,
-                    total: catalog.total,
-                    page: catalog.page,
-                    totalPages: catalog.totalPages,
-                  })}
-                </div>
-              </div>
-
-              <section className="rounded-xl border border-[#E8E6E1] bg-white px-3 py-2.5 sm:px-4" aria-label="Quick filters">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <SlidersHorizontal className="h-3.5 w-3.5 text-[#881337]" />
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#78716C]">Quick filters</span>
-                    <span className="hidden text-[10px] text-[#A8A29E] sm:inline">Refine your edit</span>
-                  </div>
-                  <button type="button" onClick={() => { setCategory('All'); setOccasion('All'); setSeason('All'); setPage(1); }} className="text-[11px] font-medium text-[#881337] hover:underline">Clear all</button>
-                </div>
-                <div className="flex flex-col gap-2.5">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <label className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Category</label>
-                    <select aria-label="Category quick filter" value={category} onChange={(e) => { setCategory(e.target.value as ProductCategory | 'All'); setPage(1); }} className="h-8 min-w-0 flex-1 rounded-lg border border-[#E7E5E4] bg-[#FAF9F6] px-2.5 text-xs font-medium text-[#292524] focus:border-[#881337] focus:outline-none sm:max-w-[280px]">
-                      <option value="All">{t('filter.allCategories')}</option>
-                      {(storeCategories.length > 0 ? storeCategories.map((c) => c.name) : ['Artificial Jewellery', 'Clothing', 'Accessories']).map((catName) => <option key={catName} value={catName}>{tc(catName)}</option>)}
-                    </select>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Occasion</span>
-                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
-                        {OCCASIONS.map((occ) => <button key={occ} type="button" onClick={() => { setOccasion(occ); setPage(1); }} aria-pressed={occasion===occ} className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors ${occasion===occ?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E]'}`}>{occ === 'All' ? t('filter.allOccasions') : to(occ)}</button>)}
-                      </div>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Season</span>
-                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
-                        {SEASONS.map((ssn) => <button key={ssn} type="button" onClick={() => { setSeason(ssn); setPage(1); }} aria-pressed={season===ssn} className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors ${season===ssn?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E]'}`}>{ssn === 'All' ? t('season.all') : tseason(ssn)}</button>)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </div>
+            <CatalogFilterBar
+              searchInput={searchInput}
+              onSearchInputChange={setSearchInput}
+              onClearSearch={() => {
+                setSearchInput('');
+                setDebouncedQuery('');
+                setSuggestions([]);
+                setPage(1);
+              }}
+              suggestions={suggestions}
+              showSuggestions={showSuggestions}
+              onShowSuggestionsChange={setShowSuggestions}
+              onSelectSuggestion={(sug) => {
+                setSearchInput(sug);
+                setDebouncedQuery(sug);
+                setShowSuggestions(false);
+                setPage(1);
+              }}
+              didYouMean={catalog.didYouMean ?? null}
+              onSelectDidYouMean={(term) => {
+                setSearchInput(term);
+                setDebouncedQuery(term);
+                setPage(1);
+              }}
+              quickSearchChips={QUICK_SEARCH_CHIPS}
+              occasions={OCCASIONS}
+              seasons={SEASONS}
+              sortOptions={SORT_OPTION_VALUES}
+              storeCategories={storeCategories}
+              category={category}
+              onCategoryChange={(cat) => {
+                setCategory(cat);
+                setPage(1);
+              }}
+              occasion={occasion}
+              onOccasionChange={(occ) => {
+                setOccasion(occ);
+                setPage(1);
+              }}
+              season={season}
+              onSeasonChange={(ssn) => {
+                setSeason(ssn);
+                setPage(1);
+              }}
+              sort={sort}
+              onSortChange={(nextSort) => {
+                setSort(nextSort);
+                setPage(1);
+              }}
+              minPrice={minPrice}
+              onMinPriceChange={(val) => {
+                setMinPrice(val);
+                setPage(1);
+              }}
+              maxPrice={maxPrice}
+              onMaxPriceChange={(val) => {
+                setMaxPrice(val);
+                setPage(1);
+              }}
+              onApplyPriceRange={(nextMin, nextMax) => {
+                setMinPrice(nextMin);
+                setMaxPrice(nextMax);
+                setPage(1);
+              }}
+              minDiscount={minDiscount}
+              onMinDiscountChange={(val) => {
+                setMinDiscount(val);
+                setPage(1);
+              }}
+              inStockOnly={inStockOnly}
+              onInStockOnlyChange={(checked) => {
+                setInStockOnly(checked);
+                setPage(1);
+              }}
+              colorFilter={colorFilter}
+              onColorFilterChange={(val) => {
+                setColorFilter(val);
+                setPage(1);
+              }}
+              showMoreFilters={showMoreFilters}
+              onToggleMoreFilters={() => setShowMoreFilters((v) => !v)}
+              campaigns={campaigns}
+              selectedCampaignId={selectedCampaignId}
+              onClearCampaign={() => {
+                setSelectedCampaignId(null);
+                setPage(1);
+              }}
+              shownCount={catalog.products.length}
+              totalCount={catalog.total}
+              page={catalog.page}
+              totalPages={catalog.totalPages}
+              onResetAll={() => {
+                setSearchInput('');
+                setDebouncedQuery('');
+                setSuggestions([]);
+                setCategory('All');
+                setOccasion('All');
+                setSeason('All');
+                setSelectedCampaignId(null);
+                setMinPrice('');
+                setMaxPrice('');
+                setMinDiscount('');
+                setInStockOnly(false);
+                setColorFilter('');
+                setPage(1);
+              }}
+              onStartTour={() => startRoleTour()}
+            />
 
             {/* Product Grid */}
             {catalogLoading ? (
@@ -1414,20 +1229,11 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setSearchInput('');
-                    setDebouncedQuery('');
-                    setCategory('All');
-                    setOccasion('All');
-                    setSeason('All');
-                    setSelectedCampaignId(null);
-                    setMinPrice('');
-                    setMaxPrice('');
-                    setMinDiscount('');
-                    setInStockOnly(false);
-                    setColorFilter('');
+                    clearCatalogFilters();
+                    setSort('most_demanding');
                     setPage(1);
                   }}
-                  className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white cursor-pointer"
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white cursor-pointer"
                 >
                   {t('catalog.showAll')}
                 </button>
@@ -1517,7 +1323,7 @@ export default function App() {
 
       {/* Quiet Editorial Footer */}
       {!isSellerDashboard && <footer className="border-t border-[#E8E6E1] bg-white">
-        <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
           <div className="font-display text-lg font-semibold text-[#141413]">{t('brand')}</div>
           <div className="flex flex-wrap items-center gap-6">
             {(storeCategories.length > 0
@@ -1641,26 +1447,28 @@ export default function App() {
 
       {/* Floating Artificial Jewellery Comparison Bar */}
       {compareItems.length > 0 && !compareOpen && (
-        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-lg border border-[#141413] bg-[#141413] px-4 py-2.5 text-xs text-white shadow-xl max-w-[92vw]">
+        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex flex-wrap items-center justify-between gap-2 sm:gap-3 rounded-lg border border-[#141413] bg-[#141413] px-3.5 py-2.5 text-xs text-white shadow-xl w-[calc(100vw-1.5rem)] sm:w-auto max-w-xl">
           <span className="font-medium whitespace-nowrap tabular-nums">
             {t('compare.barLabel', { count: compareItems.length })}
           </span>
-          <button
-            type="button"
-            onClick={() => setCompareOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded bg-white px-3 py-1.5 font-semibold text-[#141413] hover:bg-[#FAF9F6] whitespace-nowrap cursor-pointer"
-          >
-            <GitCompare className="h-3.5 w-3.5" />
-            <span>{t('compare.cta')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setCompareItems([])}
-            aria-label={t('compare.clear')}
-            className="p-1 text-white/75 hover:text-white cursor-pointer"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <button
+              type="button"
+              onClick={() => setCompareOpen(true)}
+              className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-1.5 rounded bg-white px-3 py-1.5 font-semibold text-[#141413] hover:bg-[#FAF9F6] whitespace-nowrap cursor-pointer"
+            >
+              <GitCompare className="h-3.5 w-3.5" />
+              <span>{t('compare.cta')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCompareItems([])}
+              aria-label={t('compare.clear')}
+              className="inline-flex h-11 w-11 sm:h-9 sm:w-9 items-center justify-center rounded text-white/75 hover:text-white cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 

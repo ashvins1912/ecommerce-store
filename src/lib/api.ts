@@ -110,10 +110,10 @@ export async function logShareEvent(
   channel: 'whatsapp' = 'whatsapp'
 ): Promise<{ ok: boolean; productId: string; sharesCount: number }> {
   return apiFetch<{ ok: boolean; productId: string; sharesCount: number }>(
-    `/api/products/${encodeURIComponent(productId)}/share`,
+    '/api/analytics/share',
     {
       method: 'POST',
-      body: JSON.stringify({ channel }),
+      body: JSON.stringify({ productId, channel }),
     }
   );
 }
