@@ -47,38 +47,6 @@ export function CartDrawer({
   const [rateError,setRateError]=useState<string|null>(null);
   const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
 
-  const checkDeliveryRates=async()=>{
-    const destinationPostalCode=user?.shippingAddresses?.find(address=>address.isDefault)?.pincode||user?.shippingAddresses?.[0]?.pincode;
-    if(!destinationPostalCode){setRateError('Add a delivery address with pincode to check courier rates.');return;}
-    setRateLoading(true);setRateError(null);
-    try{
-      const result=await apiFetch<{groups:Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number;expiresAt?:string}>}>}>('/api/logistics/rates',{
-        method:'POST',body:JSON.stringify({items:cart.map(item=>({productId:item.productId,quantity:item.quantity}))})
-      });
-      setRateGroups(result.groups);
-      if(!result.groups.some(group=>group.quotes.length))setRateError('No configured carrier rates are available for this delivery address yet.');
-    }catch(error){setRateError((error as Error).message);}finally{setRateLoading(false);}
-  };
-
-  useEffect(() => {
-    if (!isOpen || !user || cart.length === 0) return;
-    const postalCode = user.shippingAddresses?.find(address => address.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode;
-    if (!postalCode) return;
-    let active = true;
-    setRateLoading(true);
-    setRateError(null);
-    apiFetch<{ groups: Array<{ sellerId: string; markupPercent: number; quotes: Array<{ providerCode: string; serviceCode: string; costMinor: number; customerChargeMinor: number; sellerMarkupMinor: number; currency: string; estimatedTransitHours: number; score: number; expiresAt?: string }> }> }>('/api/logistics/rates', {
-      method: 'POST',
-      body: JSON.stringify({ items: cart.map(item => ({ productId: item.productId, quantity: item.quantity })) }),
-    }).then(result => {
-      if (!active) return;
-      setRateGroups(result.groups || []);
-      if (!result.groups?.some(group => group.quotes.length)) setRateError('Delivery estimate is temporarily unavailable.');
-    }).catch(error => { if (active) setRateError((error as Error).message); })
-      .finally(() => { if (active) setRateLoading(false); });
-    return () => { active = false; };
-  }, [isOpen, user?._id, user?.shippingAddresses, cart.map(item => item.productId + ':' + item.variantSku + ':' + item.quantity).join('|')]);
-
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
   const [availableCoupons, setAvailableCoupons] = useState<Coupon[]>([]);
