@@ -1783,12 +1783,19 @@ async function startServer() {
           const product = idx >= 0 ? itemProducts[idx] : null;
           return { ...item, isReturnable: product?.isReturnable !== false, returnWindowDays: product?.returnWindowDays ?? 7 };
         });
-        const providerForOrder = prepaidProviderBySeller.get(String(order.sellerId)) || requestedProvider;
-        order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
-        order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
-        order.status = 'PENDING_SELLER_CONFIRMATION';
-        order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
-        await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } });
+        if (order.status === 'Pending') {
+          const providerForOrder = prepaidProviderBySeller.get(String(order.sellerId)) || requestedProvider;
+          order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
+          order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
+          order.status = 'PENDING_SELLER_CONFIRMATION';
+          order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
+          await OrderModel.updateOne(
+            { _id: order._id, status: 'Pending' },
+            { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } }
+          );
+        } else {
+          await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items } });
+        }
       }
     } catch (err) {
       return res.status(400).json({ error: (err as Error).message });
