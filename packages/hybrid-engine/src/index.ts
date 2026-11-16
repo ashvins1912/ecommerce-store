@@ -131,3 +131,105 @@ export function aggregateInventoryLines(lines: readonly InventoryLine[]): Invent
     variants: [...value.variants.entries()].map(([variantSku, quantity]) => ({ variantSku, quantity })),
   }));
 }
+
+
+type LruKEntry<V> = { value: V; expiresAt: number; accesses: number[] };
+/** Bounded LRU-K cache. Entries with fewer than K observations are evicted before established hot entries. */
+export class LRUKCache<V> {
+  private entries = new Map<string, LruKEntry<V>>();
+  private sequence = 0;
+  constructor(private capacity = 500, private k = 2, private now = () => Date.now()) {
+    if (!Number.isInteger(capacity) || capacity < 1 || !Number.isInteger(k) || k < 1) throw new Error("INVALID_LRU_K_CONFIG");
+  }
+  get(key: string): V | undefined {
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= this.now()) { this.entries.delete(key); return undefined; }
+    entry.accesses.push(++this.sequence);
+    if (entry.accesses.length > this.k) entry.accesses.shift();
+    return entry.value;
+  }
+  set(key: string, value: V, ttlMs: number): void {
+    if (!Number.isFinite(ttlMs) || ttlMs <= 0) { this.entries.delete(key); return; }
+    const existing = this.entries.get(key);
+    if (existing) {
+      existing.value = value; existing.expiresAt = this.now() + ttlMs;
+      existing.accesses.push(++this.sequence);
+      if (existing.accesses.length > this.k) existing.accesses.shift();
+      return;
+    }
+    this.pruneExpired();
+    if (this.entries.size >= this.capacity) this.evictOne();
+    this.entries.set(key, { value, expiresAt: this.now() + ttlMs, accesses: [++this.sequence] });
+  }
+  delete(key: string): void { this.entries.delete(key); }
+  clear(): void { this.entries.clear(); }
+  get size(): number { this.pruneExpired(); return this.entries.size; }
+  private pruneExpired(): void {
+    const now = this.now();
+    for (const [key, entry] of this.entries) if (entry.expiresAt <= now) this.entries.delete(key);
+  }
+  private evictOne(): void {
+    let victim: string | null = null, victimClass = Number.POSITIVE_INFINITY, victimAge = Number.POSITIVE_INFINITY;
+    for (const [key, entry] of this.entries) {
+      const cold = entry.accesses.length < this.k;
+      const klass = cold ? 0 : 1;
+      const age = cold ? entry.accesses[0] : entry.accesses[0];
+      if (klass < victimClass || (klass === victimClass && age < victimAge)) {
+        victim = key; victimClass = klass; victimAge = age;
+      }
+    }
+    if (victim !== null) this.entries.delete(victim);
+  }
+}
+
+/** Coalesces concurrent cache misses for the same key within one process. */
+export class SingleFlight {
+  private pending = new Map<string, Promise<unknown>>();
+  run<T>(key: string, loader: () => Promise<T>): Promise<T> {
+    const existing = this.pending.get(key);
+    if (existing) return existing as Promise<T>;
+    const current = Promise.resolve().then(loader).finally(() => {
+      if (this.pending.get(key) === current) this.pending.delete(key);
+    });
+    this.pending.set(key, current);
+    return current;
+  }
+  get inFlightCount(): number { return this.pending.size; }
+}
+
+export type MerkleRecord = { id: string; value: unknown };
+export type MerkleSnapshot = { root: string; leaves: Record<string, string> };
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    return `{${Object.keys(obj).sort().map(key => `${JSON.stringify(key)}:${stableJson(obj[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
+export function buildMerkleSnapshot(records: readonly MerkleRecord[]): MerkleSnapshot {
+  const leaves: Record<string, string> = {};
+  for (const record of [...records].sort((a,b)=>a.id.localeCompare(b.id))) {
+    if (!record.id || Object.prototype.hasOwnProperty.call(leaves,record.id)) throw new Error("DUPLICATE_MERKLE_RECORD_ID");
+    leaves[record.id] = sha256(stableJson(record.value));
+  }
+  let level = Object.keys(leaves).sort().map(id=>sha256(id+':'+leaves[id]));
+  if (!level.length) return { root: sha256(''), leaves };
+  while(level.length>1){
+    const next:string[]=[];
+    for(let i=0;i<level.length;i+=2)next.push(sha256(level[i]+(level[i+1]||level[i])));
+    level=next;
+  }
+  return { root: level[0], leaves };
+}
+export function diffMerkleSnapshots(previous: MerkleSnapshot, current: MerkleSnapshot) {
+  const added:string[]=[],updated:string[]=[],deleted:string[]=[];
+  for(const [id,hash] of Object.entries(current.leaves)){
+    if(!(id in previous.leaves))added.push(id);
+    else if(previous.leaves[id]!==hash)updated.push(id);
+  }
+  for(const id of Object.keys(previous.leaves))if(!(id in current.leaves))deleted.push(id);
+  return { added, updated, deleted };
+}
