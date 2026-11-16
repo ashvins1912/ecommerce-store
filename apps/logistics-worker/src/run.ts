@@ -1,10 +1,11 @@
 import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
 import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
 import type { HttpTransport } from '../../../packages/adapters/shadowfax/src/index.js';
-import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret } from '../../../src/server/services/logistics.js';
+import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, getProviderCarrierSecret, getProviderWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret } from '../../../src/server/services/logistics.js';
 import type { ICarrierProvider, RateQuote, ShipmentRequest } from '../../../packages/logistics-core/src/index.js';
 import { initDatabase } from '../../../src/server/services/store.js';
 import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from '../../../src/server/models/schemas.js';
+import { ProviderFulfillmentDelegationModel } from '../../../src/server/models/providerSchemas.js';
 import { authorizeCarrierDisclosure } from '../../../src/server/services/privacy.js';
 
 const transport: HttpTransport = {
@@ -30,14 +31,29 @@ async function processJob(job:any){
  const settings=await SellerPrivacySettingsModel.findOne({sellerId:String(p.sellerId)}).lean();
  const authorization=authorizeCarrierDisclosure(settings?.carrierDisclosure, String(p.carrierCode||'').toLowerCase(), deliveryData.recipientEmail);
  if(!authorization.allowed)throw new Error('CARRIER_DISCLOSURE_AUTHORIZATION_REVOKED_OR_INCOMPLETE');
- const authorizedFields=[...authorization.fields].sort();
  const queuedFields=[...p.disclosureFields].sort();
- if(authorizedFields.join('|')!==queuedFields.join('|'))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_AFTER_QUEUE');
+ if(p.providerCarrierConfigId){
+  const delegation=await ProviderFulfillmentDelegationModel.findOne({
+   sellerId:String(p.sellerId),providerId:String(p.providerId),status:'ACTIVE',
+   allowedCarrierCodes:String(p.carrierCode||'').toLowerCase(),
+   allowedDisclosureFields:{$all:queuedFields},
+   $or:[{expiresAt:null},{expiresAt:{$gt:new Date()}}],
+  }).lean();
+  if(!delegation)throw new Error('CARRIER_DISCLOSURE_PROVIDER_DELEGATION_REVOKED_OR_INCOMPLETE');
+  if(!queuedFields.every((field:string)=>authorization.fields.includes(field as any)))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_AFTER_QUEUE');
+ }else{
+  const authorizedFields=[...authorization.fields].sort();
+  if(authorizedFields.join('|')!==queuedFields.join('|'))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_AFTER_QUEUE');
+ }
  if(!deliveryData.recipientName||!deliveryData.recipientPhone||!deliveryData.destinationAddressLine1||!deliveryData.destinationCity||!deliveryData.destinationState||!deliveryData.destinationPostalCode)throw new Error('CARRIER_DELIVERY_FIELDS_MISSING');
- const config=await getSellerCarrierSecret(p.carrierConfigId,p.sellerId);
+ const config=p.providerCarrierConfigId
+  ? await getProviderCarrierSecret(p.providerCarrierConfigId,p.providerId)
+  : await getSellerCarrierSecret(p.carrierConfigId,p.sellerId);
  const provider=adapter(config.logistics_providers.code);
  if(provider.code!==String(p.carrierCode||'').toLowerCase())throw new Error('CARRIER_PROVIDER_MISMATCH');
- const warehouse=await getSellerWarehouse(p.sellerId,p.warehouseId) as any;
+ const warehouse=p.providerCarrierConfigId
+  ? await getProviderWarehouse(p.providerId,p.warehouseId) as any
+  : await getSellerWarehouse(p.sellerId,p.warehouseId) as any;
  const rateRequest={
   origin:{warehouseId:p.warehouseId,postalCode:warehouse.postal_code,countryCode:warehouse.country_code||'IN'},
   destination:{warehouseId:'destination',postalCode:deliveryData.destinationPostalCode,countryCode:p.destinationCountryCode||'IN'},
@@ -65,7 +81,15 @@ async function processJob(job:any){
  const dispatchSettings=await SellerPrivacySettingsModel.findOne({sellerId:String(p.sellerId)}).lean();
  const dispatchAuthorization=authorizeCarrierDisclosure(dispatchSettings?.carrierDisclosure, String(p.carrierCode||'').toLowerCase(), deliveryData.recipientEmail);
  if(!dispatchAuthorization.allowed)throw new Error('CARRIER_DISCLOSURE_AUTHORIZATION_REVOKED_BEFORE_DISPATCH');
- if([...dispatchAuthorization.fields].sort().join('|')!==queuedFields.join('|'))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_BEFORE_DISPATCH');
+ if(p.providerCarrierConfigId){
+  const currentDelegation=await ProviderFulfillmentDelegationModel.findOne({
+   sellerId:String(p.sellerId),providerId:String(p.providerId),status:'ACTIVE',
+   allowedCarrierCodes:String(p.carrierCode||'').toLowerCase(),
+   allowedDisclosureFields:{$all:queuedFields},
+   $or:[{expiresAt:null},{expiresAt:{$gt:new Date()}}],
+  }).lean();
+  if(!currentDelegation||!queuedFields.every((field:string)=>dispatchAuthorization.fields.includes(field as any)))throw new Error('CARRIER_DISCLOSURE_PROVIDER_DELEGATION_REVOKED_BEFORE_DISPATCH');
+ }else if([...dispatchAuthorization.fields].sort().join('|')!==queuedFields.join('|'))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_BEFORE_DISPATCH');
  if(!p.disclosureAuditId)throw new Error('CARRIER_DISCLOSURE_AUDIT_REFERENCE_MISSING');
  // If the audit store cannot be updated, do not send customer data to the carrier.
  const auditStart=await PrivacyDisclosureAuditModel.updateOne(
