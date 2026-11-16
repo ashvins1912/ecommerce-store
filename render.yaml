@@ -1,0 +1,58 @@
+services:
+  - type: web
+    name: ecommerce-store
+    runtime: node
+    plan: free
+    buildCommand: npm install --global bun && bun install --no-save && bun run lint && bun run test:logistics && bun run test:hybrid && bun run test:privacy && bun run test:roles && bun run build && bun run build:workspace
+    startCommand: bun run start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RUN_LOGISTICS_WORKER
+        value: "1"
+      - key: ROOT_SUPERUSER_EMAIL
+        value: ashvinsingh25@gmail.com
+      - key: APP_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ROOT_SUPERUSER_INITIAL_PASSWORD
+        sync: false
+      - key: ENCRYPTION_MASTER_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: LOGISTICS_SUPABASE_URL
+        sync: false
+      - key: LOGISTICS_SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_PUBLIC_CDN_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
