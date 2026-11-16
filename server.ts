@@ -441,10 +441,10 @@ async function startServer() {
       const pin = String(address.pincode || '').trim();
       if (!pin || !address.street || !address.city || !address.state || !address.fullName || !address.phone) return res.status(422).json({ error: 'ORDER_SHIPPING_ADDRESS_INCOMPLETE' });
       const buyer = await findUserById(String(order.buyerId));
-      const sellerCarriers = await listSellerCarrierConfigs(String(order.sellerId));
+      const sellerCarriers = (await listSellerCarrierConfigs(String(order.sellerId))) || [];
       const selectedCarrier = sellerCarriers.find((carrier: any) => String(carrier.id) === parsed.data.carrierConfigId);
       if (!selectedCarrier) return res.status(422).json({ error: 'SELLER_CARRIER_CONFIGURATION_NOT_FOUND' });
-      if (String(selectedCarrier.logistics_providers?.code || '').toLowerCase() === 'shiprocket' && !buyer?.email) return res.status(422).json({ error: 'SHIPROCKET_CUSTOMER_EMAIL_REQUIRED' });
+      if (String(selectedCarrier.logistics_providers?.[0]?.code || '').toLowerCase() === 'shiprocket' && !buyer?.email) return res.status(422).json({ error: 'SHIPROCKET_CUSTOMER_EMAIL_REQUIRED' });
       const result = await createShipmentIntent({
         orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
         warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
@@ -486,7 +486,7 @@ async function startServer() {
       if (!shipment) return res.status(202).json({ accepted: true, applied: false, reason: 'SHIPMENT_NOT_FOUND' });
       if (!adapter.verifyWebhook(raw, signature, shipment.webhookSecret)) return res.status(401).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
       const applied = await applyLogisticsWebhook({
-        shipmentId: shipment.shipmentId, eventHash: event.eventHash, statusCode: STATUS_CODE[event.status],
+        shipmentId: shipment.shipmentId, eventHash: event.eventHash, statusCode: STATUS_CODE[event.status as keyof typeof STATUS_CODE],
         locationCode: event.locationCode, eventTimestamp: event.occurredAt,
         expectedStatusCode: shipment.currentStatusCode, expectedLastEventAt: shipment.lastEventAt,
       });
