@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeOrderDto } from './privacy.js';
+import { authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeOrderDto, toProviderSafeDto } from './privacy.js';
 test('carrier disclosure is default-deny', () => {
   const result = authorizeCarrierDisclosure(undefined, 'shadowfax');
   assert.equal(result.allowed, false);
@@ -23,4 +23,10 @@ test('provider DTO never returns customer or address data', () => {
 });
 test('normalization accepts only explicit true', () => {
   assert.deepEqual(normalizeCarrierDisclosurePolicy({recipientName:1 as any,recipientPhone:true}), {recipientName:false,recipientPhone:true,recipientAddress:false,recipientEmail:false});
+});
+
+test('provider response DTO recursively removes customer fields from nested payloads', () => {
+  const dto = toProviderSafeDto({ id: 'p1', seller: { name: 'Seller' }, linkedOrders: [{ orderNumber: 'O1', buyerId: 'secret', shippingAddress: { street: 'secret' }, items: [{ title: 'Bracelet' }] }] });
+  assert.equal(JSON.stringify(dto).includes('secret'), false);
+  assert.equal((dto as any).linkedOrders[0].items[0].title, 'Bracelet');
 });
