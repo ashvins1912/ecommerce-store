@@ -2162,16 +2162,30 @@ export async function createOrder(input: {
   const buyerObjectId = mongoose.isValidObjectId(input.buyer._id)
     ? new mongoose.Types.ObjectId(input.buyer._id)
     : null;
-  if (mongoConnected && buyerObjectId && idempotencyKey) {
+  const checkoutPayloadHash = idempotencyKey ? crypto.createHash('sha256').update(JSON.stringify({
+    items: input.items.map((item) => ({
+      productId: item.productId, variantSku: item.variantSku, sellerId: item.sellerId,
+      quantity: item.quantity, unitPrice: item.unitPrice,
+    })).sort((a, b) => a.productId.localeCompare(b.productId) || a.variantSku.localeCompare(b.variantSku)),
+    couponCode: input.couponCode?.trim().toUpperCase() || '',
+  })).digest('hex') : undefined;
+  const replayOrders = async () => {
+    if (!buyerObjectId || !idempotencyKey) return null;
     const previous = await OrderModel.find({ buyerId: buyerObjectId, checkoutIdempotencyKey: idempotencyKey })
       .sort({ createdAt: 1 }).lean();
-    if (previous.length) {
-      const replay = previous.map((doc: any) => ({
-        ...doc, _id: String(doc._id), buyerId: String(doc.buyerId), sellerId: String(doc.sellerId),
-      })) as Order[] & { replayed?: boolean };
-      replay.replayed = true;
-      return replay;
+    if (!previous.length) return null;
+    if (previous.some((doc: any) => doc.checkoutPayloadHash !== checkoutPayloadHash)) {
+      throw new Error('IDEMPOTENCY_KEY_CONFLICT');
     }
+    const replay = previous.map((doc: any) => ({
+      ...doc, _id: String(doc._id), buyerId: String(doc.buyerId), sellerId: String(doc.sellerId),
+    })) as Order[] & { replayed?: boolean };
+    replay.replayed = true;
+    return replay;
+  };
+  if (mongoConnected && buyerObjectId && idempotencyKey) {
+    const replay = await replayOrders();
+    if (replay) return replay;
   }
 
   const addr = input.buyer.shippingAddresses.find((a) => a.isDefault) || input.buyer.shippingAddresses[0];
@@ -2307,7 +2321,7 @@ export async function createOrder(input: {
           _id: new mongoose.Types.ObjectId(),
           buyerId: buyerObjectId,
           sellerId: new mongoose.Types.ObjectId(order.sellerId),
-          ...(idempotencyKey ? { checkoutIdempotencyKey: idempotencyKey } : {}),
+          ...(idempotencyKey ? { checkoutIdempotencyKey: idempotencyKey, checkoutPayloadHash } : {}),
         }));
         const inserted = await OrderModel.insertMany(docs, { session, ordered: true });
         inserted.forEach((doc: any, index: number) => { orders[index]._id = String(doc._id); });
@@ -2329,15 +2343,8 @@ export async function createOrder(input: {
     } catch (error) {
       const code = (error as { code?: number }).code;
       if (idempotencyKey && code === 11000) {
-        const previous = await OrderModel.find({ buyerId: buyerObjectId, checkoutIdempotencyKey: idempotencyKey })
-          .sort({ createdAt: 1 }).lean();
-        if (previous.length) {
-          const replay = previous.map((doc: any) => ({
-            ...doc, _id: String(doc._id), buyerId: String(doc.buyerId), sellerId: String(doc.sellerId),
-          })) as Order[] & { replayed?: boolean };
-          replay.replayed = true;
-          return replay;
-        }
+        const replay = await replayOrders();
+        if (replay) return replay;
       }
       throw error;
     } finally {
