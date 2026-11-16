@@ -35,7 +35,7 @@ export class ShadowfaxAdapter implements ICarrierProvider {
   };
   const x=await this.http.request<{message:string;data?:{id:number|string;awb_number:string;promised_delivery_date?:string};errors?:unknown}>(this.baseUrl+'/v3/clients/orders/',{method:'POST',headers:{...this.headers(c),'idempotency-key':r.idempotencyKey},body});
   if(x.message!=='Success'||!x.data?.awb_number)throw new Error('SHADOWFAX_ORDER_REJECTED:'+String(x.errors||x.message||'missing AWB'));
-  return{providerCode:this.code,providerShipmentId:String(x.data.id),awbNumber:x.data.awb_number,status:'CREATED'};
+  return{providerCode:this.code,providerShipmentId:String(x.data.id),awbNumber:x.data.awb_number,estimatedDeliveryAt:x.data.promised_delivery_date?new Date(x.data.promised_delivery_date).toISOString():undefined,status:'CREATED'};
  }
  async getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>{
   const x=await this.http.request<any>(this.baseUrl+'/v4/clients/orders/'+encodeURIComponent(awb)+'/track/',{method:'GET',headers:this.headers(c)});
