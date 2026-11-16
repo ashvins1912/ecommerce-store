@@ -166,6 +166,16 @@ function getCookieOpts() {
   };
 }
 
+// clearCookie must not receive maxAge; Express 5 expires the cookie immediately.
+function getClearCookieOpts() {
+  return {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax' as const,
+    path: '/',
+  };
+}
+
 function getAppBaseUrl(req: Request): string {
   if (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL') {
     return process.env.APP_URL.replace(/\/$/, '');
@@ -200,7 +210,7 @@ async function resolveActor(req: Request, res: Response): Promise<{
       }
     }
     if (req.cookies?.kk_session) {
-      res.clearCookie('kk_session', getSslSessionCookieOpts());
+      res.clearCookie('kk_session', getClearCookieOpts());
     }
   }
 
@@ -219,7 +229,7 @@ async function issueUserSession(
   const { record, token } = createSessionArtifact(req, user, provider);
   await saveAuthSession(record);
   res.cookie('kk_session', token, getSslSessionCookieOpts());
-  res.clearCookie('kk_user', getCookieOpts());
+  res.clearCookie('kk_user', getClearCookieOpts());
   return {
     accessToken: token,
     csrfToken: record.csrfToken,
@@ -851,8 +861,8 @@ async function startServer() {
     if (session) {
       await revokeAuthSession(session.sessionId);
     }
-    res.clearCookie('kk_session', getSslSessionCookieOpts());
-    res.clearCookie('kk_user', getCookieOpts());
+    res.clearCookie('kk_session', getClearCookieOpts());
+    res.clearCookie('kk_user', getClearCookieOpts());
     res.json({ ok: true });
   });
 
@@ -895,8 +905,8 @@ async function startServer() {
     if (!revoked) return res.status(404).json({ error: 'Session not found' });
     const loggedOutCurrent = session?.sessionId === targetId;
     if (loggedOutCurrent) {
-      res.clearCookie('kk_session', getSslSessionCookieOpts());
-      res.clearCookie('kk_user', getCookieOpts());
+      res.clearCookie('kk_session', getClearCookieOpts());
+      res.clearCookie('kk_user', getClearCookieOpts());
     }
     res.json({ ok: true, loggedOutCurrent });
   });
