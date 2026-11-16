@@ -14,7 +14,7 @@ const transport: HttpTransport = {
 };
 function adapter(code:string):ICarrierProvider{
  if(code==='shiprocket')return new ShiprocketAdapter(transport,process.env.SHIPROCKET_API_BASE_URL||'https://apiv2.shiprocket.in');
- if(code==='shadowfax')return new ShadowfaxAdapter(transport,process.env.SHADOWFAX_API_BASE_URL||'https://dale.staging.shadowfax.in/api');
+ if(code==='shadowfax')return new ShadowfaxAdapter(transport,process.env.SHADOWFAX_API_BASE_URL||(process.env.NODE_ENV==='production'?'https://dale.shadowfax.in/api':'https://dale.staging.shadowfax.in/api'));
  throw new Error('UNSUPPORTED_CARRIER:'+code);
 }
 const delay=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
