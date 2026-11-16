@@ -2735,8 +2735,10 @@ async function startServer() {
     const sortField = ({ amount: 'amountPaise', status: 'status', createdAt: 'createdAt', orderId: 'orderId', quantity: 'quantity' } as Record<string, string>)[sortKey] || 'createdAt';
     const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
     const filter: Record<string, any> = { providerId: user._id };
-    const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
-    filter.$or = [{ orderNumber: { $regex: escapedQuery, $options: 'i' } }, { _id: { $regex: escapedQuery, $options: 'i' } }];
+    if (query) {
+      const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
+      filter.$or = [{ orderId: { $regex: escapedQuery, $options: 'i' } }, { utrReference: { $regex: escapedQuery, $options: 'i' } }, { status: { $regex: escapedQuery, $options: 'i' } }];
+    }
     if (status && status !== 'ALL') filter.status = status;
     const [total, settlements] = await Promise.all([
       ProviderSettlementModel.countDocuments(filter),
