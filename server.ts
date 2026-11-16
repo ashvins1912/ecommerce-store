@@ -1133,6 +1133,18 @@ async function startServer() {
     res.json({ invite });
   });
 
+  app.get('/api/root/invites/validate', async (req, res) => {
+    const limited = await checkRateLimit('root-invite-validate:' + req.ip, 20, 60);
+    if (!limited.allowed) return res.status(429).json({ error: 'INVITE_VALIDATION_RATE_LIMITED' });
+    const token = String(req.query.token || '');
+    if (token.length < 32 || token.length > 128) return res.status(400).json({ error: 'INVALID_ROOT_INVITE_TOKEN' });
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const invite = await RootInviteModel.findOne({ tokenHash, status: 'PENDING', expiresAt: { $gt: new Date() } }).select('email role expiresAt').lean() as any;
+    if (!invite) return res.status(410).json({ error: 'ROOT_INVITE_EXPIRED_OR_USED' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ email: invite.email, role: invite.role, expiresAt: invite.expiresAt });
+  });
+
   app.post('/api/root/invites/accept', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user) return res.status(401).json({ error: 'SIGN_IN_REQUIRED' });
