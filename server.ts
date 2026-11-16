@@ -2180,9 +2180,22 @@ async function startServer() {
   app.get('/api/provider/products', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
-    const products = await ProviderProductModel.find({ providerId: user._id }).sort({ updatedAt: -1 }).limit(200).lean();
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(100, Math.max(5, Number.parseInt(String(req.query.limit || '20'), 10) || 20));
+    const query = String(req.query.q || '').trim().slice(0, 120);
+    const status = String(req.query.status || '').trim();
+    const sortKey = String(req.query.sort || 'updatedAt');
+    const sortField = ({ title: 'title', status: 'status', price: 'basePricePaise', createdAt: 'createdAt', updatedAt: 'updatedAt' } as Record<string, string>)[sortKey] || 'updatedAt';
+    const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
+    const filter: Record<string, any> = { providerId: user._id };
+    if (query) filter.$or = [{ title: { $regex: query, $options: 'i' } }, { category: { $regex: query, $options: 'i' } }, { brand: { $regex: query, $options: 'i' } }];
+    if (status && status !== 'ALL') filter.status = status;
+    const [total, products] = await Promise.all([
+      ProviderProductModel.countDocuments(filter),
+      ProviderProductModel.find(filter).sort({ [sortField]: direction, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    ]);
     res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ products: products.map(toProviderSafeProductDto) });
+    res.json({ products: products.map(toProviderSafeProductDto), total, page, limit, totalPages: Math.ceil(total / limit) });
   });
 
   app.post('/api/provider/products', async (req, res) => {
@@ -2343,9 +2356,22 @@ async function startServer() {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     await ProviderSettlementModel.updateMany({ providerId: user._id, status: 'PENDING_CLEARANCE', availableAt: { $lte: new Date() } }, { $set: { status: 'READY_FOR_SETTLEMENT' } });
-    const settlements = await ProviderSettlementModel.find({ providerId: user._id }).sort({ createdAt: -1 }).limit(300).select('-encryptedReceipt').lean();
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(100, Math.max(5, Number.parseInt(String(req.query.limit || '20'), 10) || 20));
+    const query = String(req.query.q || '').trim().slice(0, 120);
+    const status = String(req.query.status || '').trim();
+    const sortKey = String(req.query.sort || 'createdAt');
+    const sortField = ({ amount: 'amountPaise', status: 'status', createdAt: 'createdAt', orderId: 'orderId', quantity: 'quantity' } as Record<string, string>)[sortKey] || 'createdAt';
+    const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
+    const filter: Record<string, any> = { providerId: user._id };
+    if (query) filter.$or = [{ orderId: { $regex: query, $options: 'i' } }, { utrReference: { $regex: query, $options: 'i' } }, { status: { $regex: query, $options: 'i' } }];
+    if (status && status !== 'ALL') filter.status = status;
+    const [total, settlements] = await Promise.all([
+      ProviderSettlementModel.countDocuments(filter),
+      ProviderSettlementModel.find(filter).sort({ [sortField]: direction, _id: -1 }).skip((page - 1) * limit).limit(limit).select('-encryptedReceipt').lean(),
+    ]);
     res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ settlements: settlements.map(toProviderSafeSettlementDto) });
+    res.json({ settlements: settlements.map(toProviderSafeSettlementDto), total, page, limit, totalPages: Math.ceil(total / limit) });
   });
 
   app.get('/api/seller/provider-settlements', async (req, res) => {
