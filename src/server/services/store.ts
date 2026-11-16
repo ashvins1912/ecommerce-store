@@ -286,10 +286,15 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
         const email = u.email.trim().toLowerCase();
         let account: any;
         try {
+          // Mongoose timestamps manage these fields on upsert. Do not include seed
+          // timestamps in $setOnInsert or MongoDB sees conflicting updatedAt paths.
+          const seedUser = Object.fromEntries(
+            Object.entries(u).filter(([key]) => key !== 'createdAt' && key !== 'updatedAt'),
+          ) as Omit<User, 'createdAt' | 'updatedAt'>;
           account = await UserModel.findOneAndUpdate(
             { email },
-            { $setOnInsert: { ...u, _id: new mongoose.Types.ObjectId(), email } },
-            { upsert: true, new: true, setDefaultsOnInsert: true },
+            { $setOnInsert: { ...seedUser, _id: new mongoose.Types.ObjectId(), email } },
+            { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
           ).lean();
         } catch (error) {
           // Concurrent application starts can race on the unique email index.
@@ -1213,7 +1218,7 @@ export async function updateProductDiscountOrStock(
   };
 
   if (mongoConnected && mongoose.isValidObjectId(productId)) {
-    const updated = await ProductModel.findByIdAndUpdate(productId, { $set: patch }, { new: true }).lean();
+    const updated = await ProductModel.findByIdAndUpdate(productId, { $set: patch }, { returnDocument: 'after' }).lean();
     return updated ? normalizeProductDoc(updated) : null;
   }
 
@@ -1396,7 +1401,7 @@ export async function updateProductControlState(
     const doc = await ProductModel.findByIdAndUpdate(
       productId,
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     updated = doc ? normalizeProductDoc(doc) : null;
   } else {
@@ -1817,7 +1822,7 @@ export async function activateSellerProfile(
           sellerProfile,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     return doc ? sanitizeUser(doc) : null;
   }
@@ -2011,7 +2016,7 @@ export async function logShareEvent(input: {
     const updated = await ProductModel.findOneAndUpdate(
       { _id: input.productId, ...MONGO_PUBLIC_PRODUCT_FILTER },
       { $inc: { sharesCount: 1, trendScore: 2 } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!updated) return null;
     const ev = await ShareEventModel.create({
@@ -2938,7 +2943,7 @@ export async function revokeSellerInvite(inviteId: string): Promise<SellerInvite
     const doc = await SellerInviteModel.findByIdAndUpdate(
       inviteId,
       { $set: { status: 'revoked', revokedAt: new Date() } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!doc) return null;
     return {
@@ -3077,7 +3082,7 @@ export async function acceptSellerInvite(input: {
     const updatedInvite = await SellerInviteModel.findOneAndUpdate(
       { token: input.token.trim(), status: 'pending' },
       { $set: { status: 'accepted', email: invitedEmail, acceptedAt: nowDate, acceptedUserId: userDoc._id } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!updatedInvite) {
       throw new Error('This seller invitation could not be redeemed.');
