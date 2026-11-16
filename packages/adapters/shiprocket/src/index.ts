@@ -56,7 +56,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
    const label=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/label',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
    labelUrl=label.label_url||label.response?.label_url||label.data?.label_url;
   }catch{/* Label can be generated later from the Shiprocket panel. */}
-  return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,status:'CREATED'};
+  return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,estimatedDeliveryAt:new Date(Date.now()+r.quote.estimatedTransitHours*3600000).toISOString(),status:'CREATED'};
  }
  async getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>{
   const x=await this.http.request<any>(this.baseUrl+'/v1/external/courier/track/awb/'+encodeURIComponent(awb),{method:'GET',headers:await this.headers(c)});
