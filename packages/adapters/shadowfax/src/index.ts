@@ -24,14 +24,14 @@ export class ShadowfaxAdapter implements ICarrierProvider {
   return [{providerCode:this.code,serviceCode:'Regular',amountMinor:Math.round(total*100),currency:r.currency,estimatedTransitHours:120,serviceable:true,codSupported:false,fetchedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60*1000).toISOString()}];
  }
  async createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>{
-  const origin=r.origin;if(!origin?.name||!origin.contact||!origin.addressLine1||!origin.city||!origin.postalCode)throw new Error('SHADOWFAX_PICKUP_ADDRESS_INCOMPLETE');
+  if(r.declaredValueMinor>=5000000)throw new Error('SHADOWFAX_EWAY_BILL_AND_SELLER_GSTIN_REQUIRED_FOR_ORDERS_50000_PLUS');\n  const origin=r.origin;if(!origin?.name||!origin.contact||!origin.addressLine1||!origin.city||!origin.postalCode)throw new Error('SHADOWFAX_PICKUP_ADDRESS_INCOMPLETE');
   const destination=r.destination;if(!destination.name||!destination.contact||!destination.addressLine1||!destination.city||!destination.postalCode)throw new Error('SHADOWFAX_DELIVERY_ADDRESS_INCOMPLETE');
   const body={
    customer_details:{name:destination.name,contact:destination.contact,address_line_1:destination.addressLine1,address2:destination.addressLine2||'',city:destination.city,pincode:Number(destination.postalCode),state:destination.state||''},
    order_details:{client_order_id:r.orderId,product_value:r.declaredValueMinor/100,payment_mode:r.codAmountMinor>0?'cod':'prepaid',cod_amount:r.codAmountMinor/100,order_service:'Regular',actual_weight:r.weightGrams/1000},
    pickup_details:{pickup_type:'seller',name:origin.name,contact:origin.contact,address_line_1:origin.addressLine1,city:origin.city,pincode:Number(origin.postalCode)},
    return_details:{return_type:'seller',name:origin.name,contact:origin.contact,address_line_1:origin.addressLine1,city:origin.city,pincode:Number(origin.postalCode)},
-   product_details:(r.items||[]).map(item=>({sku_name:item.name,sku_id:item.sku,price:item.unitPrice,category:item.category||'General'})),
+   product_details:(r.items||[]).map(item=>({sku_name:item.name,sku_id:item.sku,price:item.unitPrice,category:item.category||'General',additional_details:{quantity:item.quantity}})),
   };
   const x=await this.http.request<{message:string;data?:{id:number|string;awb_number:string;promised_delivery_date?:string};errors?:unknown}>(this.baseUrl+'/v3/clients/orders/',{method:'POST',headers:{...this.headers(c),'idempotency-key':r.idempotencyKey},body});
   if(x.message!=='Success'||!x.data?.awb_number)throw new Error('SHADOWFAX_ORDER_REJECTED:'+String(x.errors||x.message||'missing AWB'));
