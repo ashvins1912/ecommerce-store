@@ -53,10 +53,14 @@ ALTER TABLE shipments ADD COLUMN IF NOT EXISTS manual_carrier_name VARCHAR(120);
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS manual_tracking_reference VARCHAR(160);
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS manual_tracking_url TEXT;
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS booking_mode VARCHAR(16) NOT NULL DEFAULT 'APP' CHECK (booking_mode IN ('APP','MANUAL'));
-ALTER TABLE shipments ADD CONSTRAINT shipments_exactly_one_carrier_owner CHECK (
-  (seller_carrier_config_id IS NOT NULL AND provider_carrier_config_id IS NULL)
-  OR (seller_carrier_config_id IS NULL AND provider_carrier_config_id IS NOT NULL)
-);
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='shipments_exactly_one_carrier_owner') THEN
+    ALTER TABLE shipments ADD CONSTRAINT shipments_exactly_one_carrier_owner CHECK (
+      (seller_carrier_config_id IS NOT NULL AND provider_carrier_config_id IS NULL)
+      OR (seller_carrier_config_id IS NULL AND provider_carrier_config_id IS NOT NULL)
+    );
+  END IF;
+END $;
 CREATE INDEX IF NOT EXISTS shipments_provider_config_idx
   ON shipments(provider_carrier_config_id, created_at DESC) WHERE provider_carrier_config_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS shipments_provider_config_awb_unique_idx
