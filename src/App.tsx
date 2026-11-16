@@ -1410,7 +1410,7 @@ export default function App() {
       </footer>}
 
       {/* Overlays */}
-      {hasOpenedProductDetail && <ProductDetailModal
+      {hasOpenedProductDetail && <Suspense fallback={null}><ProductDetailModal
         productIdOrSlug={selectedProductKey}
         initialVariantSku={selectedInitialVariantSku}
         onClose={() => {
@@ -1436,9 +1436,9 @@ export default function App() {
           setActiveProductMeta(null);
           setCartOpen(true);
         }}
-      />}
+      /></Suspense>}
 
-      {hasOpenedCompare && <JewelleryCompareModal
+      {hasOpenedCompare && <Suspense fallback={null}><JewelleryCompareModal
         isOpen={compareOpen}
         onClose={() => setCompareOpen(false)}
         items={compareItems}
@@ -1451,9 +1451,9 @@ export default function App() {
         }}
         onAddToCart={handleAddToCart}
         onSelectProduct={handleSelectProduct}
-      />}
+      /></Suspense>}
 
-      {hasOpenedCart && <CartDrawer
+      {hasOpenedCart && <Suspense fallback={null}><CartDrawer
         isOpen={cartOpen}
         onClose={() => setCartOpen(false)}
         cart={cart}
@@ -1472,9 +1472,9 @@ export default function App() {
         }}
         pendingCouponCode={pendingCouponCode}
         onClearPendingCoupon={() => setPendingCouponCode(null)}
-      />}
+      /></Suspense>}
 
-      {hasOpenedAuth && <AuthModal
+      {hasOpenedAuth && <Suspense fallback={null}><AuthModal
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
         onLogout={handleLogout}
@@ -1491,13 +1491,13 @@ export default function App() {
             localStorage.setItem('kk_guest_cart', JSON.stringify(payload.cart));
           }
         }}
-      />}
+      /></Suspense>}
 
-      {new URLSearchParams(window.location.search).has('rootInvite') && <RootInviteAcceptance
+      {new URLSearchParams(window.location.search).has('rootInvite') && <Suspense fallback={null}><RootInviteAcceptance
         user={user}
         onRequireAuth={() => { setAuthInitialMode('signin'); setAuthOpen(true); }}
         onAccepted={(acceptedUser) => { setUser(acceptedUser); setActivePage(acceptedUser.role === 'SELLER' || acceptedUser.role === 'ADMIN' ? 'seller' : 'store'); }}
-      />}
+      /></Suspense>}
 
       {/* Floating Artificial Jewellery Comparison Bar */}
       {compareItems.length > 0 && !compareOpen && (
