@@ -965,6 +965,7 @@ export default function App() {
             inviteToken={sellerInviteToken}
             onInviteConsumed={handleInviteConsumed}
             onReturnToStore={() => navigateToStore()}
+            onLogout={handleLogout}
           />
         </div>
       )}
@@ -1611,6 +1612,7 @@ export default function App() {
       <AuthModal
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
+        onLogout={handleLogout}
         user={user}
         initialMode={authInitialMode}
         onAuthChanged={(payload) => {
