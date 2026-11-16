@@ -103,7 +103,7 @@ import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerc
 import {
   listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
-  getCustomerTrackingEvents, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
+  getCustomerTrackingEvents, refreshCarrierTrackingForOrder, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
 } from './src/server/services/logistics.js';
 import { STATUS_CODE, verifyHmacSha256 } from './packages/logistics-core/src/index.js';
 import { ShadowfaxAdapter } from './packages/adapters/shadowfax/src/index.js';
@@ -497,7 +497,9 @@ async function startServer() {
     try {
       const order = await OrderModel.findById(req.params.orderId).select('buyerId').lean() as any;
       if (!order || String(order.buyerId) !== user._id) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
-      const tracking = await getCustomerTrackingEvents(req.params.orderId) as any;
+      const trackingLimit = await checkRateLimit('logistics-tracking:' + user._id, 12, 60);
+      if (!trackingLimit.allowed) return res.status(429).json({ error: 'TRACKING_RATE_LIMITED' });
+      const tracking = await refreshCarrierTrackingForOrder(req.params.orderId) as any;
       if (!tracking) return res.status(404).json({ error: 'TRACKING_NOT_AVAILABLE' });
       const names: Record<number,string> = {10:'CREATED',20:'MANIFESTED',30:'IN_TRANSIT',40:'OUT_FOR_DELIVERY',50:'DELIVERED',60:'NDR',70:'RTO_INITIATED',80:'RTO_DELIVERED',90:'CANCELLED'};
       const projection = { status: names[tracking.statusCode] || 'CREATED', eta: tracking.eta, latestCheckpoint: tracking.latestCheckpoint ? { status: names[tracking.latestCheckpoint.status_code] || 'UNKNOWN', location: tracking.latestCheckpoint.location_code, timestamp: tracking.latestCheckpoint.event_timestamp } : null };
