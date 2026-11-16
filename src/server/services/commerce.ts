@@ -222,6 +222,14 @@ export async function claimPaymentEvent(provider: GatewayProvider, eventId: stri
   return Boolean(reclaimed);
 }
 
+export async function getPaymentEventState(provider: GatewayProvider, eventId: string): Promise<'PROCESSING' | 'PROCESSED' | 'FAILED' | null> {
+  const event = await PaymentEventModel.findOne({ provider, eventId }).select('status processedAt').lean() as any;
+  if (!event) return null;
+  // Backward compatibility: older rows marked processedAt at claim time are treated as complete.
+  if (event.status === 'PROCESSED' || (event.status == null && event.processedAt)) return 'PROCESSED';
+  return event.status === 'FAILED' ? 'FAILED' : 'PROCESSING';
+}
+
 export async function markPaymentEventProcessed(provider: GatewayProvider, eventId: string) {
   const result = await PaymentEventModel.updateOne(
     { provider, eventId, status: 'PROCESSING', processedAt: null },
