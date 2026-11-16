@@ -6,7 +6,7 @@ import type { ICarrierProvider, RateQuote, ShipmentRequest } from '../../../pack
 
 const transport: HttpTransport = {
  async request<T>(url:string,init:{method:string;headers:Record<string,string>;body?:unknown}):Promise<T>{
-  const response=await fetch(url,{method:init.method,headers:init.headers,...(init.body===undefined?{}:{body:JSON.stringify(init.body)})});
+  const response=await fetch(url,{method:init.method,headers:init.headers,signal:AbortSignal.timeout(15000),...(init.body===undefined?{}:{body:JSON.stringify(init.body)})});
   const raw=await response.text();let payload:any={};try{payload=raw?JSON.parse(raw):{};}catch{payload={message:raw};}
   if(!response.ok)throw new Error('CARRIER_HTTP_'+response.status+':'+String(payload.message||payload.error||'request failed'));
   return payload as T;
