@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
 import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from './src/server/models/schemas.js';
-import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeProfileDto, toProviderSafeProductDto, toProviderSafeSettlementDto } from './src/server/services/privacy.js';
+import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeProfileDto, toSellerSafeProviderProfileDto, toProviderSafeProductDto, toProviderSafeSettlementDto } from './src/server/services/privacy.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
@@ -2253,7 +2253,13 @@ async function startServer() {
       ProviderSettlementModel.find({ providerId: req.params.providerId, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }).limit(200).lean(),
     ]);
     await providerAudit(user, 'PROVIDER_READ_ONLY_AUDIT_VIEW', req.params.providerId, req.params.providerId);
-    res.json({ readOnly: true, profile, products, settlements });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({
+      readOnly: true,
+      profile: toSellerSafeProviderProfileDto(profile),
+      products: products.map(toProviderSafeProductDto),
+      settlements: settlements.map(toProviderSafeSettlementDto),
+    });
   });
 
   app.get('/api/seller/providers/products/review-queue', async (req, res) => {
