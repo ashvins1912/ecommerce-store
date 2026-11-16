@@ -100,11 +100,11 @@ export async function claimLogisticsJob() {
   return unwrap(await db().rpc('claim_logistics_job'));
 }
 export async function completeLogisticsJob(jobId:string,result:unknown) {
-  return unwrap(await db().from('logistics_jobs').update({status:'COMPLETED',result,completed_at:new Date().toISOString()}).eq('id',jobId));
+  return unwrap(await db().from('logistics_jobs').update({status:'COMPLETED',result,completed_at:new Date().toISOString(),locked_at:null}).eq('id',jobId));
 }
 export async function failLogisticsJob(jobId:string,error:string,attempts:number,maxAttempts:number) {
   return unwrap(await db().from('logistics_jobs').update({
-    status:attempts+1>=maxAttempts?'FAILED':'PENDING',attempts:attempts+1,last_error:error.slice(0,1000),
+    status:attempts+1>=maxAttempts?'FAILED':'PENDING',attempts:attempts+1,last_error:error.slice(0,1000),locked_at:null,
     available_at:new Date(Date.now()+Math.min(300000,1000*Math.pow(2,attempts))).toISOString(),
   }).eq('id',jobId));
 }
