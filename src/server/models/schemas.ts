@@ -225,6 +225,8 @@ const OrderSchema = new Schema(
     paymentStatus: { type: String, enum: ['NOT_REQUIRED', 'PENDING', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'], default: 'NOT_REQUIRED', index: true },
     paymentProvider: { type: String, enum: ['razorpay', 'stripe'], default: null },
     paymentReference: { type: String, default: null, index: true },
+    paymentIntentRequestKey: { type: String, default: null },
+    paymentIntentLeaseUntil: { type: Date, default: null, index: true },
     paymentCheckoutUrl: { type: String, default: null },
     paymentTransactionId: { type: String, default: null, index: true },
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
@@ -467,6 +469,7 @@ const PaymentEventSchema = new Schema({
   payloadHash: { type: String, required: true },
 }, { timestamps: true });
 PaymentEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
+PaymentEventSchema.index({ status: 1, processingLeaseUntil: 1 });
 
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);
