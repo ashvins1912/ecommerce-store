@@ -842,10 +842,11 @@ export default function App() {
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
   if (user?.role === 'PROVIDER' || window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
   const isSellerWorkspace = user?.role === 'SELLER' || user?.role === 'ADMIN';
+  const isSellerDashboard = isSellerWorkspace && activePage === 'seller';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF9F6] text-[#141413] overflow-x-clip">
-      {!isSellerWorkspace && <TopBar
+      {!isSellerDashboard && <TopBar
         activePage={activePage}
         activeCategory={category}
         onNavigateStore={navigateToStore}
@@ -1505,7 +1506,7 @@ export default function App() {
       )}
 
       {/* Quiet Editorial Footer */}
-      {!isSellerWorkspace && <footer className="border-t border-[#E8E6E1] bg-white">
+      {!isSellerDashboard && <footer className="border-t border-[#E8E6E1] bg-white">
         <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
           <div className="font-display text-lg font-semibold text-[#141413]">{t('brand')}</div>
           <div className="flex flex-wrap items-center gap-6">
@@ -1611,6 +1612,7 @@ export default function App() {
         onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
+          setActivePage(payload.user.role === 'SELLER' || payload.user.role === 'ADMIN' ? 'seller' : 'store');
           const returnTo = new URLSearchParams(window.location.search).get('returnTo');
           if (returnTo && returnTo.startsWith('/')) { const target = new URL(returnTo, window.location.origin); if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search + target.hash); }
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
