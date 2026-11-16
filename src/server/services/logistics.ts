@@ -93,7 +93,7 @@ export async function listSellerShipments(sellerId:string) {
   const configs = unwrap(await db().from('seller_carrier_configs').select('id').eq('seller_id',sellerId)) as Array<{id:string}>;
   const ids = configs.map(x=>x.id);
   if (!ids.length) return [];
-  return unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,booking_status,label_url,cod_amount_minor,currency,estimated_delivery_at,created_at,seller_carrier_config_id,warehouses(name,postal_code),seller_carrier_configs(logistics_providers(code,name))')
+  return unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,booking_status,pickup_scheduled,manifest_url,label_url,cod_amount_minor,currency,estimated_delivery_at,created_at,seller_carrier_config_id,warehouses(name,postal_code),seller_carrier_configs(logistics_providers(code,name))')
     .in('seller_carrier_config_id',ids).order('created_at',{ascending:false}).limit(100));
 }
 export async function getShipmentForCustomer(orderId:string) {
@@ -121,10 +121,10 @@ export async function failLogisticsJob(jobId:string,error:string,attempts:number
  if(job?.payload?.shipmentId)await db().from('shipments').update({booking_status:final?'FAILED':'PENDING',updated_at:new Date().toISOString()}).eq('id',job.payload.shipmentId);
  return result;
 }
-export async function updateShipmentFromCarrier(input:{shipmentId:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;estimatedDeliveryAt?:string;statusCode:number}) {
+export async function updateShipmentFromCarrier(input:{shipmentId:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;manifestUrl?:string;estimatedDeliveryAt?:string;pickupScheduled?:boolean;statusCode:number}) {
   return unwrap(await db().from('shipments').update({
-    provider_shipment_id:input.providerShipmentId,awb_number:input.awbNumber,label_url:input.labelUrl || null,
-    estimated_delivery_at:input.estimatedDeliveryAt || null,booking_status:'BOOKED',normalized_status:input.statusCode,updated_at:new Date().toISOString(),
+    provider_shipment_id:input.providerShipmentId,awb_number:input.awbNumber,label_url:input.labelUrl || null,manifest_url:input.manifestUrl || null,
+    estimated_delivery_at:input.estimatedDeliveryAt || null,pickup_scheduled:input.pickupScheduled===true,booking_status:'BOOKED',normalized_status:input.statusCode,updated_at:new Date().toISOString(),
   }).eq('id',input.shipmentId));
 }
 export async function getCustomerTrackingEvents(orderId:string) {
