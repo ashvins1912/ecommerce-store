@@ -164,3 +164,11 @@ The CI workflow now runs the existing logistics tests and the new hybrid-engine 
 - Seller/Admin settlement batch marking now runs in one MongoDB transaction.
 - Every row is conditionally transitioned from READY_FOR_SETTLEMENT to SETTLED; if any requested row is missing, outside the seller scope or no longer payable, the entire batch aborts.
 - Audit writes happen after commit and are best-effort; the settlement state remains authoritative if audit delivery fails.
+
+
+### Catalog query and sync optimization (P2)
+- MongoDB-backed browse feeds now apply seller/category/occasion/season/price/discount/stock/visibility/disabled-category predicates in the database and return only the requested page.
+- Added keyset cursor tokens for indexed browse sorts (trend, newest, sales and price); the customer storefront stores cursors per page and sends them for eligible filters. Existing page/limit response fields remain for compatibility.
+- Category top-10 thresholds are computed in a Mongo aggregation window rather than transferring the full product catalog to the Node process for standard browse requests.
+- Semantic search, campaign-specific filtering, color filtering and non-indexed legacy sort modes deliberately retain the established in-memory pipeline until their ranking semantics are separately optimized and regression-tested.
+- L1/L2 LRU-K cache, single-flight request coalescing and Merkle delta synchronization remain outstanding.
