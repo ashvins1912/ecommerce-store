@@ -4132,6 +4132,38 @@ export async function deleteCategoryControl(categoryId: string): Promise<{ ok: b
   return { ok: true };
 }
 
+export async function listPublicProductsForSitemap(): Promise<
+  Array<Pick<Product, '_id' | 'slug' | 'category' | 'updatedAt' | 'isActive' | 'isDeleted' | 'isPublished' | 'isUnlisted' | 'visibility'>>
+> {
+  if (mongoConnected) {
+    const docs = await ProductModel.find(
+      { ...MONGO_PUBLIC_PRODUCT_FILTER, visibility: { $ne: 'ASSIGNED' } },
+      { _id: 1, slug: 1, category: 1, updatedAt: 1, isActive: 1, isDeleted: 1, isPublished: 1, isUnlisted: 1, visibility: 1 }
+    ).lean();
+    return docs.map((d: any) => ({
+      _id: String(d._id),
+      slug: String(d.slug || ''),
+      category: String(d.category || ''),
+      updatedAt: d.updatedAt ? new Date(d.updatedAt).toISOString() : new Date().toISOString(),
+      isActive: d.isActive !== false,
+      isDeleted: Boolean(d.isDeleted),
+      isPublished: d.isPublished !== false,
+      isUnlisted: Boolean(d.isUnlisted),
+      visibility: d.visibility === 'ASSIGNED' ? 'ASSIGNED' : 'PUBLIC',
+    }));
+  }
 
-
-
+  return localState.products
+    .filter((p) => isProductPubliclyVisible(p) && p.visibility !== 'ASSIGNED')
+    .map((p) => ({
+      _id: p._id,
+      slug: p.slug,
+      category: p.category,
+      updatedAt: p.updatedAt,
+      isActive: p.isActive,
+      isDeleted: p.isDeleted,
+      isPublished: p.isPublished,
+      isUnlisted: p.isUnlisted,
+      visibility: p.visibility,
+    }));
+}

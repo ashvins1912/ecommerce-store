@@ -13,6 +13,7 @@ import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, Provid
 import { encryptField } from './src/server/services/fieldEncryption.js';
 import { canInviteRole } from './src/server/services/roles.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { buildDynamicStorefrontSitemap, generateRobotsTxt } from './src/server/services/sitemap.js';
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
@@ -190,8 +191,10 @@ function getAppBaseUrl(req: Request): string {
   if (process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL') {
     return process.env.APP_URL.replace(/\/$/, '');
   }
-  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-  const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
+  const rawProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http');
+  const proto = rawProto.split(',')[0].trim() || 'http';
+  const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`);
+  const host = rawHost.split(',')[0].trim() || `localhost:${PORT}`;
   return `${proto}://${host}`.replace(/\/$/, '');
 }
 
@@ -359,6 +362,24 @@ async function startServer() {
       status: ready ? 'ready' : 'not_ready',
       dbMode: dbStatus.mode,
     });
+  });
+
+  // --- SEO: Dynamic Sitemap & Robots ---
+  app.get('/sitemap.xml', async (req, res, next) => {
+    try {
+      const xml = await buildDynamicStorefrontSitemap(getAppBaseUrl(req));
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.status(200).send(xml);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/robots.txt', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(generateRobotsTxt(getAppBaseUrl(req)));
   });
 
   // --- Logistics: separate PostgreSQL persistence boundary ---

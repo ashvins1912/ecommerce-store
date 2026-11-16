@@ -19,10 +19,11 @@
     "logistics:worker": "tsx apps/logistics-worker/src/entry.ts",
     "test:logistics": "tsx --test packages/logistics-core/src/index.test.ts packages/adapters/shadowfax/src/index.test.ts packages/adapters/shiprocket/src/index.test.ts",
     "test:hybrid": "tsx --test packages/hybrid-engine/src/index.test.ts",
-    "test": "npm run test:logistics && npm run test:hybrid && npm run test:privacy",
+    "test": "npm run test:logistics && npm run test:hybrid && npm run test:privacy && npm run test:sitemap",
     "dev:all": "bash scripts/dev-all.sh",
     "test:privacy": "tsx --test src/server/services/privacy.test.ts",
     "test:roles": "tsx --test src/server/services/roles.test.ts",
+    "test:sitemap": "tsx --test src/server/services/sitemap.test.ts",
     "predeploy:check": "bash scripts/predeploy-check.sh"
   },
   "dependencies": {

@@ -7,6 +7,7 @@ import {
   Globe,
   Heart,
   LayoutGrid,
+  LogOut,
   Menu,
   PackageCheck,
   Shirt,
@@ -36,6 +37,7 @@ interface TopBarProps {
   onOpenCart: () => void;
   user: User | null;
   onOpenAuth: () => void;
+  onLogout?: () => Promise<void> | void;
   onStartTour?: () => void;
 }
 
@@ -62,11 +64,13 @@ export function TopBar({
   onOpenCart,
   user,
   onOpenAuth,
+  onLogout,
   onStartTour,
 }: TopBarProps) {
   const { lang, setLang, t, tc } = useI18n();
   const { t: i18nT } = useTranslation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const drawerPanelRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -561,6 +565,28 @@ export function TopBar({
                 >
                   <Compass className="h-4 w-4 shrink-0" aria-hidden="true" />
                   <span>{i18nT('actions.start_tour')}</span>
+                </button>
+              )}
+
+              {user && onLogout && (
+                <button
+                  type="button"
+                  disabled={signingOut}
+                  onClick={async () => {
+                    setSigningOut(true);
+                    try {
+                      await onLogout();
+                      closeDrawer();
+                    } catch {
+                      // Error toast is handled by caller; keep drawer accessible to retry.
+                    } finally {
+                      setSigningOut(false);
+                    }
+                  }}
+                  className="flex w-full min-h-[44px] items-center justify-center gap-2 rounded-md border border-[#881337]/30 bg-white px-4 py-2 text-xs font-semibold text-[#881337] hover:bg-[#881337] hover:text-white disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{signingOut ? '...' : t('auth.signOut')}</span>
                 </button>
               )}
             </div>

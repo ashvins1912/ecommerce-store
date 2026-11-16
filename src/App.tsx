@@ -971,6 +971,7 @@ export default function App() {
           setAuthInitialMode('signin');
           setAuthOpen(true);
         }}
+        onLogout={handleLogout}
         onStartTour={() => {
           setActivePage('store');
           window.requestAnimationFrame(() => startRoleTour());
