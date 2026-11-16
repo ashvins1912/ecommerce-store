@@ -72,6 +72,23 @@ ProviderSettlementSchema.index({ orderId: 1, orderItemKey: 1 }, { unique: true }
 ProviderSettlementSchema.index({ sellerId: 1, status: 1, createdAt: -1 });
 ProviderSettlementSchema.index({ providerId: 1, status: 1, createdAt: -1 });
 
+const ProviderFulfillmentDelegationSchema = new Schema({
+  sellerId: { type: String, required: true, index: true },
+  providerId: { type: String, required: true, index: true },
+  status: { type: String, enum: ['REQUESTED', 'ACTIVE', 'REVOKED'], default: 'REQUESTED', index: true },
+  requestedCarrierCodes: { type: [String], default: [] },
+  allowedCarrierCodes: { type: [String], default: [] },
+  requestedDisclosureFields: { type: [String], default: [] },
+  allowedDisclosureFields: { type: [String], default: [] },
+  requestedAt: { type: Date, default: Date.now },
+  approvedAt: { type: Date, default: null },
+  approvedBy: { type: String, default: '' },
+  revokedAt: { type: Date, default: null },
+  expiresAt: { type: Date, default: null },
+}, { timestamps: true });
+ProviderFulfillmentDelegationSchema.index({ sellerId: 1, providerId: 1 }, { unique: true });
+ProviderFulfillmentDelegationSchema.index({ providerId: 1, status: 1, updatedAt: -1 });
+
 const ProviderAuditSchema = new Schema({
   actorId: { type: String, required: true, index: true },
   actorRole: { type: String, required: true },
@@ -86,3 +103,4 @@ export const ProviderProfileModel: Model<any> = mongoose.models.ProviderProfile 
 export const ProviderProductModel: Model<any> = mongoose.models.ProviderProduct || mongoose.model('ProviderProduct', ProviderProductSchema);
 export const ProviderSettlementModel: Model<any> = mongoose.models.ProviderSettlement || mongoose.model('ProviderSettlement', ProviderSettlementSchema);
 export const ProviderAuditModel: Model<any> = mongoose.models.ProviderAudit || mongoose.model('ProviderAudit', ProviderAuditSchema);
+export const ProviderFulfillmentDelegationModel: Model<any> = mongoose.models.ProviderFulfillmentDelegation || mongoose.model('ProviderFulfillmentDelegation', ProviderFulfillmentDelegationSchema);
