@@ -495,6 +495,10 @@ const PrivacyDisclosureAuditSchema = new Schema({
   fieldsAuthorized: { type: [String], required: true },
   actorId: { type: String, required: true },
   authorizedAt: { type: Date, required: true },
+  jobId: { type: String, default: null, index: true },
+  dispatchStatus: { type: String, enum: ['AUTHORIZED', 'DISPATCHING', 'DISPATCHED', 'BLOCKED', 'FAILED'], default: 'AUTHORIZED', index: true },
+  dispatchedAt: { type: Date, default: null },
+  dispatchErrorCode: { type: String, default: null, maxlength: 120 },
   purpose: { type: String, enum: ['SHIPMENT_FULFILLMENT'], required: true },
 }, { timestamps: true });
 PrivacyDisclosureAuditSchema.index({ sellerId: 1, orderId: 1, authorizedAt: -1 });
