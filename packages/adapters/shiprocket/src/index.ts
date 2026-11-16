@@ -38,7 +38,8 @@ export class ShiprocketAdapter implements ICarrierProvider {
    const shipment=Array.isArray(order.shipments)?order.shipments[0]:order.shipment||{};
    const shipmentId=shipment.id||shipment.shipment_id||order.shipment_id;
    if(!shipmentId)return null;
-   const statusCode=Number(shipment.status_code||shipment.status||order.status_code||order.status||0);\n   return{shipmentId:String(shipmentId),awb:shipment.awb||shipment.awb_code||shipment.awb_number||order.awb_code,pickupScheduled:statusCode>=3};
+   const statusCode=Number(shipment.status_code||shipment.status||order.status_code||order.status||0);
+   return{shipmentId:String(shipmentId),awb:shipment.awb||shipment.awb_code||shipment.awb_number||order.awb_code,pickupScheduled:statusCode>=3};
   }catch{return null;}
  }
  async createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>{
