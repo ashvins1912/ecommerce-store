@@ -5,13 +5,12 @@
 The existing React + Vite storefront remains the source of truth for customer and seller features. The new workspace exposes independently buildable role entry points while reusing the existing application components and API:
 
 - `apps/customer-web`: storefront entry point (development port 4173).
-- `apps/seller-hub`: Seller Hub entry point (development port 4175; routes to `/seller-hub`).
 - `apps/provider-portal`: provider-only entry point (development port 4174).
 - `packages/shared-types`: role, product and settlement contracts.
 - `packages/shared-utils`: role constants, editable-state rules and INR formatting.
 - `server.ts`: shared Express API gateway and existing session / CSRF boundary.
 
-This is an incremental modular workspace, not yet a full extraction of all customer and seller components into their own source trees. The customer and seller apps currently mount the existing root React application. They can be deployed independently by building their workspace package and routing API calls to the shared backend.
+This is an incremental modular workspace, not yet a full extraction of all customer and seller components into their own source trees. The customer app mounts the root storefront. Seller operations are not a separate app: authenticated SELLER users land on `SellerHubView` inside the main application, and only sellers receive the Storefront tab. The Provider Portal is a separate role frontend. The seller dashboard is not independently deployed.
 
 ## Local development
 
@@ -21,17 +20,18 @@ Run the API / existing app server in one terminal:
 bun run dev
 ```
 
-Run any role frontend in another terminal:
+Run the customer and provider frontends independently in another terminal:
 
 ```bash
 bun run dev:customer
-bun run dev:seller
 bun run dev:provider
 ```
 
+Run the combined local stack (API + customer + provider, with seller dashboard served by the main app) using `bun run dev:all`. Start the optional logistics worker with `START_LOGISTICS_WORKER=1 bun run dev:all`.
+
 The Vite role apps proxy `/api` and `/uploads` to `http://localhost:3000`. For deployments, serve each built app on its own domain or path and configure a same-site reverse proxy to the API. The current session cookie is host-only; separate subdomains need a deliberately configured shared authentication boundary before cross-subdomain deployment.
 
-Build / type-check all role apps:
+Build / type-check the customer and provider frontend packages:
 
 ```bash
 bun install
@@ -110,3 +110,12 @@ These are role-switch demo accounts, not email/password credentials. Sign in thr
 ```
 
 Use `usr_provider_2` and `provider.nisha@example.com` for the second account. The email fallback also supports MongoDB-seeded records whose database IDs are generated at startup. Provider profiles and image-backed sample products are seeded only in non-production MongoDB environments when `ENCRYPTION_MASTER_KEY` is configured; they use synthetic tax / settlement values and remain in `PENDING` KYC state. The sample product images reuse checked-in files under `src/assets/images`. The Provider Portal and seller review queue render image URLs returned by the provider APIs. In local development, the Provider Vite server proxies `/src/assets` to the Express backend; deployments on separate frontend domains must also reverse-proxy `/src/assets` to the backend (alongside `/api` and `/uploads`). Demo role switching and provider demo identities are disabled/excluded when `NODE_ENV=production`. Real provider accounts load profile, catalog and settlement records from the authenticated API; no demo catalog fallback is applied. Never use these accounts or fixture values for real transactions or KYC.
+
+
+## Role landing and responsive UI contract
+
+- A signed-in SELLER lands on the seller dashboard in the main application. The dashboard exposes a Storefront navigation tab only to the SELLER role; it is not shown to buyers, providers or admins.
+- A signed-in PROVIDER lands on the Provider dashboard. Provider APIs remain role- and tenant-scoped; the frontend does not grant access.
+- BUYER / guest sessions land on the customer storefront.
+- Tailwind CSS v4 is the UI utility system. The shared stylesheet imports `tailwindcss` and scans `src`, `apps` and `packages`; Vite uses `@tailwindcss/vite`. Provider dashboard layouts use responsive utility breakpoints, min-width-safe grids and overflow-managed tables. Seller dashboard components use the shared Tailwind stylesheet.
+- Verify at 360px, 390px, 768px, 1024px and 1440px widths. Check no horizontal page overflow, keyboard focus, touch target sizing, form wrapping, dialog scrolling and table horizontal scrolling.
