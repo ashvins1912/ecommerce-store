@@ -34,6 +34,7 @@ CREATE TABLE shipments (
  seller_carrier_config_id UUID NOT NULL REFERENCES seller_carrier_configs(id) ON DELETE RESTRICT,
  warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
  provider_shipment_id VARCHAR(120), awb_number VARCHAR(120),
+ booking_status VARCHAR(16) NOT NULL DEFAULT 'PENDING' CHECK(booking_status IN ('PENDING','PROCESSING','BOOKED','FAILED')),
  normalized_status SMALLINT NOT NULL DEFAULT 10 CHECK(normalized_status IN(10,20,30,40,50,60,70,80,90)),
  label_url TEXT, cod_amount_minor BIGINT NOT NULL DEFAULT 0 CHECK(cod_amount_minor>=0),
  currency CHAR(3) NOT NULL DEFAULT 'INR', estimated_delivery_at TIMESTAMPTZ, last_event_at TIMESTAMPTZ,
@@ -92,6 +93,7 @@ BEGIN
  ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED;
  IF NOT FOUND THEN RETURN; END IF;
  UPDATE logistics_jobs SET status='PROCESSING',locked_at=now(),attempts=attempts+1 WHERE id=claimed.id RETURNING * INTO claimed;
+ UPDATE shipments SET booking_status='PROCESSING',updated_at=now() WHERE id=(claimed.payload->>'shipmentId')::uuid AND booking_status<>'BOOKED';
  RETURN NEXT claimed;
 END; $logistics$;
 
@@ -170,6 +172,25 @@ BEGIN
  RETURN QUERY SELECT v_shipment_id,v_job_id,TRUE;
 END; $logistics$;
 
+
+CREATE OR REPLACE FUNCTION retry_shipment_booking(p_shipment_id UUID,p_seller_id TEXT)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $logistics$
+DECLARE previous_payload JSONB; new_job_id UUID;
+BEGIN
+ SELECT j.payload INTO previous_payload
+ FROM logistics_jobs j
+ JOIN shipments s ON s.id=(j.payload->>'shipmentId')::uuid
+ JOIN seller_carrier_configs c ON c.id=s.seller_carrier_config_id
+ WHERE s.id=p_shipment_id AND c.seller_id=p_seller_id AND c.is_active
+  AND s.booking_status='FAILED' AND s.awb_number IS NULL
+ ORDER BY j.created_at DESC LIMIT 1;
+ IF previous_payload IS NULL THEN RAISE EXCEPTION 'SHIPMENT_NOT_RETRYABLE'; END IF;
+ INSERT INTO logistics_jobs(job_type,payload,status,attempts,max_attempts)
+ VALUES('CREATE_SHIPMENT',previous_payload,'PENDING',0,5) RETURNING id INTO new_job_id;
+ UPDATE shipments SET booking_status='PENDING',updated_at=now() WHERE id=p_shipment_id;
+ RETURN new_job_id;
+END; $logistics$;
+
 -- Service-role-only access. The application never exposes the service-role key to browsers.
 ALTER TABLE logistics_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE seller_carrier_configs ENABLE ROW LEVEL SECURITY;
@@ -186,10 +207,12 @@ REVOKE EXECUTE ON FUNCTION claim_logistics_job() FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHAR,TIMESTAMPTZ,SMALLINT,TIMESTAMPTZ) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION create_shipment_intent(TEXT,TEXT,UUID,UUID,BIGINT,CHAR(3),JSONB) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION retry_shipment_booking(UUID,TEXT) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION claim_logistics_job() TO service_role;
 GRANT EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHAR,TIMESTAMPTZ,SMALLINT,TIMESTAMPTZ) TO service_role;
 GRANT EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) TO service_role;
 GRANT EXECUTE ON FUNCTION create_shipment_intent(TEXT,TEXT,UUID,UUID,BIGINT,CHAR(3),JSONB) TO service_role;
+GRANT EXECUTE ON FUNCTION retry_shipment_booking(UUID,TEXT) TO service_role;
 
 COMMIT;
 -- Compact status codes: 10 CREATED,20 MANIFESTED,30 IN_TRANSIT,40 OUT_FOR_DELIVERY,
