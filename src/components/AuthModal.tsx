@@ -545,74 +545,12 @@ export function AuthModal({
                   {loading ? t('auth.signingIn') : t('auth.signInSync')}
                 </button>
               </form>
-            ) : (
-              <form onSubmit={handleSignUp} className="space-y-3">
-                <input
-                  type="text"
-                  required
-                  minLength={2}
-                  placeholder={t('auth.namePlaceholder')}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-                />
-                <input
-                  type="email"
-                  required
-                  placeholder={t('auth.emailPlaceholder')}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-                />
-                <input
-                  type="tel"
-                  placeholder={`${t('auth.mobileLabel')} (${t('auth.mobilePlaceholder')})`}
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm tabular-nums focus:border-[#881337] focus:outline-none"
-                />
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    placeholder={t('auth.passwordPlaceholder')}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 pr-10 text-sm focus:border-[#881337] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#78716C] hover:text-[#141413] cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  minLength={6}
-                  placeholder={t('auth.confirmPasswordPlaceholder')}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full min-h-[42px] rounded-md bg-[#881337] px-4 py-2.5 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
-                >
-                  {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
-                </button>
-              </form>
-            )}
+            ) : null}
 
             <div className="mt-4 border-t border-[#F0EEE9] pt-3 text-center text-xs text-[#57534E]">
-              {mode === 'signin' ? "New customer?" : "Already have an account?"}{' '}
-              <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setVerificationNotice(null); }} className="font-semibold text-[#881337] hover:underline cursor-pointer">
-                {mode === 'signin' ? "Create customer account" : "Sign in"}
+              New customer?{' '}
+              <button type="button" onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('commerce:navigate-signup')); }} className="font-semibold text-[#881337] hover:underline cursor-pointer">
+                Create your customer account
               </button>
             </div>
 
