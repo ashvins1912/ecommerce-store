@@ -3,6 +3,9 @@ import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index
 import type { HttpTransport } from '../../../packages/adapters/shadowfax/src/index.js';
 import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, updateShipmentFromCarrier } from '../../../src/server/services/logistics.js';
 import type { ICarrierProvider, RateQuote, ShipmentRequest } from '../../../packages/logistics-core/src/index.js';
+import { initDatabase } from '../../../src/server/services/store.js';
+import { SellerPrivacySettingsModel } from '../../../src/server/models/schemas.js';
+import { authorizeCarrierDisclosure } from '../../../src/server/services/privacy.js';
 
 const transport: HttpTransport = {
  async request<T>(url:string,init:{method:string;headers:Record<string,string>;body?:unknown}):Promise<T>{
@@ -21,8 +24,17 @@ const delay=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 async function processJob(job:any){
  const p=job.payload;
  if(job.job_type!=='CREATE_SHIPMENT')throw new Error('UNSUPPORTED_LOGISTICS_JOB:'+job.job_type);
+ if(!p.disclosureAuthorizedAt||!Array.isArray(p.disclosureFields))throw new Error('CARRIER_DISCLOSURE_AUTHORIZATION_MISSING');
+ const settings=await SellerPrivacySettingsModel.findOne({sellerId:String(p.sellerId)}).lean();
+ const authorization=authorizeCarrierDisclosure(settings?.carrierDisclosure, String(p.carrierCode||'').toLowerCase(), p.recipientEmail);
+ if(!authorization.allowed)throw new Error('CARRIER_DISCLOSURE_AUTHORIZATION_REVOKED_OR_INCOMPLETE');
+ const authorizedFields=[...authorization.fields].sort();
+ const queuedFields=[...p.disclosureFields].sort();
+ if(authorizedFields.join('|')!==queuedFields.join('|'))throw new Error('CARRIER_DISCLOSURE_SCOPE_CHANGED_AFTER_QUEUE');
+ if(!p.recipientName||!p.recipientPhone||!p.destinationAddressLine1||!p.destinationCity||!p.destinationState||!p.destinationPostalCode)throw new Error('CARRIER_DELIVERY_FIELDS_MISSING');
  const config=await getSellerCarrierSecret(p.carrierConfigId,p.sellerId);
  const provider=adapter(config.logistics_providers.code);
+ if(provider.code!==String(p.carrierCode||'').toLowerCase())throw new Error('CARRIER_PROVIDER_MISMATCH');
  const warehouse=await getSellerWarehouse(p.sellerId,p.warehouseId) as any;
  const rateRequest={
   origin:{warehouseId:p.warehouseId,postalCode:warehouse.postal_code,countryCode:warehouse.country_code||'IN'},
@@ -65,4 +77,10 @@ export async function runLogisticsWorker(){
   }catch(error){console.error('Logistics queue poll failed:',error);await delay(Math.max(pollMs,5000));}
  }
 }
-if (process.env.RUN_LOGISTICS_WORKER === '1') void runLogisticsWorker();
+if (process.env.RUN_LOGISTICS_WORKER === '1') {
+ void (async () => {
+  const db=await initDatabase();
+  if(db.mode!=='mongodb' && process.env.NODE_ENV==='production') throw new Error('PRODUCTION_PRIVACY_POLICY_DATABASE_REQUIRED');
+  await runLogisticsWorker();
+ })();
+}
