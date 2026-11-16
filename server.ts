@@ -2622,6 +2622,23 @@ async function startServer() {
     }
   });
 
+  app.post('/api/provider/shipments/:id/refresh-tracking', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: 'INVALID_SHIPMENT_ID' });
+    try {
+      const rows = await listProviderShipments(user._id) as any[];
+      const shipment = rows.find(row => String(row.id) === req.params.id);
+      if (!shipment) return res.status(404).json({ error: 'PROVIDER_SHIPMENT_NOT_FOUND' });
+      const order = await OrderModel.findById(String(shipment.order_id)).select('sellerId').lean() as any;
+      const delegation = order ? await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean() : null;
+      if (!delegation) return res.status(403).json({ error: 'SELLER_FULFILLMENT_AUTHORIZATION_REQUIRED' });
+      const tracking = await refreshCarrierTrackingForOrder(String(shipment.order_id)) as any;
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ tracking: tracking ? { statusCode: tracking.statusCode, eta: tracking.eta, latestCheckpoint: tracking.latestCheckpoint ? { statusCode: tracking.latestCheckpoint.status_code, location: tracking.latestCheckpoint.location_code, occurredAt: tracking.latestCheckpoint.event_timestamp } : null } : null });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_TRACKING_REFRESH_FAILED' }); }
+  });
+
   app.post('/api/provider/shipments/:id/retry', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
