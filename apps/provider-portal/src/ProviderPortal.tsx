@@ -20,7 +20,7 @@ type ProviderProfile = {
   businessName?: string;
   contactPerson?: string;
   kycStatus?: string;
-  linkedSellerIds?: string[];
+  linkedSellerCount?: number;
 };
 type Session = { role?: string; user?: { role?: string; name?: string; email?: string } };
 
@@ -264,7 +264,7 @@ export default function ProviderPortal() {
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-lg font-semibold">{providerProfile.businessName}</h2>
               <p className="mt-1 break-words text-sm text-stone-600">{providerProfile.contactPerson} · {auth?.user?.email}</p>
-              <p className="mt-1 text-xs text-stone-500">KYC: {providerProfile.kycStatus || 'Pending'} · Linked sellers: {(providerProfile.linkedSellerIds || []).length}</p>
+              <p className="mt-1 text-xs text-stone-500">KYC: {providerProfile.kycStatus || 'Pending'} · Linked sellers: {providerProfile.linkedSellerCount || 0}</p>
             </div>
             <div className="inline-flex items-center gap-2 self-start rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 sm:self-center">
               <Building2 className="h-4 w-4" /> Supplier workspace
