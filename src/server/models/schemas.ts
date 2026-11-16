@@ -492,7 +492,7 @@ const PrivacyDisclosureAuditSchema = new Schema({
   orderId: { type: String, required: true, index: true },
   carrierConfigId: { type: String, required: true },
   carrierCode: { type: String, required: true },
-  fieldsDisclosed: { type: [String], required: true },
+  fieldsAuthorized: { type: [String], required: true },
   actorId: { type: String, required: true },
   authorizedAt: { type: Date, required: true },
   purpose: { type: String, enum: ['SHIPMENT_FULFILLMENT'], required: true },
