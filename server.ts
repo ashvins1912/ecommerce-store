@@ -1814,9 +1814,12 @@ async function startServer() {
       const sellerLines = new Map<string, typeof itemsToOrder>();
       for (const line of itemsToOrder) sellerLines.set(line.sellerId, [...(sellerLines.get(line.sellerId) || []), line]);
       for (const [sellerId, lines] of sellerLines) {
-        const products = lines.map(line => itemProducts.find(product => product && String(product._id) === String(line.productId))).filter(Boolean) as any[];
-        const weightGrams = 100 + lines.reduce((sum, line) => {
-          const product = products.find(p => String(p._id) === String(line.productId));
+        const products = lines.map(line => {
+          const lineIndex = submittedItems.findIndex(item => item.productId === line.productId && item.variantSku === line.variantSku);
+          return lineIndex >= 0 ? itemProducts[lineIndex] : null;
+        });
+        const weightGrams = 100 + lines.reduce((sum, line, lineIndex) => {
+          const product = products[lineIndex] as any;
           return sum + Math.max(1, Number(product?.shippingWeightGrams) || 500) * line.quantity;
         }, 0);
         const declaredValueMinor = lines.reduce((sum, line) => sum + Math.round(line.unitPrice * line.quantity * 100), 0);
