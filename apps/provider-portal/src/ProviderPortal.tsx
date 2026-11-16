@@ -16,7 +16,13 @@ type Settlement = {
   status: string;
   utrReference?: string;
 };
-type Shipment = { id: string; orderNumber: string; status: string; createdAt: string; items: Array<{ productId: string; title: string; quantity: number }>; courierTracking?: { companyName: string; trackingId: string; trackingUrl?: string } | null; manualDispatchAllowed: boolean };
+type Shipment = { id: string; orderNumber: string; status: string; createdAt: string; items: Array<{ productId: string; title: string; quantity: number }>; courierTracking?: { companyName: string; trackingId: string; trackingUrl?: string } | null; manualDispatchAllowed: boolean; appShipment?: { shipmentId: string; bookingStatus: string; awbNumber?: string; labelUrl?: string; manifestUrl?: string; pickupScheduled?: boolean; statusCode: number; estimatedDeliveryAt?: string; carrierName?: string } | null };
+type LogisticsProvider = { id: string; code: string; name: string; type: 'DIRECT' | 'AGGREGATOR'; auth_schema_json?: { fields?: Array<{ name: string; label: string; type?: string }> } };
+type ProviderCarrier = { id: string; provider_id: string; is_active: boolean; logistics_providers?: { code: string; name: string; type: string } };
+type ProviderWarehouse = { id: string; warehouse_code: string; name: string; city: string; state: string; postal_code: string; is_default: boolean };
+type LinkedSeller = { id: string; name: string };
+type Delegation = { sellerId: string; status: string; requestedCarrierCodes: string[]; allowedCarrierCodes: string[]; requestedDisclosureFields: string[]; allowedDisclosureFields: string[]; expiresAt?: string | null };
+type CarrierRate = { providerCode: string; serviceCode: string; amountMinor: number; currency: string; estimatedTransitHours: number; serviceable: boolean; codSupported: boolean; expiresAt: string };
 type ProviderProfile = {
   businessName?: string;
   contactPerson?: string;
@@ -56,6 +62,24 @@ export default function ProviderPortal() {
   const [products, setProducts] = useState<Product[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [shippingProviders, setShippingProviders] = useState<LogisticsProvider[]>([]);
+  const [providerCarriers, setProviderCarriers] = useState<ProviderCarrier[]>([]);
+  const [providerWarehouses, setProviderWarehouses] = useState<ProviderWarehouse[]>([]);
+  const [linkedSellers, setLinkedSellers] = useState<LinkedSeller[]>([]);
+  const [delegations, setDelegations] = useState<Delegation[]>([]);
+  const [carrierProviderId, setCarrierProviderId] = useState('');
+  const [carrierCredentials, setCarrierCredentials] = useState<Record<string, string>>({});
+  const [carrierWebhookSecret, setCarrierWebhookSecret] = useState('');
+  const [warehouseForm, setWarehouseForm] = useState({ warehouseCode: 'MAIN', name: 'Main pickup warehouse', contactName: '', contactPhone: '', addressLine1: '', addressLine2: '', city: '', state: '', postalCode: '', countryCode: 'IN', isDefault: true });
+  const [delegationSellerId, setDelegationSellerId] = useState('');
+  const [delegationCarrierCodes, setDelegationCarrierCodes] = useState<string[]>([]);
+  const [delegationFields, setDelegationFields] = useState<string[]>(['recipientName', 'recipientPhone', 'recipientAddress']);
+  const [bookingOrderId, setBookingOrderId] = useState('');
+  const [bookingRates, setBookingRates] = useState<CarrierRate[]>([]);
+  const [bookingCarrierId, setBookingCarrierId] = useState('');
+  const [bookingWarehouseId, setBookingWarehouseId] = useState('');
+  const [bookingWeight, setBookingWeight] = useState('500');
+  const [shippingSaving, setShippingSaving] = useState(false);
   const [productQuery, setProductQuery] = useState('');
   const [productStatus, setProductStatus] = useState('ALL');
   const [productSort, setProductSort] = useState('updatedAt');
@@ -99,17 +123,30 @@ export default function ProviderPortal() {
     try {
       const productParams = new URLSearchParams({ page: String(productPage), limit: '10', q: productQuery, status: productStatus, sort: productSort, direction: productDirection });
       const settlementParams = new URLSearchParams({ page: String(settlementPage), limit: '10', q: settlementQuery, status: settlementStatus, sort: settlementSort, direction: settlementDirection });
-      const [profileResult, productResult, settlementResult, shipmentResult] = await Promise.all([
+      const [profileResult, productResult, settlementResult, shipmentResult, carrierResult, warehouseResult, sellerResult, delegationResult] = await Promise.all([
         api<any>('/api/provider/profile'),
         api<any>('/api/provider/products?' + productParams.toString()),
         api<any>('/api/provider/settlements?' + settlementParams.toString()),
         api<any>('/api/provider/shipments'),
+        api<any>('/api/provider/logistics/carriers').catch(() => ({ providers: [], carriers: [] })),
+        api<any>('/api/provider/logistics/warehouses').catch(() => ({ warehouses: [] })),
+        api<any>('/api/provider/linked-sellers').catch(() => ({ sellers: [] })),
+        api<any>('/api/provider/fulfillment-delegations').catch(() => ({ delegations: [] })),
       ]);
       setProviderProfile(profileResult.profile || null);
       setProducts(productResult.products || []);
       setProductTotal(Number(productResult.total || 0));
       setSettlements(settlementResult.settlements || []);
       setShipments(shipmentResult.shipments || []);
+      setShippingProviders(carrierResult.providers || []);
+      setProviderCarriers(carrierResult.carriers || []);
+      setProviderWarehouses(warehouseResult.warehouses || []);
+      setLinkedSellers(sellerResult.sellers || []);
+      setDelegations(delegationResult.delegations || []);
+      if (!carrierProviderId && carrierResult.providers?.[0]) setCarrierProviderId(carrierResult.providers[0].id);
+      if (!delegationSellerId && sellerResult.sellers?.[0]) setDelegationSellerId(sellerResult.sellers[0].id);
+      if (!bookingCarrierId && carrierResult.carriers?.[0]) setBookingCarrierId(carrierResult.carriers[0].id);
+      if (!bookingWarehouseId && warehouseResult.warehouses?.[0]) setBookingWarehouseId(warehouseResult.warehouses[0].id);
       setSettlementTotal(Number(settlementResult.total || 0));
     } catch (error) {
       setNotice((error as Error).message);
@@ -232,6 +269,80 @@ export default function ProviderPortal() {
     } catch (error) {
       setNotice((error as Error).message);
     }
+  };
+
+  const saveProviderCarrier = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setShippingSaving(true);
+    try {
+      const result = await api<any>('/api/provider/logistics/carriers', { method: 'POST', body: JSON.stringify({ providerId: carrierProviderId, credentials: carrierCredentials, priorityRank: 100 }) });
+      setCarrierWebhookSecret(result.carrier?.webhookSecret || '');
+      setCarrierCredentials({});
+      setNotice('Courier account validated and encrypted. Copy its webhook secret if provided.');
+      await refresh();
+    } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const saveProviderWarehouse = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setShippingSaving(true);
+    try {
+      await api('/api/provider/logistics/warehouses', { method: 'POST', body: JSON.stringify(warehouseForm) });
+      setNotice('Provider pickup warehouse saved.');
+      await refresh();
+    } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const requestFulfillmentDelegation = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setShippingSaving(true);
+    try {
+      await api('/api/provider/fulfillment-delegations', { method: 'POST', body: JSON.stringify({ sellerId: delegationSellerId, carrierCodes: delegationCarrierCodes, disclosureFields: delegationFields }) });
+      setNotice('Fulfilment authorization request sent to the linked seller.');
+      await refresh();
+    } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const getShipmentRates = async (shipment: Shipment) => {
+    if (!bookingCarrierId || !bookingWarehouseId) {
+      setNotice('Configure and select a courier account and pickup warehouse first.');
+      return;
+    }
+    setShippingSaving(true);
+    setBookingOrderId(shipment.id);
+    setBookingRates([]);
+    try {
+      const result = await api<any>('/api/provider/shipments/rates', { method: 'POST', body: JSON.stringify({ orderId: shipment.id, carrierConfigId: bookingCarrierId, warehouseId: bookingWarehouseId, weightGrams: Number(bookingWeight) }) });
+      setBookingRates(result.quotes || []);
+      if (!result.quotes?.length) setNotice('No serviceable courier services were returned for this order.');
+    } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const bookProviderShipment = async (shipment: Shipment, quote: CarrierRate) => {
+    setShippingSaving(true);
+    try {
+      const result = await api<any>('/api/provider/shipments/book', { method: 'POST', body: JSON.stringify({ orderId: shipment.id, carrierConfigId: bookingCarrierId, warehouseId: bookingWarehouseId, weightGrams: Number(bookingWeight), serviceCode: quote.serviceCode }) });
+      setNotice(result.status === 'QUEUED' ? 'Shipment booking queued. AWB and label will appear after carrier confirmation.' : 'A shipment already exists for this order.');
+      setBookingRates([]);
+      setBookingOrderId('');
+      await refresh();
+    } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
+  };
+
+  const retryProviderShipment = async (shipment: Shipment) => {
+    if (!shipment.appShipment?.shipmentId) return;
+    setShippingSaving(true);
+    try {
+      await api('/api/provider/shipments/' + shipment.appShipment.shipmentId + '/retry', { method: 'POST' });
+      setNotice('Shipment booking retry queued. The worker will recheck seller authorization before dispatch.');
+      await refresh();
+    } catch (error) { setNotice((error as Error).message); }
+    finally { setShippingSaving(false); }
   };
 
   const recordManualShipment = async (shipment: Shipment) => {
