@@ -118,3 +118,35 @@ The new `packages/hybrid-engine` contains reusable, typed algorithm primitives a
 - Persist carrier outcome samples and integrate adaptive scoring only after sample-quality/tenant-isolation tests.
 - Replace full-catalog scans with indexed DB filters and cursor pagination; add cache version invalidation/single-flight.
 - Run Mongo replica-set tests, Redis multi-client concurrency tests, Postgres webhook race tests, provider sandbox contract tests, tenant isolation, load and regression suites.
+
+
+## Implementation progress (branch update)
+
+The following P0 hardening has now been added on this feature branch:
+
+### Checkout and inventory
+- Customer CartDrawer now creates a stable checkout attempt key and sends it in both the `Idempotency-Key` header and request body. The key is retained across retry attempts for the same cart fingerprint.
+- Checkout resolves each cart line against the catalog and replaces client-provided seller, title, price, variant description and image fields with catalog values.
+- `createOrder` coalesces repeated product/variant lines, sorts product reservation order, and performs conditional stock decrements plus all seller-order inserts inside one MongoDB transaction.
+- Variant stock is decremented with array filters in the same transaction as aggregate product stock.
+- Coupon usage is conditionally incremented inside the checkout transaction when a MongoDB-backed checkout is used.
+- Orders persist a buyer + checkout-key + seller unique key. A replay returns the previously created seller orders and does not resend seller WhatsApp messages.
+- Production checkout fails closed if MongoDB transactional persistence is unavailable; local JSON persistence remains a development-only fallback.
+
+### Payment intent and webhook recovery
+- Payment intent creation now uses a per-order database lease to prevent concurrent requests from creating multiple active intents.
+- Stripe Checkout uses a stable order/provider idempotency key.
+- Webhook inbox rows now have PROCESSING/PROCESSED/FAILED states, attempt counts and a 60-second processing lease. Abandoned events can be reclaimed when a gateway retries.
+- Payment amount/currency checks occur before inbox claim. Successful order mutation marks the inbox event PROCESSED; in-flight duplicate deliveries receive a retryable 503 instead of a success acknowledgement.
+- Repeated capture events are guarded against duplicate timeline mutations when the same transaction has already paid the order.
+
+### Remaining critical limitations
+- Payment event inbox claim, order mutation and event completion are not yet a single MongoDB transaction. Recovery relies on lease expiry and idempotent order-state checks. The next hardening step is one transaction spanning inbox + order + refund-return state.
+- Stripe supports the stable idempotency header used here. Razorpay order creation does not yet have a verified provider-level idempotency guarantee in this code; an ambiguous network timeout can still require reconciliation before another attempt.
+- Carrier bandit feedback is not yet persisted or wired into production rate selection.
+- Redis Lua scripts are algorithm primitives; a production Redis adapter, lease-expiry compensation worker and durable fencing-version checks remain to be integrated.
+- Catalog filtering still needs DB-side query execution and cursor pagination; L1 LRU-K/L2 single-flight and Merkle delta sync remain outstanding.
+- Provider settlement batching, tenant isolation, full role UI-to-DB integration tests, load tests and full regression are not complete.
+
+### Validation state
+The CI workflow now runs the existing logistics tests and the new hybrid-engine unit tests in addition to typecheck/build. No CI run has been observed yet for this branch update. Mongo replica-set concurrency tests and provider sandbox tests have not been executed here.
