@@ -228,6 +228,8 @@ const OrderSchema = new Schema(
     paymentReference: { type: String, default: null, index: true },
     paymentIntentRequestKey: { type: String, default: null },
     paymentIntentLeaseUntil: { type: Date, default: null, index: true },
+    sellerNotificationSentAt: { type: Date, default: null },
+    sellerNotificationLeaseUntil: { type: Date, default: null, index: true },
     paymentCheckoutUrl: { type: String, default: null },
     paymentTransactionId: { type: String, default: null, index: true },
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
