@@ -52,7 +52,7 @@ async function processJob(job:any){
  }
  if(!quote)throw new Error('NO_VALID_CARRIER_SERVICE_QUOTE');
  if(p.codAmountMinor>0&&!quote.codSupported)throw new Error('SELECTED_CARRIER_SERVICE_DOES_NOT_SUPPORT_COD');
- if(provider.code==='shiprocket'&&!p.recipientEmail)throw new Error('SHIPROCKET_CUSTOMER_EMAIL_REQUIRED');
+ if(provider.code==='shiprocket'&&!deliveryData.recipientEmail)throw new Error('SHIPROCKET_CUSTOMER_EMAIL_REQUIRED');
  const request:ShipmentRequest={
   orderId:p.orderId,sellerId:p.sellerId,warehouseId:p.warehouseId,quote,
   origin:{warehouseId:p.warehouseId,postalCode:warehouse.postal_code,countryCode:warehouse.country_code||'IN',name:warehouse.name,contact:warehouse.contact_phone,addressLine1:warehouse.address_line1,addressLine2:warehouse.address_line2||'',city:warehouse.city,state:warehouse.state},
