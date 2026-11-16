@@ -106,7 +106,7 @@ import {
   listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
   listProviderCarrierConfigs, saveProviderCarrierConfig, setProviderCarrierActive, getProviderCarrierSecret,
-  listProviderWarehouses, createProviderWarehouse, getProviderRateQuotes, createProviderShipmentIntent,
+  listProviderWarehouses, createProviderWarehouse, getProviderWarehouse, getProviderRateQuotes, createProviderShipmentIntent,
   retryProviderShipment, listProviderShipments,
   getCustomerTrackingEvents, refreshCarrierTrackingForOrder, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
 } from './src/server/services/logistics.js';
@@ -3252,6 +3252,9 @@ async function startServer() {
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_CANCELLATION_REVIEW' });
     const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
     if (!order || order.status !== 'CANCELLATION_REQUESTED') return res.status(404).json({ error: 'CANCELLATION_REQUEST_NOT_FOUND' });
+    const providerReviewStatus = order.providerCancellationReview?.status || 'NOT_FORWARDED';
+    if (providerReviewStatus === 'PENDING') return res.status(409).json({ error: 'PROVIDER_CANCELLATION_REVIEW_PENDING' });
+    if (providerReviewStatus === 'REJECTED' && parsed.data.action === 'approve') return res.status(409).json({ error: 'PROVIDER_REJECTED_CANCELLATION' });
     if (parsed.data.action === 'reject') {
       order.status = order.cancellationPreviousStatus || 'Confirmed';
       order.cancellationPreviousStatus = null;
