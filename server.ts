@@ -360,19 +360,32 @@ async function startServer() {
     const quantities = new Map<string, number>();
     for (const item of parsed.data.items) quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
     if ([...quantities.values()].some(quantity => quantity > 50)) return res.status(400).json({ error: 'INVALID_ITEM_QUANTITY' });
-    const productIds = [...quantities.keys()];
-    if (productIds.some(id => !mongoose.isValidObjectId(id))) return res.status(400).json({ error: 'INVALID_PRODUCT_ID' });
+    const requestedProductKeys = [...quantities.keys()];
     try {
-      const products = await ProductModel.find({
-        _id: { $in: productIds }, isDeleted: { $ne: true }, isActive: true, isPublished: { $ne: false },
-        listingStatus: { $nin: ['unpublished', 'discontinued'] },
-        $or: [{ visibility: { $ne: 'ASSIGNED' } }, { assignedCustomerIds: user._id }],
-      }).select('sellerId shippingWeightGrams salePrice onlinePaymentRequired codAllowed').lean() as any[];
-      if (products.length !== productIds.length) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
+      // Resolve product IDs and public slugs against the catalog before ObjectId use.
+      const resolvedProducts = await Promise.all(requestedProductKeys.map(key => getProductByIdOrSlug(key, { includeControlled: true })));
+      if (resolvedProducts.some(product => !product)) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
+      const products = resolvedProducts.map(product => product as any);
+      if (products.some(product => product.visibility === 'ASSIGNED' && !product.assignedCustomerIds?.map(String).includes(String(user._id)))) {
+        return res.status(403).json({ error: 'PRODUCT_NOT_ASSIGNED_TO_BUYER' });
+      }
+      const productIdByKey = new Map<string, string>();
+      products.forEach((product, index) => {
+        const canonicalId = String(product._id);
+        if (!mongoose.isValidObjectId(canonicalId)) throw new Error('INVALID_CATALOG_PRODUCT_ID');
+        productIdByKey.set(requestedProductKeys[index], canonicalId);
+      });
+      const quantitiesByCanonicalId = new Map<string, number>();
+      for (const [key, quantity] of quantities) {
+        const canonicalId = productIdByKey.get(key)!;
+        quantitiesByCanonicalId.set(canonicalId, (quantitiesByCanonicalId.get(canonicalId) || 0) + quantity);
+      }
+      if ([...quantitiesByCanonicalId.values()].some(quantity => quantity > 50)) return res.status(400).json({ error: 'INVALID_ITEM_QUANTITY' });
+      if (products.length !== requestedProductKeys.length) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
       const bySeller = new Map<string, { weightGrams: number; declaredValueMinor: number; codAmountMinor: number; prepaidRequired: boolean }>();
       for (const product of products) {
         const sellerId = String(product.sellerId);
-        const quantity = quantities.get(String(product._id)) || 0;
+        const quantity = quantitiesByCanonicalId.get(String(product._id)) || 0;
         const current = bySeller.get(sellerId) || { weightGrams: 100, declaredValueMinor: 0, codAmountMinor: 0, prepaidRequired: false };
         current.weightGrams += Math.max(1, Number(product.shippingWeightGrams) || 500) * quantity;
         current.declaredValueMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
@@ -382,11 +395,18 @@ async function startServer() {
       }
       const groups = await Promise.all([...bySeller.entries()].map(async ([sellerId, parcel]) => {
         if (parcel.prepaidRequired) parcel.codAmountMinor = 0;
-        const quotes = await getSellerRateQuotes({ sellerId, destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
-          weightGrams: parcel.weightGrams, codAmountMinor: parcel.codAmountMinor,
-          declaredValueMinor: parcel.declaredValueMinor, currency: 'INR' });
-        return { sellerId, quotes: quotes.map(({ providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score, quote }) => ({
-          providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score, expiresAt: quote?.expiresAt,
+        const [quotes, seller] = await Promise.all([
+          getSellerRateQuotes({ sellerId, destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
+            weightGrams: parcel.weightGrams, codAmountMinor: parcel.codAmountMinor,
+            declaredValueMinor: parcel.declaredValueMinor, currency: 'INR' }),
+          UserModel.findById(sellerId).select('sellerProfile.shippingMarkupPercent').lean(),
+        ]);
+        const markupPercent = Math.min(100, Math.max(0, Number((seller as any)?.sellerProfile?.shippingMarkupPercent || 0)));
+        return { sellerId, markupPercent, quotes: quotes.map(({ providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score, quote }) => ({
+          providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score,
+          sellerMarkupMinor: Math.round(costMinor * markupPercent / 100),
+          customerChargeMinor: costMinor + Math.round(costMinor * markupPercent / 100),
+          expiresAt: quote?.expiresAt,
         })) };
       }));
       const projection = { groups, partial: groups.some(group => group.quotes.length === 0), estimateBasis: 'CATALOG_SHIPPING_WEIGHT' };
@@ -396,6 +416,22 @@ async function startServer() {
       if (req.headers['if-none-match'] === etag) return res.status(304).end();
       res.json(projection);
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'RATE_LOOKUP_FAILED' }); }
+  });
+
+  app.get('/api/seller/shipping-policy', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const seller = await UserModel.findById(user!._id).select('sellerProfile.shippingMarkupPercent').lean() as any;
+    res.json({ policy: 'SEPARATE', markupPercent: Math.min(100, Math.max(0, Number(seller?.sellerProfile?.shippingMarkupPercent || 0))) });
+  });
+
+  app.patch('/api/seller/shipping-policy', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({ markupPercent: z.coerce.number().min(0).max(100) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_SHIPPING_MARKUP' });
+    await UserModel.updateOne({ _id: new mongoose.Types.ObjectId(user!._id) }, { $set: { 'sellerProfile.shippingMarkupPercent': parsed.data.markupPercent } });
+    res.json({ policy: 'SEPARATE', markupPercent: parsed.data.markupPercent });
   });
 
   app.get('/api/seller/logistics/carriers', async (req, res) => {
@@ -2101,6 +2137,8 @@ async function startServer() {
       if ((product.variants || []).length && !variant) throw new Error('PRODUCT_VARIANT_UNAVAILABLE');
       return {
         ...item,
+        // Persist canonical Mongo product IDs; public slugs are lookup aliases only.
+        productId: String(product._id),
         sellerId: String(product.sellerId),
         title: product.title,
         slug: product.slug,
@@ -2127,9 +2165,49 @@ async function startServer() {
         prepaidProviderBySeller.set(sellerId, activeProvider);
       }
     }
+    // Option 3: compute a fresh server-side separate delivery fee per seller.
+    // The browser never supplies or controls the amount charged.
+    const shippingBySeller: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode: string; serviceCode: string; estimatedTransitHours: number; quoteExpiresAt: string | null; policy: 'SEPARATE' }> = {};
+    try {
+      const sellerLines = new Map<string, typeof itemsToOrder>();
+      for (const line of itemsToOrder) sellerLines.set(line.sellerId, [...(sellerLines.get(line.sellerId) || []), line]);
+      for (const [sellerId, lines] of sellerLines) {
+        const products = lines.map(line => itemProducts.find(product => product && String(product._id) === String(line.productId)) || null);
+        const weightGrams = 100 + lines.reduce((sum, line, lineIndex) => {
+          const product = products[lineIndex] as any;
+          return sum + Math.max(1, Number(product?.shippingWeightGrams) || 500) * line.quantity;
+        }, 0);
+        const declaredValueMinor = lines.reduce((sum, line) => sum + Math.round(line.unitPrice * line.quantity * 100), 0);
+        const seller = await UserModel.findById(sellerId).select('sellerProfile.shippingMarkupPercent').lean() as any;
+        const markupPercent = Math.min(100, Math.max(0, Number(seller?.sellerProfile?.shippingMarkupPercent || 0)));
+        const quotes = await getSellerRateQuotes({
+          sellerId,
+          destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
+          weightGrams, codAmountMinor: requiresPrepaid ? 0 : declaredValueMinor, declaredValueMinor, currency: 'INR',
+        });
+        const quote = quotes[0];
+        if (!quote) return res.status(409).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', sellerId, retryable: true });
+        const carrierCost = Math.max(0, Number(quote.costMinor) || 0);
+        const markup = Math.round(carrierCost * markupPercent / 100);
+        shippingBySeller[sellerId] = {
+          actualCarrierCost: carrierCost / 100,
+          sellerMarkup: markup / 100,
+          customerCharge: (carrierCost + markup) / 100,
+          insuranceAmount: 0,
+          carrierCode: quote.providerCode,
+          serviceCode: quote.serviceCode,
+          estimatedTransitHours: quote.estimatedTransitHours,
+          quoteExpiresAt: quote.quote?.expiresAt || null,
+          policy: 'SEPARATE',
+        };
+      }
+    } catch (shippingError) {
+      const message = (shippingError as Error).message || 'DELIVERY_QUOTE_UNAVAILABLE';
+      return res.status(503).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', detail: message, retryable: true });
+    }
     let createdOrders;
     try {
-      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode, idempotencyKey });
+      createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode, idempotencyKey, shippingBySeller });
       for (const order of createdOrders) {
         const prepaid = requiresPrepaid && order.items.some((item) => {
           const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
@@ -2146,12 +2224,16 @@ async function startServer() {
           order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
           order.status = 'PENDING_SELLER_CONFIRMATION';
           order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
-          await OrderModel.updateOne(
-            { _id: order._id, status: 'Pending' },
-            { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } }
-          );
+          if (dbStatus.mode === 'mongodb') {
+            await OrderModel.updateOne(
+              { _id: new mongoose.Types.ObjectId(String(order._id)), status: 'Pending' },
+              { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } }
+            );
+          }
         } else {
-          await OrderModel.updateOne({ _id: order._id }, { $set: { items: order.items } });
+          if (dbStatus.mode === 'mongodb') {
+            await OrderModel.updateOne({ _id: new mongoose.Types.ObjectId(String(order._id)) }, { $set: { items: order.items } });
+          }
         }
       }
     } catch (err) {
@@ -2163,7 +2245,7 @@ async function startServer() {
 
     // A durable lease lets a retried checkout finish a notification after a process crash.
     // Delivery is at-least-once across the external WhatsApp call/DB acknowledgement boundary.
-    for (const order of createdOrders) {
+    if (dbStatus.mode === 'mongodb') for (const order of createdOrders) {
       const leaseUntil = new Date(Date.now() + 60_000);
       const claim = await OrderModel.findOneAndUpdate(
         {

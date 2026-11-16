@@ -42,23 +42,10 @@ export function CartDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmedOrders, setConfirmedOrders] = useState<Order[] | null>(null);
-  const [rateGroups,setRateGroups]=useState<Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
+  const [rateGroups,setRateGroups]=useState<Array<{sellerId:string;markupPercent?:number;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;customerChargeMinor?:number;sellerMarkupMinor?:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
   const [rateLoading,setRateLoading]=useState(false);
   const [rateError,setRateError]=useState<string|null>(null);
   const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
-
-  const checkDeliveryRates=async()=>{
-    const destinationPostalCode=user?.shippingAddresses?.find(address=>address.isDefault)?.pincode||user?.shippingAddresses?.[0]?.pincode;
-    if(!destinationPostalCode){setRateError('Add a delivery address with pincode to check courier rates.');return;}
-    setRateLoading(true);setRateError(null);
-    try{
-      const result=await apiFetch<{groups:Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number;expiresAt?:string}>}>}>('/api/logistics/rates',{
-        method:'POST',body:JSON.stringify({items:cart.map(item=>({productId:item.productId,quantity:item.quantity}))})
-      });
-      setRateGroups(result.groups);
-      if(!result.groups.some(group=>group.quotes.length))setRateError('No configured carrier rates are available for this delivery address yet.');
-    }catch(error){setRateError((error as Error).message);}finally{setRateLoading(false);}
-  };
 
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
@@ -71,7 +58,8 @@ export function CartDrawer({
   const baseTotal = cart.reduce((sum, i) => sum + i.basePrice * i.quantity, 0);
   const catalogSavings = Math.max(0, baseTotal - subtotal);
   const couponDiscount = appliedValidation?.valid ? appliedValidation.discountAmount : 0;
-  const finalTotal = Math.max(1, subtotal - couponDiscount);
+  const deliveryCharge = rateGroups.reduce((sum, group) => sum + Number(group.quotes[0]?.customerChargeMinor ?? group.quotes[0]?.costMinor ?? 0) / 100, 0);
+  const finalTotal = Math.max(1, subtotal - couponDiscount + deliveryCharge);
 
   const validateAndApplyCoupon = useCallback(
     async (rawCode: string) => {
@@ -459,15 +447,22 @@ export function CartDrawer({
                   <span>-{formatINR(couponDiscount)}</span>
                 </div>
               )}
+              <div className="flex justify-between text-xs text-[#57534E]"><span>Delivery fee</span><span>{formatINR(deliveryCharge)}</span></div>
               <div className="flex justify-between text-sm font-semibold text-[#141413] pt-2 border-t border-[#E8E6E1]">
                 <span>{t('cart.total')}</span>
                 <span>{formatINR(finalTotal)}</span>
               </div>
             </div>
             <div className="space-y-2">
-              <button type="button" disabled={rateLoading||cart.length===0} onClick={()=>void checkDeliveryRates()} className="w-full rounded-md border border-[#D6D3CD] bg-white px-4 py-2.5 text-xs font-semibold text-[#44403C] disabled:opacity-50">{rateLoading?'Checking courier rates…':'Check delivery rates & ETA'}</button>
-              {rateError&&<p role="status" className="text-[11px] text-amber-800">{rateError}</p>}
-              {rateGroups.length>0&&<p className="text-[10px] text-[#78716C]">Estimates use each product’s configured shipping weight (500g default per item, plus a 100g parcel buffer). Final courier charges are confirmed when the seller books the parcel.</p>}{rateGroups.map(group=><div key={group.sellerId} className="rounded-md border border-[#E8E6E1] bg-white p-2.5 space-y-1"><p className="text-[10px] font-semibold text-[#78716C]">Seller delivery options · indicative estimate</p>{group.quotes.map(quote=><div key={quote.providerCode+quote.serviceCode} className="flex flex-wrap justify-between gap-2 text-[11px]"><span>{quote.providerCode} · {quote.estimatedTransitHours}h · {quote.serviceCode}</span><span className="font-semibold">{formatINR(quote.costMinor/100)}</span></div>)}</div>)}
+              <div className="rounded-md border border-[#E8E6E1] bg-white p-3 space-y-2">
+                <div className="flex justify-between text-xs"><span>Delivery</span><span>{rateLoading ? 'Calculating…' : rateGroups.length ? formatINR(deliveryCharge) : 'Calculating at checkout'}</span></div>
+                {rateError && <p role="status" className="text-[11px] text-amber-800">Delivery estimate unavailable. Checkout will revalidate the carrier quote.</p>}
+                {rateGroups.map(group => {
+                  const quote = group.quotes[0];
+                  return quote ? <div key={group.sellerId} className="flex justify-between gap-2 text-[11px] text-[#57534E]"><span>{quote.providerCode} · {quote.serviceCode} · ETA {quote.estimatedTransitHours}h</span><span>{formatINR((quote.customerChargeMinor ?? quote.costMinor)/100)}</span></div> : null;
+                })}
+                <p className="text-[10px] text-[#78716C]">Separate delivery fee includes carrier cost and seller-configured markup. Final charge is recalculated securely when you place the order.</p>
+              </div>
             </div>
 
             <button

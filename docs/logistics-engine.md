@@ -148,3 +148,14 @@ Resolve seller ID from the authenticated principal, never from untrusted request
 PostgreSQL DDL is in `src/server/migrations/2026-11-logistics-postgres.sql`. Seller credentials and webhook secrets are AES-256-GCM envelopes encrypted with a KMS-managed 32-byte key. Warehouse address data lives once in warehouses; shipments reference warehouse_id. Tracking events are append-only and unique by shipment + event hash.
 
 The adapter paths, authentication headers and sample response fields are illustrative seams, not verified vendor contracts. Before enabling a provider in production, use its current partner documentation and sandbox to confirm auth, query/body encoding, HMAC header/algorithm, payloads, rate limits and label workflow. Add fixture-based contract tests. Adapter instances and token caches must be scoped to one seller config; never reuse an authenticated Shiprocket token across sellers.
+
+
+## Checkout delivery pricing — Option 3 (separate fee)
+
+- Checkout silently requests rate/ETA estimates when the authenticated cart opens or changes. The request sends catalog product identifiers and quantities; the API resolves public slugs to canonical Mongo product ObjectIds before any ObjectId query.
+- The rate response includes carrier cost in minor currency units, seller markup in minor units, and customer delivery charge. The checkout displays the first ranked quote for each seller as an estimate.
+- Sellers configure `sellerProfile.shippingMarkupPercent` from the Seller Hub logistics panel. The authenticated seller-only endpoints are `GET/PATCH /api/seller/shipping-policy`; accepted markup is 0–100%, default 0%.
+- On order submission, the server independently reloads seller policy and fetches a fresh quote for each seller parcel. The browser cannot set the fee. A missing quote fails checkout with a retryable delivery-quote error rather than silently charging zero.
+- The order snapshot stores actual carrier cost, seller markup, customer delivery charge, carrier/service, ETA and quote expiry. `totalAmount` includes the separately charged delivery fee so payment intent amount and order amount remain aligned.
+- Carrier amount is stored in INR rupees on the order; provider quote amount is handled in paise/minor units at the adapter boundary. Insurance is recorded separately and remains zero unless a provider-backed insurance premium is explicitly returned and implemented; do not label an order insured based only on a quote.
+- The local JSON development fallback uses a non-ObjectId `local_` domain ID and skips Mongo-only order update/notification lease queries. Mongo-backed order writes use the persisted ObjectId, never the business order number.
