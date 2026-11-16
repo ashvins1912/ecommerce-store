@@ -93,7 +93,7 @@ export async function listSellerShipments(sellerId:string) {
   const configs = unwrap(await db().from('seller_carrier_configs').select('id').eq('seller_id',sellerId)) as Array<{id:string}>;
   const ids = configs.map(x=>x.id);
   if (!ids.length) return [];
-  return unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,label_url,cod_amount_minor,currency,estimated_delivery_at,created_at,seller_carrier_config_id,warehouses(name,postal_code),seller_carrier_configs(logistics_providers(code,name))')
+  return unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,booking_status,label_url,cod_amount_minor,currency,estimated_delivery_at,created_at,seller_carrier_config_id,warehouses(name,postal_code),seller_carrier_configs(logistics_providers(code,name))')
     .in('seller_carrier_config_id',ids).order('created_at',{ascending:false}).limit(100));
 }
 export async function getShipmentForCustomer(orderId:string) {
@@ -112,15 +112,19 @@ export async function completeLogisticsJob(jobId:string,result:unknown) {
   return unwrap(await db().from('logistics_jobs').update({status:'COMPLETED',result,completed_at:new Date().toISOString(),locked_at:null}).eq('id',jobId));
 }
 export async function failLogisticsJob(jobId:string,error:string,attempts:number,maxAttempts:number) {
-  return unwrap(await db().from('logistics_jobs').update({
-    status:attempts>=maxAttempts?'FAILED':'PENDING',attempts,last_error:error.slice(0,1000),locked_at:null,
-    available_at:new Date(Date.now()+Math.min(300000,1000*Math.pow(2,attempts))).toISOString(),
-  }).eq('id',jobId));
+ const job=unwrap(await db().from('logistics_jobs').select('payload').eq('id',jobId).single()) as any;
+ const final=attempts>=maxAttempts;
+ const result=unwrap(await db().from('logistics_jobs').update({
+  status:final?'FAILED':'PENDING',attempts,last_error:error.slice(0,1000),locked_at:null,
+  available_at:new Date(Date.now()+Math.min(300000,1000*Math.pow(2,attempts))).toISOString(),
+ }).eq('id',jobId));
+ if(job?.payload?.shipmentId)await db().from('shipments').update({booking_status:final?'FAILED':'PENDING',updated_at:new Date().toISOString()}).eq('id',job.payload.shipmentId);
+ return result;
 }
 export async function updateShipmentFromCarrier(input:{shipmentId:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;estimatedDeliveryAt?:string;statusCode:number}) {
   return unwrap(await db().from('shipments').update({
     provider_shipment_id:input.providerShipmentId,awb_number:input.awbNumber,label_url:input.labelUrl || null,
-    estimated_delivery_at:input.estimatedDeliveryAt || null,normalized_status:input.statusCode,updated_at:new Date().toISOString(),
+    estimated_delivery_at:input.estimatedDeliveryAt || null,booking_status:'BOOKED',normalized_status:input.statusCode,updated_at:new Date().toISOString(),
   }).eq('id',input.shipmentId));
 }
 export async function getCustomerTrackingEvents(orderId:string) {
@@ -196,4 +200,8 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
  const earliestExpiry=result.reduce((min,x)=>Math.min(min,Date.parse(x.quote?.expiresAt||new Date(Date.now()+60000).toISOString())),Date.now()+86400000);
  await setLogisticsRateCache(cacheKey,result,Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))));
  return result;
+}
+
+export async function retrySellerShipment(sellerId:string,shipmentId:string) {
+ return unwrap(await db().rpc('retry_shipment_booking',{p_shipment_id:shipmentId,p_seller_id:sellerId}));
 }
