@@ -127,7 +127,7 @@ export async function getCustomerTrackingEvents(orderId:string) {
 }
 
 export async function getSellerWarehouse(sellerId:string,warehouseId:string) {
- return unwrap(await db().from('warehouses').select('id,name,postal_code,country_code').eq('seller_id',sellerId).eq('id',warehouseId).single());
+ return unwrap(await db().from('warehouses').select('id,name,contact_name,contact_phone,address_line1,address_line2,city,state,postal_code,country_code').eq('seller_id',sellerId).eq('id',warehouseId).single());
 }
 export async function getLogisticsJob(jobId:string) {
  return unwrap(await db().from('logistics_jobs').select('id,job_type,payload,attempts,max_attempts').eq('id',jobId).single());
