@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 export type CarrierArm = { id: string; cost: number; transitHours: number; rtoRate: number; sellerPriority: number; serviceable: boolean };
 export type CarrierWeights = { cost: number; transit: number; rto: number; sellerPriority: number };
 export type CarrierFeedback = { attempts: number; successful: number; rto: number };
