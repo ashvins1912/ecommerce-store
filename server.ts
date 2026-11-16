@@ -3983,9 +3983,11 @@ async function startServer() {
   // On small single-instance deployments, run the durable logistics queue consumer
   // in this process. Jobs remain persisted in Supabase and resume after a cold start.
   if (process.env.RUN_LOGISTICS_WORKER === '1') {
-    void import('./apps/logistics-worker/src/run.js').catch((error) => {
-      console.error('Could not start the co-located logistics worker:', error);
-    });
+    void import('./apps/logistics-worker/src/run.js')
+      .then(({ runLogisticsWorker }) => runLogisticsWorker())
+      .catch((error) => {
+        console.error('Co-located logistics worker stopped unexpectedly:', error);
+      });
   }
 }
 
