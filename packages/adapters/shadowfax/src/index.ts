@@ -51,7 +51,7 @@ export class ShadowfaxAdapter implements ICarrierProvider {
  parseWebhook(payload:unknown):WebhookEnvelope{
   const p=payload as any;const awb=String(p?.awb_number||p?.awb||'');const at=String(p?.event_timestamp||p?.timestamp||'');const rawStatus=String(p?.status||p?.status_display||'');
   if(!awb||!at||!rawStatus)throw new Error('INVALID_SHADOWFAX_WEBHOOK');
-  return{providerCode:this.code,awbNumber:awb,status:status(rawStatus),occurredAt:at,locationCode:p.current_location||p.location,eventHash:crypto.createHash('sha256').update(String(p.event_id||p.event||awb+':'+rawStatus+':'+at)).digest('hex'),raw:payload};
+  return{providerCode:this.code,awbNumber:awb,status:status(rawStatus),occurredAt:at,locationCode:p.current_location||p.location,eventHash:crypto.createHash('sha256').update(String(p.event_id||awb+':'+rawStatus+':'+at)).digest('hex'),raw:payload};
  }
 }
 function status(v:string):ShipmentResult['status']{
