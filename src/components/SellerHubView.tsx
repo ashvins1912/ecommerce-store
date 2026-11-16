@@ -63,6 +63,7 @@ import { apiFetch, compressAndUploadImage, formatINR, setClientSessionTokens } f
 import { useI18n } from '../lib/i18n';
 import { CustomerSearchModal, type AssignableCustomer } from './CustomerSearchModal';
 import { ProviderManagementPanel } from './ProviderManagementPanel';
+import { LogisticsManagementPanel } from './LogisticsManagementPanel';
 
 const OCCASIONS: OccasionType[] = [
   'Wedding',
@@ -93,6 +94,7 @@ type SellerTab =
   | 'payments'
   | 'returns'
   | 'providers'
+  | 'logistics'
   | 'orders';
 
 interface AdminInviteRow extends SellerInvite {
@@ -1382,6 +1384,7 @@ export function SellerHubView({
     { id: 'payments', label: 'Payments' },
     { id: 'returns', label: 'Returns' },
     { id: 'providers', label: 'Providers & payouts' },
+    { id: 'logistics', label: 'Shipping & logistics' },
     { id: 'orders', label: t('seller.tabOrders') },
   ];
 
@@ -2972,6 +2975,8 @@ export function SellerHubView({
 
       {/* TAB 3: SELLER ORDERS & COURIER TRACKING */}
       {isVerifiedSellerOrAdmin && sellerTab === 'providers' && <ProviderManagementPanel isAdmin={isAdmin} />}
+
+      {isVerifiedSellerOrAdmin && sellerTab === 'logistics' && <LogisticsManagementPanel />}
 
       {isVerifiedSellerOrAdmin && sellerTab === 'returns' && (
         <section className="space-y-4">
