@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateInventoryLines, BloomHint, decorrelatedJitter, rankCarriersHybrid, runSaga, SlidingWindowCircuitBreaker } from "./index.js";
+import { aggregateInventoryLines, BloomHint, buildMerkleSnapshot, decorrelatedJitter, diffMerkleSnapshots, LRUKCache, rankCarriersHybrid, runSaga, SingleFlight, SlidingWindowCircuitBreaker } from "./index.js";
 
 test("TOPSIS plus epsilon-greedy ranks serviceable carriers and explores deterministically",()=>{
  const candidates=[
@@ -33,4 +33,28 @@ test("inventory lines aggregate product and variant quantities",()=>{
 });
 test("inventory aggregation rejects invalid quantities",()=>{
  assert.throws(()=>aggregateInventoryLines([{productId:"p1",quantity:0}]),/INVALID_INVENTORY_LINE/);
+});
+
+test("LRU-K evicts cold entries before established hot entries",()=>{
+ let now=0;const cache=new LRUKCache<string>(2,2,()=>now);
+ cache.set("hot","H",1000);cache.get("hot");
+ cache.set("cold","C",1000);
+ cache.get("hot");
+ cache.set("new","N",1000);
+ assert.equal(cache.get("hot"),"H");
+ assert.equal(cache.get("cold"),undefined);
+ assert.equal(cache.get("new"),"N");
+ now=2000;assert.equal(cache.get("hot"),undefined);
+});
+test("single-flight coalesces concurrent loads by key",async()=>{
+ const flight=new SingleFlight();let calls=0;
+ const loader=async()=>{calls++;await Promise.resolve();return 42;};
+ const [a,b]=await Promise.all([flight.run("same",loader),flight.run("same",loader)]);
+ assert.equal(a,42);assert.equal(b,42);assert.equal(calls,1);
+});
+test("Merkle snapshots report added, changed and deleted records deterministically",()=>{
+ const before=buildMerkleSnapshot([{id:"a",value:{x:1,y:2}},{id:"b",value:{x:2}}]);
+ const after=buildMerkleSnapshot([{id:"a",value:{y:2,x:1}},{id:"b",value:{x:3}},{id:"c",value:{x:4}}]);
+ assert.deepEqual(diffMerkleSnapshots(before,after),{added:["c"],updated:["b"],deleted:[]});
+ assert.equal(before.root,buildMerkleSnapshot([{id:"b",value:{x:2}},{id:"a",value:{y:2,x:1}}]).root);
 });
