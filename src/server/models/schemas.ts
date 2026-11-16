@@ -70,6 +70,7 @@ const ProductSchema = new Schema(
     salePrice: { type: Number, required: true, min: 0 },
     discountPercent: { type: Number, default: 0, min: 0, max: 95 },
     totalStock: { type: Number, required: true, min: 0 },
+    shippingWeightGrams: { type: Number, required: true, min: 1, max: 100000, default: 500 },
     images: [
       {
         url: { type: String, required: true },
