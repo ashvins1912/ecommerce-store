@@ -79,14 +79,21 @@ export function toProviderSafeProfileDto(profile: Record<string, any>) {
 
 /** Explicit provider-owned catalogue projection. */
 export function toProviderSafeProductDto(product: Record<string, any>) {
-  return pickAllowed(product, [
+  const dto = pickAllowed(product, [
     '_id', 'providerId', 'linkedSellerIds', 'title', 'category', 'subCategory',
     'description', 'brand', 'manufacturerName', 'manufacturingDate',
     'sizeVariants', 'colorVariants', 'imageUrls', 'basePricePaise',
     'returnable', 'returnWindowDays', 'damageReplacementPolicy', 'status',
-    'retailProductId', 'negotiationHistory', 'approvedBasePricePaise',
-    'approvedAt', 'createdAt', 'updatedAt',
+    'retailProductId', 'approvedBasePricePaise', 'approvedAt', 'createdAt', 'updatedAt',
   ]);
+  // Negotiation comments are free-form text and may accidentally contain customer
+  // contact/address data. Expose only the structured workflow metadata.
+  if (Array.isArray(product.negotiationHistory)) {
+    dto.negotiationHistory = product.negotiationHistory.map((entry: Record<string, any>) =>
+      pickAllowed(entry, ['sellerId', 'actorId', 'action', 'fields', 'targetPricePaise', 'createdAt']),
+    );
+  }
+  return dto;
 }
 
 /** Explicit provider receivable projection; buyer identity/contact is never part of this contract. */
