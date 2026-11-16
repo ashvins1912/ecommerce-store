@@ -457,7 +457,7 @@ async function startServer() {
     try {
       const providerCode = String(req.params.providerCode || '').toLowerCase();
       const raw = (req as any).rawBody as Buffer | undefined;
-      const signature = String(req.headers['x-logistics-signature'] || req.headers['x-signature'] || '');
+      const signature = String(req.headers['x-api-key'] || req.headers['x-logistics-signature'] || req.headers['x-signature'] || '');
       if (!raw || !signature) return res.status(400).json({ error: 'WEBHOOK_RAW_BODY_OR_SIGNATURE_MISSING' });
       let adapter: any;
       const noHttp = { request: async () => { throw new Error('HTTP_NOT_AVAILABLE_IN_WEBHOOK_PARSER'); } };
