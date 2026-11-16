@@ -1370,8 +1370,7 @@ async function startServer() {
     const q = typeof req.query.q === 'string' ? req.query.q : undefined;
     const statusFilter = typeof req.query.status === 'string' ? req.query.status : undefined;
     const products = await listSellerManagedProducts(user._id, user.role, { q, statusFilter });
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ products: toProviderSafeDto(products) });
+    res.json({ products });
   });
 
   app.patch('/api/products/:id/control', async (req, res) => {
@@ -2050,8 +2049,7 @@ async function startServer() {
     const profile = await ProviderProfileModel.findOneAndUpdate({ userId: req.params.providerId }, { $set: { kycStatus: parsed.data.status } }, { new: true }).select('-encryptedTaxId -encryptedSettlementDetails');
     if (!profile) return res.status(404).json({ error: 'PROVIDER_NOT_FOUND' });
     await providerAudit(user, 'PROVIDER_KYC_REVIEWED', req.params.providerId, String(profile._id), { status: parsed.data.status, note: parsed.data.note || '' });
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ profile: toProviderSafeDto(profile) });
+    res.json({ profile });
   });
 
   app.post('/api/seller/providers/invites', async (req, res) => {
@@ -2130,14 +2128,16 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('-encryptedTaxId -encryptedSettlementDetails').lean();
     if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
-    res.json({ profile });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ profile: toProviderSafeDto(profile) });
   });
 
   app.get('/api/provider/products', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const products = await ProviderProductModel.find({ providerId: user._id }).sort({ updatedAt: -1 }).limit(200).lean();
-    res.json({ products });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ products: toProviderSafeDto(products) });
   });
 
   app.post('/api/provider/products', async (req, res) => {
