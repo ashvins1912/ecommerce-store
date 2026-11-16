@@ -850,7 +850,7 @@ async function queryMongoProductsPage(
   }
   const totalPages = Math.max(1, Math.ceil(total / limit));
   return {
-    products, total, page: filters.cursor ? 1 : Math.min(page, totalPages),
+    products, total, page: Math.min(page, totalPages),
     limit, totalPages, didYouMean: null, categoryTop10Thresholds, nextCursor,
   };
 }
