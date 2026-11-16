@@ -1,5 +1,18 @@
 # Free-tier deployment runbook (22 accounts / 10 active users)
 
+
+### Separate logistics worker deployment
+
+The Render Blueprint defines a private background worker named `ecommerce-logistics-worker`:
+- Build: `bun install --no-save && bun run lint`
+- Start: `bun run logistics:worker`
+- Plan: `starter` (0.5 CPU / 512 MB; paid)
+- API: `RUN_LOGISTICS_WORKER=0`
+- Worker-only secrets: `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`; never expose it to browser builds.
+- Shared secrets: copy the exact same `MONGODB_URI` and `ENCRYPTION_MASTER_KEY` from the API service. The encryption key must not be regenerated for the worker.
+
+When applying the updated Blueprint to an existing Render service, add the worker's new secret environment variables manually in the Render Dashboard; Blueprint `sync: false` values are not automatically prompted again on updates. Deploy both services from the same branch/commit. Keep one worker instance. The queue's claim RPC reclaims jobs after a 10-minute lease, so an interrupted in-flight job can be retried; verify idempotency and carrier sandbox behaviour before production use.
+
 ## Recommended topology
 
 Start with one same-origin Express + Vite application service. The current root app already serves the main customer/seller/admin/provider experience and API from `server.ts`; do not split it into several public services for this pilot. Keep the workspace packages in the same release so the API and browser apps use matching contracts.
@@ -22,7 +35,7 @@ The application has two persistence systems: MongoDB for core commerce and Supab
 
 This is a pilot topology, not a production availability commitment. A 512 MB Render Free web service is a tight resource envelope. It should be tested with 10 concurrent active users, not assumed to handle 22 simultaneous sessions. The service is single-instance, has no autoscaling or persistent disk, and may cold-start after idle. Render Free web services sleep after 15 minutes without inbound traffic and can take about a minute to wake. Free instances are not recommended by Render for production.
 
-The logistics worker is optionally co-located in the web process with `RUN_LOGISTICS_WORKER=1`. This avoids paying for a separate Render background worker during the pilot. The queue itself is durable in Supabase, so queued work remains after a sleep/restart and resumes when the web process starts again. It is not an always-on worker: carrier booking/tracking jobs may wait while the web service is asleep. If fulfilment must run continuously or promptly, move the worker to a paid always-on worker service and keep it private.
+The API and logistics worker run as separate Render services. The API sets `RUN_LOGISTICS_WORKER=0`; the private `ecommerce-logistics-worker` background worker polls the durable Supabase queue. The worker is configured as a paid Starter instance (512 MB) because Render does not offer free background-worker instances. If you cannot enable a paid worker, use the documented single-process pilot fallback only after explicitly accepting the shared-memory risk.
 
 Supabase Free projects can pause after a week of low activity and have small database/storage/egress quotas. Upstash Free currently has finite storage, bandwidth and command quotas. Cloudflare R2 Standard currently includes 10 GB-month storage, 1M Class A and 10M Class B operations per month, with no egress fee. Check each provider's live usage dashboard; quotas and pricing change.
 
@@ -113,7 +126,7 @@ Render Free has an ephemeral filesystem. The application's local `data/uploads` 
 7. Set a fresh `SESSION_SECRET` generated with `openssl rand -hex 32`.
 8. Set `ENCRYPTION_MASTER_KEY` to a fresh 32-byte key generated with `openssl rand -base64 32`. Preserve it securely: losing it makes previously encrypted carrier credentials unreadable. Do not rotate it without a data re-encryption plan.
 9. Set `ROOT_SUPERUSER_INITIAL_PASSWORD` to a new unique strong password in Render Secrets. Do not reuse any password previously shared in chat, tickets or source code.
-10. Keep `ROOT_SUPERUSER_EMAIL=ashvinsingh25@gmail.com` and `RUN_LOGISTICS_WORKER=1` for the single-process pilot.
+10. Keep `ROOT_SUPERUSER_EMAIL=ashvinsingh25@gmail.com` and `RUN_LOGISTICS_WORKER=0` on the API service. The worker service must receive the same `MONGODB_URI` and `ENCRYPTION_MASTER_KEY` as the API, plus `LOGISTICS_SUPABASE_URL` and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`.
 11. Deploy and wait for the build and `/api/health` health check to pass.
 
 The Render blueprint runs lint, the logistics/hybrid/privacy/role tests, and both browser builds before the service starts.
@@ -172,7 +185,7 @@ Run the test from a separate machine, not from the Render instance:
 - Batch related dashboard API requests and avoid N+1 fetches.
 - Use Mongo projections, compound indexes for common seller/provider/order filters, and lean reads for read-only queries. Review explain plans before adding indexes.
 - Keep one Mongo connection pool per process and one cached Supabase client per process. Do not instantiate clients per request.
-- Keep logistics worker concurrency at one on the free instance. Do not process Sharp image transformations and multiple carrier jobs concurrently on a 512 MB instance.
+- Keep logistics worker concurrency at one. The current worker claims and processes one job at a time; do not increase concurrency without memory profiling and queue lease/retry tests.
 - Do not enable verbose request/body logging in production. Never log auth tokens, addresses, phone numbers, payment payloads or carrier credentials.
 
 ## 11. When to upgrade
