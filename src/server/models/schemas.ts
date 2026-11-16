@@ -496,7 +496,7 @@ const PrivacyDisclosureAuditSchema = new Schema({
   actorId: { type: String, required: true },
   authorizedAt: { type: Date, required: true },
   jobId: { type: String, default: null, index: true },
-  dispatchStatus: { type: String, enum: ['AUTHORIZED', 'DISPATCHING', 'DISPATCHED', 'BLOCKED', 'FAILED'], default: 'AUTHORIZED', index: true },
+  dispatchStatus: { type: String, enum: ['AUTHORIZED', 'DISPATCHING', 'DISPATCHED', 'NOT_DISPATCHED', 'BLOCKED', 'FAILED'], default: 'AUTHORIZED', index: true },
   dispatchedAt: { type: Date, default: null },
   dispatchErrorCode: { type: String, default: null, maxlength: 120 },
   purpose: { type: String, enum: ['SHIPMENT_FULFILLMENT'], required: true },
