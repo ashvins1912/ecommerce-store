@@ -5,6 +5,7 @@ import {
   normalizeCarrierDisclosurePolicy,
   toProviderSafeOrderDto,
   toProviderSafeProfileDto,
+  toSellerSafeProviderProfileDto,
   toProviderSafeProductDto,
   toProviderSafeSettlementDto,
 } from './privacy.js';
@@ -97,4 +98,17 @@ test('provider settlement DTO excludes customer identity and encrypted receipt',
   assert.equal('buyerEmail' in dto, false);
   assert.equal('recipientPhone' in dto, false);
   assert.equal('encryptedReceipt' in dto, false);
+});
+
+test('seller provider audit DTO does not reveal other linked seller identifiers', () => {
+  const dto = toSellerSafeProviderProfileDto({
+    businessName: 'Supplier Co',
+    linkedSellerIds: ['seller-current', 'seller-other'],
+    encryptedTaxId: 'secret-tax',
+    encryptedSettlementDetails: 'secret-bank',
+  });
+  assert.equal(dto.businessName, 'Supplier Co');
+  assert.equal('linkedSellerIds' in dto, false);
+  assert.equal('encryptedTaxId' in dto, false);
+  assert.equal('encryptedSettlementDetails' in dto, false);
 });
