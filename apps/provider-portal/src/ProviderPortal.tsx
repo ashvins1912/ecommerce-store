@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { INR_FROM_PAISE } from '@commerce/shared-utils';
 import type { ProviderProductView } from '@commerce/shared-types';
 import { StatusBadge } from '@commerce/shared-ui';
-import { Package, RefreshCw, Upload, Wallet, Building2, AlertCircle, LogOut, Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { Package, RefreshCw, Upload, Wallet, Building2, AlertCircle, LogOut, Search, ChevronLeft, ChevronRight, ArrowUpDown, Truck } from 'lucide-react';
 
 type Product = Omit<ProviderProductView, 'id'> & {
   _id: string;
@@ -16,7 +16,7 @@ type Settlement = {
   status: string;
   utrReference?: string;
 };
-type Shipment = { id: string; orderNumber: string; status: string; createdAt: string; items: Array<{ productId: string; title: string; quantity: number }>; courierTracking?: { companyName: string; trackingId: string; trackingUrl?: string } | null; manualDispatchAllowed: boolean; appShipment?: { shipmentId: string; bookingStatus: string; awbNumber?: string; labelUrl?: string; manifestUrl?: string; pickupScheduled?: boolean; statusCode: number; estimatedDeliveryAt?: string; carrierName?: string } | null };
+type Shipment = { id: string; orderNumber: string; status: string; createdAt: string; items: Array<{ productId: string; title: string; quantity: number }>; courierTracking?: { companyName: string; trackingId: string; trackingUrl?: string } | null; manualDispatchAllowed: boolean; appShipment?: { shipmentId: string; bookingStatus: string; awbNumber?: string; labelUrl?: string; manifestUrl?: string; pickupScheduled?: boolean; statusCode: number; estimatedDeliveryAt?: string; carrierName?: string; trackingEvents?: Array<{ statusCode: number; location?: string; occurredAt: string }> } | null };
 type LogisticsProvider = { id: string; code: string; name: string; type: 'DIRECT' | 'AGGREGATOR'; auth_schema_json?: { fields?: Array<{ name: string; label: string; type?: string }> } };
 type ProviderCarrier = { id: string; provider_id: string; is_active: boolean; logistics_providers?: { code: string; name: string; type: string } };
 type ProviderWarehouse = { id: string; warehouse_code: string; name: string; city: string; state: string; postal_code: string; is_default: boolean };
@@ -69,7 +69,7 @@ export default function ProviderPortal() {
   const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [carrierProviderId, setCarrierProviderId] = useState('');
   const [carrierCredentials, setCarrierCredentials] = useState<Record<string, string>>({});
-  const [carrierWebhookSecret, setCarrierWebhookSecret] = useState('');
+  const [carrierWebhookSecret, setCarrierWebhookSecret] = useState('');\n  const [carrierWebhookCode, setCarrierWebhookCode] = useState('');
   const [warehouseForm, setWarehouseForm] = useState({ warehouseCode: 'MAIN', name: 'Main pickup warehouse', contactName: '', contactPhone: '', addressLine1: '', addressLine2: '', city: '', state: '', postalCode: '', countryCode: 'IN', isDefault: true });
   const [delegationSellerId, setDelegationSellerId] = useState('');
   const [delegationCarrierCodes, setDelegationCarrierCodes] = useState<string[]>([]);
@@ -276,7 +276,7 @@ export default function ProviderPortal() {
     setShippingSaving(true);
     try {
       const result = await api<any>('/api/provider/logistics/carriers', { method: 'POST', body: JSON.stringify({ providerId: carrierProviderId, credentials: carrierCredentials, priorityRank: 100 }) });
-      setCarrierWebhookSecret(result.carrier?.webhookSecret || '');
+      setCarrierWebhookSecret(result.carrier?.webhookSecret || '');\n      setCarrierWebhookCode(shippingProviders.find((provider) => provider.id === carrierProviderId)?.code || '');
       setCarrierCredentials({});
       setNotice('Courier account validated and encrypted. Copy its webhook secret if provided.');
       await refresh();
@@ -561,7 +561,10 @@ export default function ProviderPortal() {
                   {!providerCarriers.length && <p className="text-xs text-stone-500">No shipping accounts configured yet.</p>}
                 </div>
                 {carrierWebhookSecret && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
-                  <p className="font-semibold">Webhook secret — shown once</p><p className="mt-1 break-all font-mono">{carrierWebhookSecret}</p>
+                  <p className="font-semibold">Webhook configuration — secret shown once</p>
+                  <p className="mt-1 break-all">URL: {window.location.origin}/api/logistics/webhooks/{carrierWebhookCode}</p>
+                  <p className="mt-1 break-all font-mono">Secret: {carrierWebhookSecret}</p>
+                  <p className="mt-1">Configure the provider webhook header using x-api-key or x-logistics-signature.</p>
                   <button type="button" onClick={() => void navigator.clipboard?.writeText(carrierWebhookSecret)} className="mt-2 rounded border border-amber-300 px-2 py-1">Copy secret</button>
                 </div>}
               </form>
@@ -625,6 +628,7 @@ export default function ProviderPortal() {
                         <p className="font-semibold">{shipment.appShipment.carrierName || 'App-booked carrier'} · {shipment.appShipment.bookingStatus} · AWB {shipment.appShipment.awbNumber || 'Pending'}</p>
                         <p>Tracking status: {({10:'Created',20:'Manifested',30:'In transit',40:'Out for delivery',50:'Delivered',60:'NDR',70:'RTO initiated',80:'RTO delivered',90:'Cancelled'} as Record<number,string>)[shipment.appShipment.statusCode] || 'Pending'}{shipment.appShipment.pickupScheduled ? ' · Pickup scheduled' : ''}{shipment.appShipment.estimatedDeliveryAt ? ' · ETA ' + new Date(shipment.appShipment.estimatedDeliveryAt).toLocaleDateString() : ''}</p>
                         <div className="flex flex-wrap gap-3">{shipment.appShipment.labelUrl && <a className="font-semibold underline" href={shipment.appShipment.labelUrl} target="_blank" rel="noreferrer">Download label</a>}{shipment.appShipment.manifestUrl && <a className="font-semibold underline" href={shipment.appShipment.manifestUrl} target="_blank" rel="noreferrer">Manifest</a>}</div>
+                        {!!shipment.appShipment.trackingEvents?.length && <ol className="mt-2 space-y-1 border-l border-sky-200 pl-3">{shipment.appShipment.trackingEvents.slice(0,5).map((event,index)=><li key={event.statusCode+'-'+event.occurredAt+'-'+index}>{({10:'Created',20:'Manifested',30:'In transit',40:'Out for delivery',50:'Delivered',60:'NDR',70:'RTO initiated',80:'RTO delivered',90:'Cancelled'} as Record<number,string>)[event.statusCode] || 'Tracking update'}{event.location?' · '+event.location:''} · {new Date(event.occurredAt).toLocaleString()}</li>)}</ol>}
                         {shipment.appShipment.bookingStatus === 'FAILED' && !shipment.appShipment.awbNumber && <button type="button" onClick={() => void retryProviderShipment(shipment)} className="mt-1 rounded-md border border-sky-300 px-3 py-1.5 font-semibold">Retry booking</button>}
                       </div>}
                     </div>
