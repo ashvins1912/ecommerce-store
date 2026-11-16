@@ -1055,6 +1055,7 @@ async function startServer() {
       inStockOnly: req.query.inStockOnly === 'true',
       sort: (req.query.sort as SortOption) || 'most_demanding',
       page: req.query.page ? Number(req.query.page) : 1,
+      cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
       limit: 20, // Strictly 20 products per page
       sellerId: typeof req.query.sellerId === 'string' ? req.query.sellerId : undefined,
       includeDisabled: allowDisabled,
