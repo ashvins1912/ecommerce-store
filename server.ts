@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
+import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from './src/server/models/schemas.js';
+import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeDto } from './src/server/services/privacy.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
@@ -390,6 +392,37 @@ async function startServer() {
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'CARRIER_UPDATE_FAILED' }); }
   });
 
+  app.get('/api/seller/privacy-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    try {
+      const settings = await SellerPrivacySettingsModel.findOne({ sellerId: user!._id }).lean();
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ carrierDisclosure: normalizeCarrierDisclosurePolicy(settings?.carrierDisclosure || DEFAULT_CARRIER_DISCLOSURE_POLICY) });
+    } catch { res.status(503).json({ error: 'SELLER_PRIVACY_SETTINGS_UNAVAILABLE' }); }
+  });
+
+  app.put('/api/seller/privacy-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({
+      carrierDisclosure: z.object({
+        recipientName: z.boolean(), recipientPhone: z.boolean(),
+        recipientAddress: z.boolean(), recipientEmail: z.boolean(),
+      }).strict(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PRIVACY_SETTINGS' });
+    try {
+      const settings = await SellerPrivacySettingsModel.findOneAndUpdate(
+        { sellerId: user!._id },
+        { $set: { sellerId: user!._id, carrierDisclosure: parsed.data.carrierDisclosure } },
+        { upsert: true, new: true, runValidators: true },
+      ).lean();
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ carrierDisclosure: normalizeCarrierDisclosurePolicy(settings?.carrierDisclosure) });
+    } catch { res.status(503).json({ error: 'SELLER_PRIVACY_SETTINGS_SAVE_FAILED' }); }
+  });
+
   app.get('/api/seller/logistics/warehouses', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
@@ -444,17 +477,28 @@ async function startServer() {
       const sellerCarriers = (await listSellerCarrierConfigs(String(order.sellerId))) || [];
       const selectedCarrier = sellerCarriers.find((carrier: any) => String(carrier.id) === parsed.data.carrierConfigId);
       if (!selectedCarrier) return res.status(422).json({ error: 'SELLER_CARRIER_CONFIGURATION_NOT_FOUND' });
-      if (String(selectedCarrier.logistics_providers?.[0]?.code || '').toLowerCase() === 'shiprocket' && !buyer?.email) return res.status(422).json({ error: 'SHIPROCKET_CUSTOMER_EMAIL_REQUIRED' });
+      const carrierCode = String(selectedCarrier.logistics_providers?.[0]?.code || '').toLowerCase();
+      const privacySettings = await SellerPrivacySettingsModel.findOne({ sellerId: String(order.sellerId) }).lean();
+      const disclosure = authorizeCarrierDisclosure(privacySettings?.carrierDisclosure, carrierCode, buyer?.email);
+      if (!disclosure.allowed) return res.status(403).json({
+        error: disclosure.emailRequired && disclosure.missing.includes('recipientEmail') ? 'SELLER_MUST_AUTHORIZE_CUSTOMER_EMAIL_FOR_CARRIER' : 'SELLER_CUSTOMER_DATA_DISCLOSURE_NOT_AUTHORIZED',
+        requiredFields: disclosure.missing,
+      });
       const result = await createShipmentIntent({
         orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
         warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
         destinationPostalCode: pin, destinationCountryCode: 'IN',
         codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
         declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
-        recipientName: String(address.fullName), recipientPhone: String(address.phone), recipientEmail: buyer?.email || '',
-        destinationAddressLine1: String(address.street), destinationCity: String(address.city), destinationState: String(address.state),
+        recipientName: disclosure.policy.recipientName ? String(address.fullName) : '', recipientPhone: disclosure.policy.recipientPhone ? String(address.phone) : '', recipientEmail: disclosure.policy.recipientEmail ? (buyer?.email || '') : '',
+        destinationAddressLine1: disclosure.policy.recipientAddress ? String(address.street) : '', destinationCity: disclosure.policy.recipientAddress ? String(address.city) : '', destinationState: disclosure.policy.recipientAddress ? String(address.state) : '',
         orderDate: new Date(order.createdAt || Date.now()).toISOString(),
         items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
+      });
+      if (!result.duplicate) await PrivacyDisclosureAuditModel.create({
+        sellerId: String(order.sellerId), orderId: String(order._id), carrierConfigId: parsed.data.carrierConfigId,
+        carrierCode, fieldsDisclosed: disclosure.fields, actorId: user!._id,
+        authorizedAt: new Date(), purpose: 'SHIPMENT_FULFILLMENT',
       });
       res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
@@ -1325,7 +1369,8 @@ async function startServer() {
     const q = typeof req.query.q === 'string' ? req.query.q : undefined;
     const statusFilter = typeof req.query.status === 'string' ? req.query.status : undefined;
     const products = await listSellerManagedProducts(user._id, user.role, { q, statusFilter });
-    res.json({ products });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ products: toProviderSafeDto(products) });
   });
 
   app.patch('/api/products/:id/control', async (req, res) => {
@@ -2004,7 +2049,8 @@ async function startServer() {
     const profile = await ProviderProfileModel.findOneAndUpdate({ userId: req.params.providerId }, { $set: { kycStatus: parsed.data.status } }, { new: true }).select('-encryptedTaxId -encryptedSettlementDetails');
     if (!profile) return res.status(404).json({ error: 'PROVIDER_NOT_FOUND' });
     await providerAudit(user, 'PROVIDER_KYC_REVIEWED', req.params.providerId, String(profile._id), { status: parsed.data.status, note: parsed.data.note || '' });
-    res.json({ profile });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ profile: toProviderSafeDto(profile) });
   });
 
   app.post('/api/seller/providers/invites', async (req, res) => {
@@ -2246,7 +2292,8 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     await ProviderSettlementModel.updateMany({ providerId: user._id, status: 'PENDING_CLEARANCE', availableAt: { $lte: new Date() } }, { $set: { status: 'READY_FOR_SETTLEMENT' } });
     const settlements = await ProviderSettlementModel.find({ providerId: user._id }).sort({ createdAt: -1 }).limit(300).select('-encryptedReceipt').lean();
-    res.json({ settlements });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ settlements: toProviderSafeDto(settlements) });
   });
 
   app.get('/api/seller/provider-settlements', async (req, res) => {
