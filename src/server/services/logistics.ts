@@ -71,7 +71,7 @@ export async function createSellerWarehouse(input: {
 export async function createShipmentIntent(input: {
  orderId:string;sellerId:string;carrierConfigId:string;carrierCode:string;warehouseId:string;codAmountMinor:number;currency:string;
  weightGrams:number;destinationPostalCode:string;destinationCountryCode:string;declaredValueMinor:number;serviceCode?:string;
- recipientName:string;recipientPhone:string;recipientEmail?:string;disclosureAuthorizedAt:string;disclosureFields:string[];destinationAddressLine1:string;destinationAddressLine2?:string;
+ recipientName:string;recipientPhone:string;recipientEmail?:string;disclosureAuthorizedAt:string;disclosureFields:string[];disclosureAuditId:string;destinationAddressLine1:string;destinationAddressLine2?:string;
  destinationCity:string;destinationState:string;orderDate:string;
  items:Array<{name:string;sku:string;quantity:number;unitPrice:number}>;
 }) {
@@ -83,7 +83,7 @@ export async function createShipmentIntent(input: {
    weightGrams:input.weightGrams,destinationCountryCode:input.destinationCountryCode,
    declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
    customerDisclosureCiphertext:encryptField(JSON.stringify({recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',destinationPostalCode:input.destinationPostalCode,destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',destinationCity:input.destinationCity,destinationState:input.destinationState})),
-   disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,orderDate:input.orderDate,items:input.items,
+   disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,disclosureAuditId:input.disclosureAuditId,orderDate:input.orderDate,items:input.items,
   },
  })) as any[];
  const row=result[0];
