@@ -253,8 +253,8 @@ export async function refreshCarrierTrackingForOrder(orderId:string) {
  const claimed=unwrap(await db().rpc('claim_carrier_tracking_poll',{p_shipment_id:shipment.id})) as boolean;
  if(!claimed)return getCustomerTrackingEvents(orderId);
  try{
-  const provider=rateAdapter(shipment.seller_carrier_configs.logistics_providers.code);
-  const credentials=JSON.parse(decryptField(shipment.seller_carrier_configs.encrypted_credentials));
+  const provider=rateAdapter(shipment.carrierCode);
+  const credentials=shipment.credentials;
   const checkpoints=await provider.getTracking(shipment.awb_number,credentials);
   let currentStatus=Number(shipment.normalized_status);
   let lastEventAt=shipment.last_event_at||null;
