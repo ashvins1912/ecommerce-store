@@ -1512,7 +1512,7 @@ export default function App() {
 
       {/* Floating Artificial Jewellery Comparison Bar */}
       {compareItems.length > 0 && !compareOpen && (
-        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex flex-wrap items-center justify-between gap-2 sm:gap-3 rounded-lg border border-[#141413] bg-[#141413] px-3.5 py-2 text-xs text-white shadow-xl w-[calc(100vw-1.5rem)] sm:w-auto max-w-2xl">
+        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex items-center justify-between gap-2 sm:gap-3 rounded-lg border border-[#141413] bg-[#141413] px-3.5 py-2 text-xs text-white shadow-xl w-[calc(100vw-1.5rem)] sm:w-auto max-w-2xl">
           <div className="flex items-center gap-2 min-w-0">
             <div className="hidden sm:flex items-center -space-x-1.5 shrink-0">
               {compareItems.slice(0, 4).map((item) => (
@@ -1525,11 +1525,11 @@ export default function App() {
                 />
               ))}
             </div>
-            <span className="font-medium whitespace-nowrap tabular-nums">
+            <span className="font-medium truncate tabular-nums">
               {t('compare.barLabel', { count: compareItems.length })}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setCompareOpen(true)}
