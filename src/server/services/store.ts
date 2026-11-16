@@ -726,19 +726,29 @@ function computeCategoryTop10Thresholds(products: Product[]): Record<string, num
   return thresholds;
 }
 
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
 function encodeProductCursor(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 function decodeProductCursor(cursor: string): { sort: string; value: number | string; id: string } | null {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (!parsed || typeof parsed.sort !== 'string' || !['createdAt','trendScore','discountPercent','salesCount','salePrice','averageRating'].includes(parsed.sort)
-      || !mongoose.isValidObjectId(parsed.id) || !(typeof parsed.value === 'number' || typeof parsed.value === 'string')) return null;
+    if (!parsed || typeof parsed.sort !== 'string' ||
+      !['createdAt', 'trendScore', 'discountPercent', 'salesCount', 'salePrice', 'averageRating'].includes(parsed.sort) ||
+      !mongoose.isValidObjectId(parsed.id) ||
+      !(typeof parsed.value === 'number' || typeof parsed.value === 'string')) return null;
     return parsed;
   } catch { return null; }
 }
 
-async function queryMongoProductsPage(filters: ProductFilterQuery, page: number, limit: number, disabledSet: Set<string>) {
+async function queryMongoProductsPage(
+  filters: ProductFilterQuery,
+  page: number,
+  limit: number,
+  disabledSet: Set<string>
+) {
   const filter: Record<string, any> = filters.includeInactive
     ? { isDeleted: { $ne: true } }
     : { ...MONGO_PUBLIC_PRODUCT_FILTER };
@@ -746,7 +756,106 @@ async function queryMongoProductsPage(filters: ProductFilterQuery, page: number,
     if (!mongoose.isValidObjectId(filters.sellerId)) return null;
     filter.sellerId = new mongoose.Types.ObjectId(filters.sellerId);
   }
-  if (filters.category && filters.category !== 'All') filter.category = new RegExp('^' + filters.category.replace(/[.*+?^${}()|[\]\\]/g, '\\export async function queryProducts(filters: ProductFilterQuery): Promise<{
+  if (filters.category && filters.category !== 'All') {
+    filter.category = new RegExp('^' + escapeRegexLiteral(filters.category) + '$', 'i');
+  }
+  if (filters.occasion && filters.occasion !== 'All') filter.occasions = filters.occasion;
+  if (filters.season && filters.season !== 'All') filter.seasons = filters.season;
+  if (filters.inStockOnly) filter.totalStock = { $gt: 0 };
+  if (typeof filters.minPrice === 'number' || typeof filters.maxPrice === 'number') {
+    filter.salePrice = {
+      ...(typeof filters.minPrice === 'number' ? { $gte: filters.minPrice } : {}),
+      ...(typeof filters.maxPrice === 'number' ? { $lte: filters.maxPrice } : {}),
+    };
+  }
+  if (typeof filters.minDiscount === 'number' && filters.minDiscount > 0) {
+    filter.discountPercent = { $gte: filters.minDiscount };
+  }
+  if (filters.viewerId && mongoose.isValidObjectId(filters.viewerId)) {
+    filter.$or = [
+      { visibility: { $ne: 'ASSIGNED' } },
+      { assignedCustomerIds: new mongoose.Types.ObjectId(filters.viewerId) },
+    ];
+  } else {
+    filter.visibility = { $ne: 'ASSIGNED' };
+  }
+  if (!filters.includeDisabled && disabledSet.size) {
+    filter.$nor = [...disabledSet].map((name) => ({
+      category: new RegExp('^' + escapeRegexLiteral(name) + '$', 'i'),
+    }));
+  }
+
+  const sortOption = filters.sort || 'most_demanding';
+  const sortMap: Record<string, { field: string; direction: 1 | -1 }> = {
+    newly_added: { field: 'createdAt', direction: -1 },
+    fast_selling: { field: 'salesCount', direction: -1 },
+    price_asc: { field: 'salePrice', direction: 1 },
+    price_desc: { field: 'salePrice', direction: -1 },
+    most_demanding: { field: 'trendScore', direction: -1 },
+  };
+  const selectedSort = sortMap[sortOption] || sortMap.most_demanding;
+  const baseFilter = { ...filter };
+  let queryFilter = { ...filter };
+  if (filters.cursor) {
+    const decoded = decodeProductCursor(filters.cursor);
+    if (!decoded || decoded.sort !== selectedSort.field) throw new Error('INVALID_PRODUCT_CURSOR');
+    const value = selectedSort.field === 'createdAt' ? new Date(decoded.value) : Number(decoded.value);
+    if (selectedSort.field === 'createdAt' && !Number.isFinite((value as Date).getTime())) {
+      throw new Error('INVALID_PRODUCT_CURSOR');
+    }
+    const operator = selectedSort.direction === -1 ? '$lt' : '$gt';
+    queryFilter = {
+      ...filter,
+      $and: [{
+        $or: [
+          { [selectedSort.field]: { [operator]: value } },
+          { [selectedSort.field]: value, _id: { [operator]: new mongoose.Types.ObjectId(decoded.id) } },
+        ],
+      }],
+    };
+  }
+
+  const [docs, total, thresholdRows] = await Promise.all([
+    ProductModel.find(queryFilter)
+      .sort({ [selectedSort.field]: selectedSort.direction, _id: selectedSort.direction })
+      .skip(filters.cursor ? 0 : (page - 1) * limit)
+      .limit(limit + 1).lean(),
+    ProductModel.countDocuments(baseFilter),
+    ProductModel.aggregate([
+      { $match: MONGO_PUBLIC_PRODUCT_FILTER },
+      { $setWindowFields: {
+        partitionBy: '$category',
+        sortBy: { trendScore: -1 },
+        output: {
+          rank: { $documentNumber: {} },
+          categoryCount: { $count: { window: { documents: ['unbounded', 'unbounded'] } } },
+        },
+      } },
+      { $match: { $expr: { $lte: ['$rank', { $max: [1, { $ceil: { $multiply: ['$categoryCount', 0.1] } }] }] } } },
+      { $group: { _id: '$category', threshold: { $min: { $ifNull: ['$trendScore', 0] } } } },
+    ]),
+  ]);
+  const hasMore = docs.length > limit;
+  const pageDocs = hasMore ? docs.slice(0, limit) : docs;
+  const products = pageDocs.map((doc: any) => normalizeProductDoc(doc));
+  const last = pageDocs[pageDocs.length - 1] as any;
+  const nextCursor = hasMore && last ? encodeProductCursor({
+    sort: selectedSort.field,
+    value: selectedSort.field === 'createdAt' ? new Date(last.createdAt).toISOString() : Number(last[selectedSort.field] || 0),
+    id: String(last._id),
+  }) : null;
+  const categoryTop10Thresholds: Record<string, number> = {};
+  for (const row of thresholdRows as Array<{ _id: string; threshold: number }>) {
+    categoryTop10Thresholds[row._id] = row.threshold;
+  }
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  return {
+    products, total, page: filters.cursor ? 1 : Math.min(page, totalPages),
+    limit, totalPages, didYouMean: null, categoryTop10Thresholds, nextCursor,
+  };
+}
+
+export async function queryProducts(filters: ProductFilterQuery): Promise<{
   products: Product[];
   total: number;
   page: number;
@@ -754,7 +863,8 @@ async function queryMongoProductsPage(filters: ProductFilterQuery, page: number,
   totalPages: number;
   didYouMean?: string | null;
   categoryTop10Thresholds: Record<string, number>;
-}> {') + '
+  nextCursor?: string | null;
+}> {
   const page = Math.max(1, filters.page || 1);
   // Strict limit(20) pagination rule for storefront listings
   const limit = Math.min(20, Math.max(1, filters.limit || 20));
@@ -763,7 +873,8 @@ async function queryMongoProductsPage(filters: ProductFilterQuery, page: number,
     allCategories.filter((c) => !c.isEnabled).map((c) => c.name.toLowerCase())
   );
   // Fast database path for browse/filter feeds; semantic search retains the established ranking pipeline.
-  if (mongoConnected && !filters.q?.trim() && !filters.color?.trim() && !filters.campaignId) {
+  if (mongoConnected && !filters.q?.trim() && !filters.color?.trim() && !filters.campaignId &&
+      !['special_offers', 'occasion_favorites', 'highest_rated'].includes(filters.sort || 'most_demanding')) {
     const result = await queryMongoProductsPage(filters, page, limit, disabledSet);
     if (result) return result;
   }
