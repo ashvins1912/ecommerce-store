@@ -69,9 +69,9 @@ export async function createSellerWarehouse(input: {
  return rows[0];
 }
 export async function createShipmentIntent(input: {
- orderId:string;sellerId:string;carrierConfigId:string;warehouseId:string;codAmountMinor:number;currency:string;
+ orderId:string;sellerId:string;carrierConfigId:string;carrierCode:string;warehouseId:string;codAmountMinor:number;currency:string;
  weightGrams:number;destinationPostalCode:string;destinationCountryCode:string;declaredValueMinor:number;serviceCode?:string;
- recipientName:string;recipientPhone:string;recipientEmail?:string;destinationAddressLine1:string;destinationAddressLine2?:string;
+ recipientName:string;recipientPhone:string;recipientEmail?:string;disclosureAuthorizedAt:string;disclosureFields:string[];disclosureAuditId:string;destinationAddressLine1:string;destinationAddressLine2?:string;
  destinationCity:string;destinationState:string;orderDate:string;
  items:Array<{name:string;sku:string;quantity:number;unitPrice:number}>;
 }) {
@@ -79,12 +79,11 @@ export async function createShipmentIntent(input: {
   p_order_id:input.orderId,p_seller_id:input.sellerId,p_carrier_config_id:input.carrierConfigId,p_warehouse_id:input.warehouseId,
   p_cod_amount_minor:input.codAmountMinor,p_currency:input.currency,
   p_payload:{
-   orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,warehouseId:input.warehouseId,
-   weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,destinationCountryCode:input.destinationCountryCode,
+   orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,carrierCode:input.carrierCode,warehouseId:input.warehouseId,
+   weightGrams:input.weightGrams,destinationCountryCode:input.destinationCountryCode,
    declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
-   recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',
-   destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',
-   destinationCity:input.destinationCity,destinationState:input.destinationState,orderDate:input.orderDate,items:input.items,
+   customerDisclosureCiphertext:encryptField(JSON.stringify({recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',destinationPostalCode:input.destinationPostalCode,destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',destinationCity:input.destinationCity,destinationState:input.destinationState})),
+   disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,disclosureAuditId:input.disclosureAuditId,orderDate:input.orderDate,items:input.items,
   },
  })) as any[];
  const row=result[0];

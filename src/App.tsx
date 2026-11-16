@@ -155,11 +155,7 @@ function upsertJsonLdScript(payload: Record<string, unknown>): void {
 
 export default function App() {
   const { t, tc, to, tseason, tsort } = useI18n();
-  const [activePage, setActivePage] = useState<ActivePage>(() =>
-    typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/seller-hub'
-      ? 'seller'
-      : 'store'
-  );
+  const [activePage, setActivePage] = useState<ActivePage>('store');
   const [user, setUser] = useState<User | null>(null);
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
@@ -280,9 +276,8 @@ export default function App() {
     ) {
       setSeason(urlSeason as SeasonType | 'All');
     }
-    const pathIsSellerHub = window.location.pathname.replace(/\/+$/, '') === '/seller-hub';
     const inviteParam = params.get('sellerInvite') || params.get('invite');
-    if (inviteParam || pathIsSellerHub) {
+    if (inviteParam) {
       setSellerInviteToken(inviteParam);
       setActivePage('seller');
     } else if (params.get('page') === 'signup' || params.get('signup') === '1') {
@@ -481,6 +476,7 @@ export default function App() {
         if (cancelled) return;
         setClientSessionTokens(signedIn.accessToken, signedIn.csrfToken);
         setUser(signedIn.user);
+        setActivePage(signedIn.user.role === 'SELLER' || signedIn.user.role === 'ADMIN' ? 'seller' : 'store');
         setLikedIds(new Set(signedIn.likedProductIds || []));
         setCart(signedIn.cart || []);
         localStorage.setItem('kk_guest_cart', JSON.stringify(signedIn.cart || []));
@@ -506,6 +502,7 @@ export default function App() {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
         setClientSessionTokens(session.accessToken, session.csrfToken);
         setUser(session.user);
+        setActivePage(session.user?.role === 'SELLER' || session.user?.role === 'ADMIN' ? 'seller' : 'store');
         setLikedIds(new Set(session.likedProductIds));
 
         let activeCart = session.cart;
@@ -834,13 +831,6 @@ export default function App() {
   }, []);
 
   const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
-    if (window.location.pathname.replace(/\/+$/, '') === '/seller-hub') {
-      const nextUrl = new URL(window.location.href);
-      nextUrl.pathname = '/';
-      nextUrl.searchParams.delete('sellerInvite');
-      nextUrl.searchParams.delete('invite');
-      window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
-    }
     setActivePage('store');
     if (cat) {
       setCategory(cat);
@@ -850,10 +840,13 @@ export default function App() {
 
   const compareIds = new Set(compareItems.map((i) => i._id));
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
+  if (user?.role === 'PROVIDER' || window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
+  const isSellerWorkspace = user?.role === 'SELLER' || user?.role === 'ADMIN';
+  const isSellerDashboard = isSellerWorkspace && activePage === 'seller';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF9F6] text-[#141413] overflow-x-clip">
-      <TopBar
+      {!isSellerDashboard && <TopBar
         activePage={activePage}
         activeCategory={category}
         onNavigateStore={navigateToStore}
@@ -867,7 +860,7 @@ export default function App() {
           setAuthInitialMode('signin');
           setAuthOpen(true);
         }}
-      />
+      />}
 
       {activePage === 'signup' && (
         <div className="flex-1">
@@ -1436,9 +1429,7 @@ export default function App() {
                   const isTopTrending =
                     typeof threshold === 'number' && product.trendScore >= threshold;
 
-                  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
-
-  return (
+                  return (
                     <ProductCard
                       key={product._id}
                       product={product}
@@ -1515,7 +1506,7 @@ export default function App() {
       )}
 
       {/* Quiet Editorial Footer */}
-      <footer className="border-t border-[#E8E6E1] bg-white">
+      {!isSellerDashboard && <footer className="border-t border-[#E8E6E1] bg-white">
         <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
           <div className="font-display text-lg font-semibold text-[#141413]">{t('brand')}</div>
           <div className="flex flex-wrap items-center gap-6">
@@ -1543,17 +1534,10 @@ export default function App() {
             >
               {t('footer.orderHistory')}
             </button>
-            <button
-              type="button"
-              onClick={() => setActivePage('seller')}
-              className="hover:text-[#141413] cursor-pointer"
-            >
-              {t('nav.sellerHub')}
-            </button>
           </div>
           <div>© 2026 {t('brand')}</div>
         </div>
-      </footer>
+      </footer>}
 
       {/* Overlays */}
       <ProductDetailModal
@@ -1628,6 +1612,7 @@ export default function App() {
         onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
+          setActivePage(payload.user?.role === 'SELLER' || payload.user?.role === 'ADMIN' ? 'seller' : 'store');
           const returnTo = new URLSearchParams(window.location.search).get('returnTo');
           if (returnTo && returnTo.startsWith('/')) { const target = new URL(returnTo, window.location.origin); if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search + target.hash); }
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));

@@ -1397,7 +1397,7 @@ export function SellerHubView({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E8E6E1] pb-6">
         <div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6A65]">
-            <span>{t('nav.sellerHub')}</span>
+            <span>Seller dashboard</span>
             <span>/</span>
             <span className="font-medium text-[#141413]">
               {user.sellerProfile?.storeName || user.name}
@@ -1419,6 +1419,15 @@ export function SellerHubView({
 
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <div className="inline-flex max-w-full overflow-x-auto items-center gap-1 rounded-lg bg-[#F0EEE9] p-1">
+            {user?.role === 'SELLER' && onReturnToStore && (
+              <button
+                type="button"
+                onClick={onReturnToStore}
+                className="rounded-md px-3 sm:px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap shrink-0 bg-[#881337] text-white hover:bg-[#9F1239] cursor-pointer"
+              >
+                Storefront
+              </button>
+            )}
             {tabOptions.map((tabItem) => (
               <button
                 key={tabItem.id}

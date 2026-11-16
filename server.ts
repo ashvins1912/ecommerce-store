@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
+import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from './src/server/models/schemas.js';
+import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeProfileDto, toSellerSafeProviderProfileDto, toProviderSafeProductDto, toProviderSafeSettlementDto } from './src/server/services/privacy.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
@@ -299,6 +301,7 @@ async function startServer() {
 
   // --- Logistics: separate PostgreSQL persistence boundary ---
   const requireLogisticsSeller = (user: User | null) => Boolean(user && (user.role === 'SELLER' || user.role === 'ADMIN'));
+  const requireVerifiedLogisticsSeller = (user: User | null) => Boolean(user && (user.role === 'ADMIN' || (user.role === 'SELLER' && user.isWhatsappVerified)));
 
   app.get('/api/logistics/providers', async (_req, res) => {
     try { res.json({ providers: await listLogisticsProviders() }); }
@@ -390,6 +393,52 @@ async function startServer() {
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'CARRIER_UPDATE_FAILED' }); }
   });
 
+  app.get('/api/seller/privacy-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
+    try {
+      const settings = await SellerPrivacySettingsModel.findOne({ sellerId: user!._id }).lean();
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ carrierDisclosure: normalizeCarrierDisclosurePolicy(settings?.carrierDisclosure || DEFAULT_CARRIER_DISCLOSURE_POLICY) });
+    } catch { res.status(503).json({ error: 'SELLER_PRIVACY_SETTINGS_UNAVAILABLE' }); }
+  });
+
+  app.put('/api/seller/privacy-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
+    const parsed = z.object({
+      carrierDisclosure: z.object({
+        recipientName: z.boolean(), recipientPhone: z.boolean(),
+        recipientAddress: z.boolean(), recipientEmail: z.boolean(),
+      }).strict(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PRIVACY_SETTINGS' });
+    try {
+      const settings = await SellerPrivacySettingsModel.findOneAndUpdate(
+        { sellerId: user!._id },
+        { $set: { sellerId: user!._id, carrierDisclosure: parsed.data.carrierDisclosure } },
+        { upsert: true, new: true, runValidators: true },
+      ).lean();
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ carrierDisclosure: normalizeCarrierDisclosurePolicy(settings?.carrierDisclosure) });
+    } catch { res.status(503).json({ error: 'SELLER_PRIVACY_SETTINGS_SAVE_FAILED' }); }
+  });
+
+  app.get('/api/seller/privacy-disclosures', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
+    const filter = user!.role === 'ADMIN' ? {} : { sellerId: user!._id };
+    const disclosures = await PrivacyDisclosureAuditModel.find(filter)
+      .sort({ authorizedAt: -1 }).limit(100)
+      .select('sellerId orderId carrierConfigId carrierCode fieldsAuthorized actorId authorizedAt jobId dispatchStatus dispatchedAt dispatchErrorCode purpose')
+      .lean();
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ disclosures });
+  });
+
   app.get('/api/seller/logistics/warehouses', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
@@ -422,7 +471,7 @@ async function startServer() {
 
   app.post('/api/seller/logistics/shipments', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
     const parsed = z.object({
       orderId: z.string().min(1), carrierConfigId: z.string().uuid(), warehouseId: z.string().uuid(),
       weightGrams: z.coerce.number().int().min(1).max(100000),
@@ -430,6 +479,7 @@ async function startServer() {
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_SHIPMENT_REQUEST' });
     if (!mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_ORDER_ID' });
+    let disclosureAuditId: string | null = null;
     try {
       const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
       if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
@@ -444,20 +494,50 @@ async function startServer() {
       const sellerCarriers = (await listSellerCarrierConfigs(String(order.sellerId))) || [];
       const selectedCarrier = sellerCarriers.find((carrier: any) => String(carrier.id) === parsed.data.carrierConfigId);
       if (!selectedCarrier) return res.status(422).json({ error: 'SELLER_CARRIER_CONFIGURATION_NOT_FOUND' });
-      if (String(selectedCarrier.logistics_providers?.[0]?.code || '').toLowerCase() === 'shiprocket' && !buyer?.email) return res.status(422).json({ error: 'SHIPROCKET_CUSTOMER_EMAIL_REQUIRED' });
+      const carrierCode = String(selectedCarrier.logistics_providers?.[0]?.code || '').toLowerCase();
+      if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
+      const privacySettings = await SellerPrivacySettingsModel.findOne({ sellerId: String(order.sellerId) }).lean();
+      const disclosure = authorizeCarrierDisclosure(privacySettings?.carrierDisclosure, carrierCode, buyer?.email);
+      if (!disclosure.allowed) return res.status(403).json({
+        error: disclosure.emailRequired && disclosure.missing.includes('recipientEmail') ? 'SELLER_MUST_AUTHORIZE_CUSTOMER_EMAIL_FOR_CARRIER' : 'SELLER_CUSTOMER_DATA_DISCLOSURE_NOT_AUTHORIZED',
+        requiredFields: disclosure.missing,
+      });
+      const disclosureAudit = await PrivacyDisclosureAuditModel.create({
+        sellerId: String(order.sellerId), orderId: String(order._id), carrierConfigId: parsed.data.carrierConfigId,
+        carrierCode, fieldsAuthorized: disclosure.fields, actorId: user!._id,
+        authorizedAt: new Date(), dispatchStatus: 'AUTHORIZED', purpose: 'SHIPMENT_FULFILLMENT',
+      });
+      disclosureAuditId = String(disclosureAudit._id);
       const result = await createShipmentIntent({
-        orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
+        orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId, carrierCode,
         warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
         destinationPostalCode: pin, destinationCountryCode: 'IN',
         codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
         declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
-        recipientName: String(address.fullName), recipientPhone: String(address.phone), recipientEmail: buyer?.email || '',
-        destinationAddressLine1: String(address.street), destinationCity: String(address.city), destinationState: String(address.state),
+        recipientName: disclosure.policy.recipientName ? String(address.fullName) : '', recipientPhone: disclosure.policy.recipientPhone ? String(address.phone) : '', recipientEmail: disclosure.policy.recipientEmail ? (buyer?.email || '') : '',
+        disclosureAuthorizedAt: new Date().toISOString(), disclosureFields: disclosure.fields,
+        disclosureAuditId,
+        destinationAddressLine1: disclosure.policy.recipientAddress ? String(address.street) : '', destinationCity: disclosure.policy.recipientAddress ? String(address.city) : '', destinationState: disclosure.policy.recipientAddress ? String(address.state) : '',
         orderDate: new Date(order.createdAt || Date.now()).toISOString(),
         items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
       });
+      await PrivacyDisclosureAuditModel.updateOne(
+        { _id: disclosureAudit._id },
+        { $set: result.duplicate
+          ? { jobId: result.jobId || null, dispatchStatus: 'NOT_DISPATCHED', dispatchErrorCode: 'DUPLICATE_SHIPMENT_NO_NEW_DISCLOSURE' }
+          : { jobId: result.jobId || null } },
+      );
       res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
-    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
+    } catch (error) {
+      if (disclosureAuditId) {
+        await PrivacyDisclosureAuditModel.updateOne(
+          { _id: disclosureAuditId, dispatchStatus: 'AUTHORIZED' },
+          { $set: { dispatchStatus: 'FAILED', dispatchErrorCode: 'SHIPMENT_QUEUE_FAILED' } },
+        ).catch(() => {});
+      }
+      const e = error as any;
+      res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' });
+    }
   });
 
   app.post('/api/seller/logistics/shipments/:id/retry', async (req, res) => {
@@ -909,7 +989,7 @@ async function startServer() {
         `Invitation to join Kala & Karat as a Seller${invite.storeName ? ` — ${invite.storeName}` : ''}`
       );
       const body = encodeURIComponent(
-        `Hello,\n\nYou have been invited by ${user.name} (Kala & Karat Admin) to onboard your atelier${invite.storeName ? ` (${invite.storeName})` : ''} on Kala & Karat.\n\nUse your private one-time onboarding link below to complete verification and activate your Seller Hub:\n${inviteUrl}\n\n${invite.note ? `Admin note: ${invite.note}\n\n` : ''}This invitation expires on ${new Date(invite.expiresAt).toLocaleDateString('en-IN')}.`
+        `Hello,\n\nYou have been invited by ${user.name} (Kala & Karat Admin) to onboard your atelier${invite.storeName ? ` (${invite.storeName})` : ''} on Kala & Karat.\n\nUse your private one-time onboarding link below to complete verification and activate your seller dashboard:\n${inviteUrl}\n\n${invite.note ? `Admin note: ${invite.note}\n\n` : ''}This invitation expires on ${new Date(invite.expiresAt).toLocaleDateString('en-IN')}.`
       );
       mailtoUrl = `mailto:${encodeURIComponent(invite.email)}?subject=${subject}&body=${body}`;
     }
@@ -1822,7 +1902,7 @@ async function startServer() {
         const seller = await findUserById(order.sellerId);
         const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
         const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
-        const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
+        const confirmationUrl = getAppBaseUrl(req) + '/?orderId=' + encodeURIComponent(order._id);
         const msg = [
           'New order ' + order.orderNumber,
           'Items: ' + itemSummary,
@@ -2083,14 +2163,16 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('-encryptedTaxId -encryptedSettlementDetails').lean();
     if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
-    res.json({ profile });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ profile: toProviderSafeProfileDto(profile) });
   });
 
   app.get('/api/provider/products', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const products = await ProviderProductModel.find({ providerId: user._id }).sort({ updatedAt: -1 }).limit(200).lean();
-    res.json({ products });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ products: products.map(toProviderSafeProductDto) });
   });
 
   app.post('/api/provider/products', async (req, res) => {
@@ -2112,7 +2194,7 @@ async function startServer() {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_PROVIDER_PRODUCT' });
     const product = await ProviderProductModel.create({ ...parsed.data, providerId: user._id, linkedSellerIds: profile.linkedSellerIds, status: 'DRAFT' });
     await providerAudit(user, 'PROVIDER_PRODUCT_DRAFT_CREATED', user._id, String(product._id));
-    res.status(201).json({ product });
+    res.status(201).json({ product: toProviderSafeProductDto(product.toObject()) });
   });
 
   app.patch('/api/provider/products/:id', async (req, res) => {
@@ -2137,7 +2219,7 @@ async function startServer() {
     if (product.status === 'NEGOTIATION_REQUESTED') product.status = 'RESUBMITTED';
     await product.save();
     await providerAudit(user, 'PROVIDER_PRODUCT_UPDATED', user._id, String(product._id), { fields: Object.keys(parsed.data) });
-    res.json({ product });
+    res.json({ product: toProviderSafeProductDto(product.toObject()) });
   });
 
   app.post('/api/provider/products/:id/submit', async (req, res) => {
@@ -2149,7 +2231,7 @@ async function startServer() {
     product.status = 'PENDING_REVIEW';
     await product.save();
     await providerAudit(user, 'PROVIDER_PRODUCT_SUBMITTED', user._id, String(product._id));
-    res.json({ product });
+    res.json({ product: toProviderSafeProductDto(product.toObject()) });
   });
 
   app.get('/api/seller/providers', async (req, res) => {
@@ -2171,7 +2253,13 @@ async function startServer() {
       ProviderSettlementModel.find({ providerId: req.params.providerId, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) }).limit(200).lean(),
     ]);
     await providerAudit(user, 'PROVIDER_READ_ONLY_AUDIT_VIEW', req.params.providerId, req.params.providerId);
-    res.json({ readOnly: true, profile, products, settlements });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({
+      readOnly: true,
+      profile: toSellerSafeProviderProfileDto(profile),
+      products: products.map(toProviderSafeProductDto),
+      settlements: settlements.map(toProviderSafeSettlementDto),
+    });
   });
 
   app.get('/api/seller/providers/products/review-queue', async (req, res) => {
@@ -2246,7 +2334,8 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     await ProviderSettlementModel.updateMany({ providerId: user._id, status: 'PENDING_CLEARANCE', availableAt: { $lte: new Date() } }, { $set: { status: 'READY_FOR_SETTLEMENT' } });
     const settlements = await ProviderSettlementModel.find({ providerId: user._id }).sort({ createdAt: -1 }).limit(300).select('-encryptedReceipt').lean();
-    res.json({ settlements });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ settlements: settlements.map(toProviderSafeSettlementDto) });
   });
 
   app.get('/api/seller/provider-settlements', async (req, res) => {
