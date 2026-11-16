@@ -297,18 +297,19 @@ export async function setShipmentStatusForSeller(input:{shipmentId:string;seller
 }
 
 export async function findShipmentForWebhook(providerCode:string,awbNumber:string) {
- const row=unwrap(await db().from('shipments').select('id,normalized_status,last_event_at,seller_carrier_config_id,provider_carrier_config_id,fulfillment_seller_id,fulfillment_provider_id')
-  .eq('awb_number',awbNumber).maybeSingle()) as any;
- if(!row)return null;
- if(row.seller_carrier_config_id){
-  const config=await getSellerCarrierSecretForConfig(row.seller_carrier_config_id,true);
-  if(String(config.logistics_providers.code)!==providerCode)return null;
-  return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
- }
- if(row.provider_carrier_config_id){
-  const config=await getProviderCarrierSecret(row.provider_carrier_config_id,row.fulfillment_provider_id || '',true);
-  if(String(config.logistics_providers.code)!==providerCode)return null;
-  return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
+ const rows=unwrap(await db().from('shipments').select('id,normalized_status,last_event_at,seller_carrier_config_id,provider_carrier_config_id,fulfillment_seller_id,fulfillment_provider_id')
+  .eq('awb_number',awbNumber).limit(20)) as any[];
+ for(const row of rows){
+  if(row.seller_carrier_config_id){
+   const config=await getSellerCarrierSecretForConfig(row.seller_carrier_config_id,true);
+   if(String(config.logistics_providers.code)!==providerCode)continue;
+   return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
+  }
+  if(row.provider_carrier_config_id){
+   const config=await getProviderCarrierSecret(row.provider_carrier_config_id,row.fulfillment_provider_id || '',true);
+   if(String(config.logistics_providers.code)!==providerCode)continue;
+   return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
+  }
  }
  return null;
 }
