@@ -909,7 +909,7 @@ async function startServer() {
         `Invitation to join Kala & Karat as a Seller${invite.storeName ? ` — ${invite.storeName}` : ''}`
       );
       const body = encodeURIComponent(
-        `Hello,\n\nYou have been invited by ${user.name} (Kala & Karat Admin) to onboard your atelier${invite.storeName ? ` (${invite.storeName})` : ''} on Kala & Karat.\n\nUse your private one-time onboarding link below to complete verification and activate your Seller Hub:\n${inviteUrl}\n\n${invite.note ? `Admin note: ${invite.note}\n\n` : ''}This invitation expires on ${new Date(invite.expiresAt).toLocaleDateString('en-IN')}.`
+        `Hello,\n\nYou have been invited by ${user.name} (Kala & Karat Admin) to onboard your atelier${invite.storeName ? ` (${invite.storeName})` : ''} on Kala & Karat.\n\nUse your private one-time onboarding link below to complete verification and activate your seller dashboard:\n${inviteUrl}\n\n${invite.note ? `Admin note: ${invite.note}\n\n` : ''}This invitation expires on ${new Date(invite.expiresAt).toLocaleDateString('en-IN')}.`
       );
       mailtoUrl = `mailto:${encodeURIComponent(invite.email)}?subject=${subject}&body=${body}`;
     }
@@ -1822,7 +1822,7 @@ async function startServer() {
         const seller = await findUserById(order.sellerId);
         const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
         const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
-        const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
+        const confirmationUrl = getAppBaseUrl(req) + '/?orderId=' + encodeURIComponent(order._id);
         const msg = [
           'New order ' + order.orderNumber,
           'Items: ' + itemSummary,
