@@ -25,7 +25,7 @@ import type {
   StorefrontCampaign,
   User,
 } from './shared/types';
-import { apiFetch, setClientSessionTokens } from './lib/api';
+import { apiFetch, clearClientSessionTokens, setClientSessionTokens } from './lib/api';
 import { useI18n } from './lib/i18n';
 import { TopBar, type ActivePage } from './components/TopBar';
 import { ProductCard } from './components/ProductCard';
@@ -226,6 +226,33 @@ export default function App() {
       setToast((prev) => (prev === msg ? null : prev));
     }, 2600);
   }, []);
+
+  const handleLogout = useCallback(async () => {
+    // Preserve credentials and UI state unless the server confirms session revocation.
+    await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
+    clearClientSessionTokens();
+
+    let guestSession: Pick<AuthSessionResponse, 'likedProductIds' | 'cart'> | null = null;
+    try {
+      guestSession = await apiFetch<Pick<AuthSessionResponse, 'likedProductIds' | 'cart'>>('/api/auth/me');
+    } catch {
+      // The authenticated session is already revoked; retain the in-memory guest cart.
+    }
+
+    setUser(null);
+    setActivePage('store');
+    setAuthOpen(false);
+    setCartOpen(false);
+    setSellerInviteToken(null);
+    setLikedIds(new Set(guestSession?.likedProductIds || []));
+    if (guestSession?.cart) setCart(guestSession.cart);
+    try {
+      localStorage.setItem('kk_guest_cart', JSON.stringify(guestSession?.cart ?? cart));
+    } catch {
+      // Browser storage may be unavailable; keep the in-memory cart.
+    }
+    showToast('You have been signed out.');
+  }, [cart, showToast]);
 
   const recordRecentlyViewed = useCallback((product: Product) => {
     setRecentlyViewed((prev) => {
