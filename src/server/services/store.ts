@@ -1572,9 +1572,11 @@ export async function findUserById(id: string): Promise<User | null> {
 export async function ensureRootSuperuser(): Promise<void> {
   const email = (process.env.ROOT_SUPERUSER_EMAIL || 'ashvinsingh25@gmail.com').trim().toLowerCase();
   const initialPassword = process.env.ROOT_SUPERUSER_INITIAL_PASSWORD || '';
-  if (!initialPassword || initialPassword.length < 14) {
-    throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must be configured with at least 14 characters; refusing to start without secure root provisioning.');
+  if (!initialPassword) {
+    if (process.env.NODE_ENV === 'production') throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must be configured with at least 14 characters; refusing to start without secure root provisioning.');
+    return;
   }
+  if (initialPassword.length < 14) throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must contain at least 14 characters.');
   if (mongoConnected) {
     const existing = await UserModel.findOne({ email }).select('+passwordHash');
     if (!existing) {
@@ -1584,9 +1586,10 @@ export async function ensureRootSuperuser(): Promise<void> {
         isWhatsappVerified: false, shippingAddresses: [],
       });
     } else {
+      const firstRootProvision = existing.isRootSuperuser !== true;
       existing.role = 'ADMIN';
       existing.isRootSuperuser = true;
-      if (!(existing as any).passwordHash) (existing as any).passwordHash = hashPassword(initialPassword);
+      if (firstRootProvision || !(existing as any).passwordHash) (existing as any).passwordHash = hashPassword(initialPassword);
       await existing.save();
     }
     return;
@@ -1600,9 +1603,10 @@ export async function ensureRootSuperuser(): Promise<void> {
       oauthAccounts: [], isWhatsappVerified: false, shippingAddresses: [], createdAt: now, updatedAt: now,
     } as any);
   } else {
+    const firstRootProvision = existing.isRootSuperuser !== true;
     existing.role = 'ADMIN';
     existing.isRootSuperuser = true;
-    if (!existing.passwordHash) existing.passwordHash = hashPassword(initialPassword);
+    if (firstRootProvision || !existing.passwordHash) existing.passwordHash = hashPassword(initialPassword);
   }
   saveLocalStore(localState);
 }
