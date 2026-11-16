@@ -254,6 +254,10 @@ export function SellerHubView({
   // Seller Coupons state
   const [returnRequests, setReturnRequests] = useState<Array<any>>([]);
   const [returnNotice, setReturnNotice] = useState('');
+  const [returnForwardTarget, setReturnForwardTarget] = useState<any>(null);
+  const [returnSharePickupAddress, setReturnSharePickupAddress] = useState(true);
+  const [returnPickupTarget, setReturnPickupTarget] = useState<any>(null);
+  const [returnPickupDraft, setReturnPickupDraft] = useState({ carrierName: '', trackingId: '', trackingUrl: '' });
   const [gatewaySettings, setGatewaySettings] = useState<Array<{ provider: 'razorpay' | 'stripe'; keyId: string; enabled: boolean; secretMasked: string }>>([]);
   const [gatewayDrafts, setGatewayDrafts] = useState({
     razorpay: { keyId: '', secret: '', webhookSecret: '', enabled: false },
@@ -469,6 +473,35 @@ export function SellerHubView({
       setReturnNotice('Unable to load return requests.');
     }
   }, [isVerifiedSellerOrAdmin]);
+
+  const handleForwardReturnToProvider = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!returnForwardTarget) return;
+    try {
+      await apiFetch('/api/seller/returns/' + encodeURIComponent(returnForwardTarget._id) + '/forward-provider', {
+        method: 'POST', body: JSON.stringify({ sharePickupAddress: returnSharePickupAddress }),
+      });
+      setReturnNotice(returnSharePickupAddress
+        ? 'Return sent to the linked provider. The buyer pickup address was shared for return collection.'
+        : 'Return sent to the linked provider. The buyer pickup address remains private; provider can approve and share its return address.');
+      setReturnForwardTarget(null);
+      await loadReturnRequests();
+    } catch (err) { setReturnNotice((err as Error).message); }
+  };
+
+  const handleRecordReturnPickup = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!returnPickupTarget) return;
+    try {
+      await apiFetch('/api/seller/returns/' + encodeURIComponent(returnPickupTarget._id) + '/pickup', {
+        method: 'POST', body: JSON.stringify(returnPickupDraft),
+      });
+      setReturnNotice('Return courier pickup details saved. Tracking is now visible to the provider and seller.');
+      setReturnPickupTarget(null);
+      setReturnPickupDraft({ carrierName: '', trackingId: '', trackingUrl: '' });
+      await loadReturnRequests();
+    } catch (err) { setReturnNotice((err as Error).message); }
+  };
 
   const handleReturnAction = async (id: string, action: 'approve' | 'reject' | 'mark_received') => {
     setReturnNotice('');
@@ -1321,6 +1354,14 @@ export function SellerHubView({
     } finally {
       setCreatingProduct(false);
     }
+  };
+
+  const handleCancellationForward = async (orderId: string) => {
+    try {
+      await apiFetch('/api/seller/orders/' + encodeURIComponent(orderId) + '/cancellation-forward-provider', { method: 'POST', body: JSON.stringify({}) });
+      setReturnNotice('Cancellation forwarded to the linked provider for a second-level decision.');
+      await loadSellerOrders(orderTab, 0, false);
+    } catch (err) { setReturnNotice((err as Error).message); }
   };
 
   const handleCancellationReview = async (orderId: string, action: 'approve' | 'reject') => {
@@ -3003,9 +3044,12 @@ export function SellerHubView({
               <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-semibold">{item.productId} · Order {item.orderId}</div><span className="rounded-full bg-[#F5F5F4] px-2 py-1 text-[10px] font-semibold">{item.status}</span></div>
               <p className="text-xs text-[#57534E]">{item.reason}</p>
               <div className="flex flex-wrap gap-2">{(item.media || []).map((media: any, index: number) => <a key={index} href={media.url} target="_blank" rel="noreferrer" className="text-xs text-[#881337] underline">Evidence {index + 1}</a>)}</div>
-              {item.selfCourier && <p className="text-xs">Courier: {item.courierName} · {item.trackingId} {item.trackingUrl && <a href={item.trackingUrl} target="_blank" rel="noreferrer" className="text-[#881337] underline">Track</a>}</p>}
+              {item.selfCourier && <p className="text-xs">Buyer courier: {item.courierName} · {item.trackingId} {item.trackingUrl && <a href={item.trackingUrl} target="_blank" rel="noreferrer" className="text-[#881337] underline">Track</a>}</p>}
+              {item.providerReviewStatus && item.providerReviewStatus!=='NOT_FORWARDED' && <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs"><p className="font-semibold text-sky-950">Provider review · {item.providerReviewStatus}</p>{item.providerDecisionNote&&<p className="mt-1 text-sky-900">{item.providerDecisionNote}</p>}{item.providerReturnAddress&&<div className="mt-2 text-sky-950"><p className="font-semibold">Approved return-to address</p><p>{item.providerReturnAddress.name} · {item.providerReturnAddress.contactName} · {item.providerReturnAddress.contactPhone}</p><p>{item.providerReturnAddress.addressLine1} {item.providerReturnAddress.addressLine2}, {item.providerReturnAddress.city}, {item.providerReturnAddress.state} {item.providerReturnAddress.postalCode}</p></div>}</div>}
+              {item.returnPickupStatus==='BOOKED' && <p className="text-xs">Return pickup: {item.returnPickupCarrier} · {item.returnPickupTrackingId} {item.returnPickupTrackingUrl&&<a href={item.returnPickupTrackingUrl} target="_blank" rel="noreferrer" className="text-[#881337] underline">Track pickup</a>}</p>}
               <div className="flex flex-wrap gap-2">
-                {item.status === 'REQUESTED' && <><button type="button" onClick={() => void handleReturnAction(item._id, 'approve')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white">Approve return</button><button type="button" onClick={() => void handleReturnAction(item._id, 'reject')} className="rounded-md border px-3 py-2 text-xs">Reject</button></>}
+                {item.status === 'REQUESTED' && <><button type="button" onClick={() => void handleReturnAction(item._id, 'approve')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white">Approve return</button><button type="button" onClick={() => void handleReturnAction(item._id, 'reject')} className="rounded-md border px-3 py-2 text-xs">Reject</button>{(!item.providerReviewStatus||item.providerReviewStatus==='NOT_FORWARDED')&&<button type="button" onClick={()=>{setReturnForwardTarget(item);setReturnSharePickupAddress(true)}} className="rounded-md border border-sky-300 px-3 py-2 text-xs font-semibold text-sky-900">Forward to provider</button>}</>}
+                {item.providerReviewStatus==='APPROVED'&&item.returnPickupStatus!=='BOOKED'&&<button type="button" onClick={()=>{setReturnPickupTarget(item);setReturnPickupDraft({carrierName:'',trackingId:'',trackingUrl:''})}} className="rounded-md border border-sky-300 px-3 py-2 text-xs font-semibold text-sky-900">Record courier pickup</button>}
                 {['APPROVED', 'IN_TRANSIT'].includes(item.status) && <button type="button" onClick={() => void handleReturnAction(item._id, 'mark_received')} className="rounded-md bg-[#881337] px-3 py-2 text-xs font-semibold text-white">Verify &amp; mark received · Wallet refund</button>}
               </div>
             </article>
@@ -3013,6 +3057,8 @@ export function SellerHubView({
         </section>
       )}
 
+      {returnForwardTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleForwardReturnToProvider} className="w-full max-w-md space-y-4 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Forward return to provider</h3><p className="mt-1 text-xs leading-5 text-[#6B6A65]">The linked provider will review the return and confirm its return-to address.</p></div><label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><input type="checkbox" checked={returnSharePickupAddress} onChange={e=>setReturnSharePickupAddress(e.target.checked)} className="mt-0.5"/><span><strong>Share buyer pickup address with provider</strong><br/>Required only if the provider is expected to arrange courier collection. Leave unchecked to keep the buyer’s address private.</span></label><div className="flex justify-end gap-2"><button type="button" onClick={()=>setReturnForwardTarget(null)} className="rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Forward for provider review</button></div></form></div>}
+      {returnPickupTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleRecordReturnPickup} className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Record return courier pickup</h3><p className="mt-1 text-xs text-[#6B6A65]">Enter the courier booking details after arranging the reverse pickup.</p></div><label className="block text-xs font-semibold">Courier name<input required value={returnPickupDraft.carrierName} onChange={e=>setReturnPickupDraft(v=>({...v,carrierName:e.target.value}))} className="mt-1 w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">AWB / tracking ID<input required value={returnPickupDraft.trackingId} onChange={e=>setReturnPickupDraft(v=>({...v,trackingId:e.target.value}))} className="mt-1 w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">Tracking URL (optional)<input type="url" value={returnPickupDraft.trackingUrl} onChange={e=>setReturnPickupDraft(v=>({...v,trackingUrl:e.target.value}))} className="mt-1 w-full rounded border px-3 py-2"/></label><div className="flex justify-end gap-2"><button type="button" onClick={()=>setReturnPickupTarget(null)} className="rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Save pickup booking</button></div></form></div>}
       {isVerifiedSellerOrAdmin && sellerTab === 'payments' && (
         <section className="space-y-5">
           <div>
@@ -3124,8 +3170,9 @@ export function SellerHubView({
 
                 {ord.status === 'CANCELLATION_REQUESTED' && (
                   <div className="flex flex-wrap gap-2 rounded-md bg-[#FFF8F6] p-3">
-                    <span className="w-full text-xs font-medium text-[#57534E]">Buyer requested cancellation. Confirm parcel recovery before approving a refund.</span>
-                    <button type="button" onClick={() => void handleCancellationReview(ord._id, 'approve')} className="rounded bg-[#881337] px-3 py-1.5 text-xs font-semibold text-white">Approve &amp; refund to wallet</button>
+                    <span className="w-full text-xs font-medium text-[#57534E]">Buyer requested cancellation. {ord.providerCancellationReview?.status==='PENDING'?'Awaiting provider decision.':ord.providerCancellationReview?.status==='APPROVED'?'Provider approved the cancellation.':ord.providerCancellationReview?.status==='REJECTED'?'Provider rejected the cancellation.':'You can forward provider-supplied orders for a second-level decision.'}</span>
+                    {!ord.providerCancellationReview?.status || ord.providerCancellationReview.status==='NOT_FORWARDED' ? <button type="button" onClick={() => void handleCancellationForward(ord._id)} className="rounded border border-[#881337] px-3 py-1.5 text-xs font-semibold text-[#881337]">Forward to provider</button> : null}
+                    <button type="button" disabled={ord.providerCancellationReview?.status==='PENDING'||ord.providerCancellationReview?.status==='REJECTED'} onClick={() => void handleCancellationReview(ord._id, 'approve')} className="rounded bg-[#881337] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">Approve &amp; refund to wallet</button>
                     <button type="button" onClick={() => void handleCancellationReview(ord._id, 'reject')} className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs">Reject request</button>
                   </div>
                 )}
