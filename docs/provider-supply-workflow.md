@@ -75,13 +75,33 @@ bun run build:workspace
 | Admin | `PATCH /api/admin/providers/:providerId/kyc` | KYC decision |
 
 
-## Provider fulfilment boundary
+## Provider fulfilment and carrier workflow
 
-- The provider dashboard has an explicit logout action using the existing /api/auth/logout session-revocation endpoint. Catalogue / negotiation and receivable lists support server-side search, status filters, allowlisted sorting and pagination.
-- The provider shipment queue returns only order number, provider-owned product titles / quantities, order status and existing tracking metadata. It never returns recipient name, phone, email or delivery address.
-- Manual dispatch is permitted only when every line in the seller order belongs to that provider, the order is Packed, the payment is confirmed or the order is COD, and the seller is linked to the provider. A conditional Packed update prevents two dispatch requests from both winning. Mixed-provider / seller-product orders remain seller-managed.
-- Manual shipment records the courier name, tracking reference and optional tracking URL; it does not call a carrier API or transmit customer data.
-- Provider-owned carrier credential onboarding and direct in-app carrier booking are not yet enabled. The current booking worker and carrier configurations are seller-scoped and require the seller's carrier-disclosure authorization. To enable provider-managed app booking safely, add an explicit seller delegation / approval flow and provider-scoped encrypted carrier configurations, then have the worker validate the seller, order, provider, carrier and current customer-data disclosure policy before dispatch. Do not reuse a provider's credentials under a seller identity without explicit authorization.
+1. **Provider carrier onboarding:** Provider selects an active carrier from the platform registry (currently Shiprocket and Shadowfax adapters), submits credentials, and the API validates the credentials before encrypting them with the shared AES-256-GCM field-encryption key. Credentials are stored in the provider-owned PostgreSQL table `provider_carrier_configs`; list endpoints never return them. A generated webhook secret is returned once.
+2. **Provider pickup locations:** Provider creates a pickup warehouse in `provider_warehouses`. These locations are provider-owned and cannot be substituted with a seller warehouse ID.
+3. **Seller authorization:** Provider requests a fulfilment delegation for one linked seller, the configured carrier codes, and exact delivery-data fields. The verified seller reviews the request in Shipping & Logistics and approves or rejects it. The seller can later revoke an active delegation. Approval is limited to fields the seller has separately enabled in `carrierDisclosure`; Shiprocket additionally requires the email permission.
+4. **Rates and app booking:** Provider shipment queue shows eligible orders only after an active delegation exists. Provider requests a live rate using its selected carrier account and pickup location, then selects a service. The booking API revalidates order ownership, provider ownership of every order line, seller delegation, payment / Packed state, quote availability and current seller disclosure policy. It creates a provider-owned shipment intent and a durable `CREATE_SHIPMENT` job.
+5. **Worker privacy checks:** The logistics worker decrypts the queued minimum delivery payload, verifies provider carrier ownership, reloads the current seller disclosure policy and active provider delegation, and repeats the authorization check immediately before calling the carrier. Revoked or expired delegation, disabled carrier account, or changed disclosure scope fails closed. The provider portal never receives recipient name, phone, email or delivery address.
+6. **Labels and tracking:** Carrier response persists provider shipment ID, AWB, label URL, manifest URL, pickup status and ETA in PostgreSQL. Signed webhooks and tracking polls append idempotent tracking events, enforce monotonic state transitions, and update normalized shipment status. Provider shipment list exposes AWB, label / manifest links, pickup and a safe tracking timeline.
+7. **Retries and fallback:** Failed bookings can be retried by the provider only while the seller delegation remains active and the provider carrier account remains enabled. Manual courier and tracking-reference entry remains available for eligible Packed orders, including a failed app booking with no AWB. Manual fallback does not create a second app carrier booking. The provider cannot dispatch mixed-provider orders; those remain seller-managed.
+
+Provider logistics endpoints:
+- `GET/POST /api/provider/logistics/carriers`, `PATCH /api/provider/logistics/carriers/:id/active`
+- `GET/POST /api/provider/logistics/warehouses`
+- `GET/POST /api/provider/fulfillment-delegations`
+- Seller: `GET /api/seller/providers/fulfillment-delegations`, `POST .../:providerId/approve`, `POST .../:providerId/reject`, `POST .../:providerId/revoke`
+- `POST /api/provider/shipments/rates`, `POST /api/provider/shipments/book`, `POST /api/provider/shipments/:id/retry`
+- `GET /api/provider/shipments` returns only safe order summaries and provider-owned shipment tracking metadata.
+- `POST /api/provider/shipments/manual` records a manually arranged courier dispatch without disclosing customer data to the portal.
+
+Security boundaries:
+- Seller privacy settings remain the source of truth. A delegation does not override a seller's current privacy settings.
+- Provider credentials are never stored under a seller account and never returned to the browser after save.
+- Customer delivery details are encrypted in the logistics job payload and only decrypted inside the private logistics worker.
+- A provider may manage only an order whose seller is linked and whose every product line belongs to that provider. Mixed carts / orders are excluded from provider booking.
+- Disabling a provider carrier prevents new bookings and retries. Existing shipments can still accept carrier webhooks and tracking updates.
+- The SQL shipment table enforces one shipment per seller order. A seller-created shipment and a provider-created shipment cannot both book the same order.
+- Manual fallback is restricted to the same provider-owned order scope and only runs while an app booking is absent or terminally failed without an AWB.
 
 ## Required configuration
 
@@ -147,7 +167,7 @@ npm run test:privacy
 
 Production deployment requirements:
 - Configure MongoDB and `ENCRYPTION_MASTER_KEY` on both the API and logistics worker. They must use the same key so queued ciphertext can be decrypted.
-- Configure the logistics PostgreSQL service-role connection and apply the logistics SQL migrations before enabling the worker.
+- Configure the logistics PostgreSQL service-role connection and apply SQL migrations in order: `2026-11-logistics-postgres.sql`, `2026-11-carrier-adaptive-feedback.sql`, then `2026-11-provider-logistics.sql` before enabling provider booking.
 - Deploy the API and worker from the same release. Do not run a worker build that predates the privacy recheck.
 - Keep the worker private; it must not expose an HTTP endpoint for reading queue payloads or customer data.
 - Before enabling a carrier, verify its sandbox request contains only the seller-authorized recipient fields. Test both an enabled and revoked policy, including revocation while a job is queued.
