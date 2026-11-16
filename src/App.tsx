@@ -979,6 +979,7 @@ export default function App() {
 
       {activePage === 'signup' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <AccountSignUpView
             user={user}
             onAuthChanged={(payload) => {
@@ -995,11 +996,13 @@ export default function App() {
             }}
             onNavigateStore={() => navigateToStore()}
           />
+          </Suspense>
         </div>
       )}
 
       {activePage === 'wishlist' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <WishlistView
             likedIds={likedIds}
             onRemoveFromWishlist={handleToggleLike}
@@ -1009,20 +1012,24 @@ export default function App() {
             onToggleCompare={handleToggleCompare}
             onBrowseCatalog={() => navigateToStore()}
           />
+          </Suspense>
         </div>
       )}
 
       {activePage === 'orders' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <OrdersView user={user} onOpenAuth={() => {
             setAuthInitialMode('signin');
             setAuthOpen(true);
           }} />
+          </Suspense>
         </div>
       )}
 
       {activePage === 'seller' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <SellerHubView
             user={user}
             onUserUpdated={(u) => setUser(u)}
@@ -1047,6 +1054,7 @@ export default function App() {
             onReturnToStore={() => navigateToStore()}
             onLogout={handleLogout}
           />
+          </Suspense>
         </div>
       )}
 
@@ -1351,7 +1359,7 @@ export default function App() {
           </section>
 
           {/* Recently Viewed Horizontal Carousel (persisted in sessionStorage, last 5 clicked) */}
-          {recentlyViewed.length > 0 && <RecentlyViewedCarousel
+          {recentlyViewed.length > 0 && <Suspense fallback={null}><RecentlyViewedCarousel
             items={recentlyViewed}
             likedIds={likedIds}
             onToggleLike={handleToggleLike}
@@ -1363,7 +1371,7 @@ export default function App() {
             onToggleCompare={handleToggleCompare}
             categoryTop10Thresholds={catalog.categoryTop10Thresholds}
             onClearHistory={clearRecentlyViewed}
-          />}
+          /></Suspense>}
         </main>
       )}
 
