@@ -3,7 +3,7 @@ services:
     name: ecommerce-store
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint && bun run test:logistics && bun run test:hybrid && bun run test:privacy && bun run test:roles && bun run build && bun run build:workspace
+    buildCommand: bun install --no-save && bun run lint && bun run test:logistics && bun run test:hybrid && bun run test:privacy && bun run test:roles && bun run test:sitemap && bun run build && bun run build:workspace
     startCommand: bun run start
     healthCheckPath: /api/health
     autoDeploy: true
@@ -11,7 +11,13 @@ services:
       - key: NODE_ENV
         value: production
       - key: RUN_LOGISTICS_WORKER
-        value: "0"
+        value: "1"
+      - key: LOGISTICS_WORKER_POLL_MS
+        value: "2000"
+      - key: SHIPROCKET_API_BASE_URL
+        value: https://apiv2.shiprocket.in
+      - key: SHADOWFAX_API_BASE_URL
+        value: https://dale.shadowfax.in/api
       - key: ROOT_SUPERUSER_EMAIL
         value: ashvinsingh25@gmail.com
       - key: APP_URL
@@ -56,31 +62,3 @@ services:
         sync: false
       - key: CRON_SECRET
         sync: false
-
-  # Dedicated private queue consumer. Keep the worker on the same branch/release
-  # as the API so privacy checks and queue payload contracts stay in sync.
-  - type: worker
-    name: ecommerce-logistics-worker
-    runtime: node
-    plan: starter
-    buildCommand: bun install --no-save && bun run lint
-    startCommand: bun run logistics:worker
-    autoDeploy: true
-    maxShutdownDelaySeconds: 120
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: MONGODB_URI
-        sync: false
-      - key: LOGISTICS_SUPABASE_URL
-        sync: false
-      - key: LOGISTICS_SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: ENCRYPTION_MASTER_KEY
-        sync: false
-      - key: LOGISTICS_WORKER_POLL_MS
-        value: "2000"
-      - key: SHIPROCKET_API_BASE_URL
-        value: https://apiv2.shiprocket.in
-      - key: SHADOWFAX_API_BASE_URL
-        value: https://dale.shadowfax.in/api

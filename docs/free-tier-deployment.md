@@ -1,27 +1,20 @@
-# Free web/API + paid logistics worker deployment runbook (22 accounts / 10 active users)
+# Free-tier deployment runbook (22 accounts / 10 active users)
 
-### Separate logistics worker deployment
+### Co-located vs. separate logistics worker
 
-The Render Blueprint defines a private background worker named `ecommerce-logistics-worker`:
-- Build: `bun install --no-save && bun run lint`
-- Start: `bun run logistics:worker`
-- Plan: `starter` (0.5 CPU / 512 MB; paid)
-- API: `RUN_LOGISTICS_WORKER=0`
-- Worker-only secret: `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`; never expose it to browser builds.
-- Shared secrets: copy the exact same `MONGODB_URI` and `ENCRYPTION_MASTER_KEY` from the API service. Do not generate a different encryption key for the worker.
-
-When applying the updated Blueprint to an existing Render service, add the worker's new secret environment variables manually in the Render Dashboard; `sync: false` values are not prompted again on Blueprint updates. Deploy both services from the same branch/commit and keep one worker instance. The queue claim RPC reclaims jobs after a 10-minute lease, so interrupted jobs can be retried; verify idempotency and carrier sandbox behaviour before production use.
+Render does **not** provide a free tier for Background Workers (`type: worker` requires at least the paid `starter` plan and causes an **Upgrade Required** error on free Render accounts). To keep `render.yaml` 100% free-tier compatible:
+- The Render Blueprint deploys **one** Free Web Service (`ecommerce-store`, `plan: free`) with `RUN_LOGISTICS_WORKER=1` so the durable Supabase queue consumer runs inside the web process.
+- When upgrading to a paid Render plan later, you can set `RUN_LOGISTICS_WORKER=0` on the web service and run `bun run logistics:worker` as a dedicated private `starter` background worker sharing the exact same `MONGODB_URI`, `ENCRYPTION_MASTER_KEY`, `LOGISTICS_SUPABASE_URL`, and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`.
 
 ## Recommended topology
 
-Keep one same-origin Express + Vite web/API service. The root app serves customer/seller/admin/provider experiences and API from `server.ts`. Run the logistics queue consumer as a separate private background worker; keep both services on the same branch/commit so privacy checks and queue contracts match.
+Start with one same-origin Express + Vite web/API service (`plan: free`). The root app serves customer/seller/admin/provider experiences and API from `server.ts`.
 
 | Concern | Initial service | Purpose |
 |---|---|---|
-| Web + API | Render Free Web Service | One Node/Bun process, same-origin cookies and API |
+| Web + API | Render Free Web Service | One Node/Bun process, same-origin cookies, API, and co-located queue consumer |
 | Main application data | MongoDB Atlas Free cluster | Users, products, orders, sessions and core commerce |
 | Logistics data + queue | Supabase Free Postgres | Carrier registry, warehouses, shipments and durable job queue |
-| Queue consumer | Render paid Starter background worker | Private, single-concurrency shipment processor |
 | Authentication | Supabase Auth | Customer authentication / OAuth where configured |
 | Cache + rate limits | Upstash Redis Free | Shared carts/cache/rate-limit state |
 | Uploaded images | Cloudflare R2 Standard | Persistent product and return-photo objects |
@@ -35,7 +28,7 @@ The application has two persistence systems: MongoDB for core commerce and Supab
 
 This is a pilot topology, not a production availability commitment. A 512 MB Render Free web service is a tight resource envelope. It should be tested with 10 concurrent active users, not assumed to handle 22 simultaneous sessions. The service is single-instance, has no autoscaling or persistent disk, and may cold-start after idle. Render Free web services sleep after 15 minutes without inbound traffic and can take about a minute to wake. Free instances are not recommended by Render for production.
 
-The API and logistics worker run as separate Render services. The API sets `RUN_LOGISTICS_WORKER=0`; the private `ecommerce-logistics-worker` polls the durable Supabase queue. The worker is a paid Starter instance (512 MB) because Render does not offer free background-worker instances. If you cannot enable the paid worker, keep shipment booking disabled; queued jobs remain durable but will not be processed.
+On the Free plan, the logistics queue consumer runs co-located in the web process with `RUN_LOGISTICS_WORKER=1`. The queue itself is durable in Supabase Postgres (reclaiming interrupted jobs after a 10-minute lease), so queued jobs remain persisted across cold starts and resume once the web service wakes. If fulfilment must run continuously with zero cold-start delay, move `bun run logistics:worker` to a dedicated paid Starter worker service and set `RUN_LOGISTICS_WORKER=0` on the API service.
 
 Supabase Free projects can pause after a week of low activity and have small database/storage/egress quotas. Upstash Free currently has finite storage, bandwidth and command quotas. Cloudflare R2 Standard currently includes 10 GB-month storage, 1M Class A and 10M Class B operations per month, with no egress fee. Check each provider's live usage dashboard; quotas and pricing change.
 
@@ -119,14 +112,14 @@ Render Free has an ephemeral filesystem. The application's local `data/uploads` 
 
 1. Connect the GitHub repository to Render.
 2. Choose **Blueprint** and point it at the repository root. Render reads `render.yaml`.
-3. Confirm it creates the Free Web Service `ecommerce-store` and paid Starter background worker `ecommerce-logistics-worker`.
-4. Add all secret values in the Render Environment screen. For an existing Blueprint, add the worker's `MONGODB_URI`, `LOGISTICS_SUPABASE_URL`, `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY` and `ENCRYPTION_MASTER_KEY` manually. Copy the exact MongoDB URI and encryption key from the API service; do not generate a different worker encryption key.
+3. Confirm it creates one Free Web Service named `ecommerce-store`.
+4. Add all secret values in the Render Environment screen. The blueprint marks them `sync: false` so secrets are not committed to Git.
 5. Set `APP_URL` to the final Render HTTPS URL, for example `https://<your-service>.onrender.com`.
 6. Set `CORS_ALLOWED_ORIGINS` to that exact origin only (no trailing slash, comma-separated only if you intentionally add more trusted origins).
 7. Set a fresh `SESSION_SECRET` generated with `openssl rand -hex 32`.
 8. Set `ENCRYPTION_MASTER_KEY` to a fresh 32-byte key generated with `openssl rand -base64 32`. Preserve it securely: losing it makes previously encrypted carrier credentials unreadable. Do not rotate it without a data re-encryption plan.
 9. Set `ROOT_SUPERUSER_INITIAL_PASSWORD` to a new unique strong password in Render Secrets. Do not reuse any password previously shared in chat, tickets or source code.
-10. Keep `ROOT_SUPERUSER_EMAIL=ashvinsingh25@gmail.com` and `RUN_LOGISTICS_WORKER=0` on the API service. Configure the worker with the same `MONGODB_URI` and `ENCRYPTION_MASTER_KEY`, plus `LOGISTICS_SUPABASE_URL` and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`.
+10. Keep `ROOT_SUPERUSER_EMAIL=ashvinsingh25@gmail.com` and `RUN_LOGISTICS_WORKER=1` for the free-tier single-service pilot.
 11. Deploy and wait for the build and `/api/health` health check to pass.
 
 The Render blueprint runs lint, the logistics/hybrid/privacy/role tests, and both browser builds before the service starts.
@@ -193,7 +186,7 @@ Run the test from a separate machine, not from the Render instance:
 Move beyond this free pilot before relying on it for revenue-critical operations. Minimum upgrade path:
 
 1. Always-on API service with at least 1 CPU / 1–2 GB RAM.
-2. Keep the dedicated private logistics worker enabled with durable queue polling and retry alerts; its smallest Render instance is paid.
+2. Separate private logistics background worker (`bun run logistics:worker` on a paid `starter` plan, with `RUN_LOGISTICS_WORKER=0` on the API service).
 3. MongoDB paid tier with automated backups and point-in-time recovery.
 4. Supabase paid plan to avoid inactivity pausing and obtain daily backups.
 5. Centralized logs, uptime checks, error alerting and a tested backup/restore process.
@@ -203,6 +196,6 @@ Move beyond this free pilot before relying on it for revenue-critical operations
 
 - Do not use Render's local filesystem as durable storage.
 - Do not rely on in-memory carts, OTPs, rate limits or queue state across restarts. Use MongoDB/Supabase/Redis for durable/shared state.
-- The free web/API service may sleep; the separately deployed paid worker remains running. It still depends on the Supabase logistics database being available.
+- A free web service may sleep after 15 minutes idle; the co-located worker pauses while asleep and resumes queued Supabase jobs on wake.
 - Supabase Free can pause after inactivity and has no automatic backups on the free plan.
 - A free-tier deployment is appropriate for a pilot/demo and controlled low-risk launch, not a guaranteed production SLA.
