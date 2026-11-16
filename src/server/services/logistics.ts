@@ -138,9 +138,8 @@ export async function getCustomerTrackingEvents(orderId:string) {
 export async function refreshCarrierTrackingForOrder(orderId:string) {
  const shipment=await getShipmentForCustomer(orderId) as any;
  if(!shipment||!shipment.awb_number)return getCustomerTrackingEvents(orderId);
- const lastPoll=shipment.last_carrier_poll_at?Date.parse(shipment.last_carrier_poll_at):0;
- if(lastPoll&&Date.now()-lastPoll<60000)return getCustomerTrackingEvents(orderId);
- await db().from('shipments').update({last_carrier_poll_at:new Date().toISOString()}).eq('id',shipment.id);
+ const claimed=unwrap(await db().rpc('claim_carrier_tracking_poll',{p_shipment_id:shipment.id})) as boolean;
+ if(!claimed)return getCustomerTrackingEvents(orderId);
  try{
   const provider=rateAdapter(shipment.seller_carrier_configs.logistics_providers.code);
   const credentials=JSON.parse(decryptField(shipment.seller_carrier_configs.encrypted_credentials));
