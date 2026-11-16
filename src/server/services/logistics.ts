@@ -193,7 +193,7 @@ const carrierHttp = { async request<T>(url:string,init:{method:string;headers:Re
 }};
 function rateAdapter(code:string){
  if(code==='shiprocket'){const url=process.env.SHIPROCKET_API_BASE_URL||'https://apiv2.shiprocket.in';return new ShiprocketAdapter(carrierHttp,url);}
- if(code==='shadowfax'){const url=process.env.SHADOWFAX_API_BASE_URL||'https://dale.staging.shadowfax.in/api';return new ShadowfaxAdapter(carrierHttp,url);}
+ if(code==='shadowfax'){const url=process.env.SHADOWFAX_API_BASE_URL||(process.env.NODE_ENV==='production'?'https://dale.shadowfax.in/api':'https://dale.staging.shadowfax.in/api');return new ShadowfaxAdapter(carrierHttp,url);}
  throw new Error('UNSUPPORTED_CARRIER:'+code);
 }
 export async function getSellerRateQuotes(input:{sellerId:string;destinationPostalCode:string;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string}){
