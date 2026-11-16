@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel, ProductModel, OrderModel, ReturnRequestModel } from './src/server/models/schemas.js';
 import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from './src/server/models/schemas.js';
-import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeDto } from './src/server/services/privacy.js';
+import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeProfileDto, toProviderSafeProductDto, toProviderSafeSettlementDto } from './src/server/services/privacy.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
@@ -301,6 +301,7 @@ async function startServer() {
 
   // --- Logistics: separate PostgreSQL persistence boundary ---
   const requireLogisticsSeller = (user: User | null) => Boolean(user && (user.role === 'SELLER' || user.role === 'ADMIN'));
+  const requireVerifiedLogisticsSeller = (user: User | null) => Boolean(user && (user.role === 'ADMIN' || (user.role === 'SELLER' && user.isWhatsappVerified)));
 
   app.get('/api/logistics/providers', async (_req, res) => {
     try { res.json({ providers: await listLogisticsProviders() }); }
@@ -394,7 +395,7 @@ async function startServer() {
 
   app.get('/api/seller/privacy-settings', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
     if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
     try {
       const settings = await SellerPrivacySettingsModel.findOne({ sellerId: user!._id }).lean();
@@ -405,7 +406,7 @@ async function startServer() {
 
   app.put('/api/seller/privacy-settings', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
     if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
     const parsed = z.object({
       carrierDisclosure: z.object({
@@ -427,7 +428,7 @@ async function startServer() {
 
   app.get('/api/seller/privacy-disclosures', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
     if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
     const filter = user!.role === 'ADMIN' ? {} : { sellerId: user!._id };
     const disclosures = await PrivacyDisclosureAuditModel.find(filter)
@@ -470,7 +471,7 @@ async function startServer() {
 
   app.post('/api/seller/logistics/shipments', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
     const parsed = z.object({
       orderId: z.string().min(1), carrierConfigId: z.string().uuid(), warehouseId: z.string().uuid(),
       weightGrams: z.coerce.number().int().min(1).max(100000),
@@ -2145,7 +2146,7 @@ async function startServer() {
     const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('-encryptedTaxId -encryptedSettlementDetails').lean();
     if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
     res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ profile: toProviderSafeDto(profile) });
+    res.json({ profile: toProviderSafeProfileDto(profile) });
   });
 
   app.get('/api/provider/products', async (req, res) => {
@@ -2153,7 +2154,7 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const products = await ProviderProductModel.find({ providerId: user._id }).sort({ updatedAt: -1 }).limit(200).lean();
     res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ products: toProviderSafeDto(products) });
+    res.json({ products: products.map(toProviderSafeProductDto) });
   });
 
   app.post('/api/provider/products', async (req, res) => {
@@ -2310,7 +2311,7 @@ async function startServer() {
     await ProviderSettlementModel.updateMany({ providerId: user._id, status: 'PENDING_CLEARANCE', availableAt: { $lte: new Date() } }, { $set: { status: 'READY_FOR_SETTLEMENT' } });
     const settlements = await ProviderSettlementModel.find({ providerId: user._id }).sort({ createdAt: -1 }).limit(300).select('-encryptedReceipt').lean();
     res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ settlements: toProviderSafeDto(settlements) });
+    res.json({ settlements: settlements.map(toProviderSafeSettlementDto) });
   });
 
   app.get('/api/seller/provider-settlements', async (req, res) => {
