@@ -68,10 +68,9 @@ import { aggregateInventoryLines } from '../../../packages/hybrid-engine/src/ind
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 
-// Provider demo identities are excluded from every production seed path.
-const ACTIVE_SEED_USERS = process.env.NODE_ENV === 'production'
-  ? SEED_USERS.filter((user) => user.role !== 'PROVIDER')
-  : SEED_USERS;
+// Production must never receive demo identities. Real accounts are created through
+// the verified invitation/sign-up flows; seed users exist only for local development.
+const ACTIVE_SEED_USERS = process.env.NODE_ENV === 'production' ? [] : SEED_USERS;
 
 interface StoreState {
   users: User[];
@@ -312,7 +311,7 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
       // Seed the sample catalogue only when it is empty. Existing products and users
       // are never replaced; seller references always point at the ensured DB users.
       const productCount = await ProductModel.countDocuments();
-      if (productCount === 0) {
+      if (productCount === 0 && process.env.NODE_ENV !== 'production') {
         for (const p of SEED_PRODUCTS) {
           const oid = new mongoose.Types.ObjectId();
           idMap.set(p._id, oid);
@@ -325,7 +324,7 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
           });
         }
       }
-      console.info(`[seed] Demo identities checked: ${ACTIVE_SEED_USERS.length}; catalogue mode: ${productCount === 0 ? 'initialized' : 'existing'}`);
+      console.info(`[seed] Development demo identities checked: ${ACTIVE_SEED_USERS.length}; catalogue mode: ${productCount === 0 ? (process.env.NODE_ENV === 'production' ? 'empty-production-catalogue' : 'initialized') : 'existing'}`);
 
       // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
       if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
