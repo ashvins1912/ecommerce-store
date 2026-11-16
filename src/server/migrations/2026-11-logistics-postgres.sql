@@ -201,6 +201,16 @@ BEGIN
  RETURN new_job_id;
 END; $logistics$;
 
+CREATE OR REPLACE FUNCTION claim_carrier_tracking_poll(p_shipment_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $logistics$
+DECLARE claimed_id UUID;
+BEGIN
+ UPDATE shipments SET last_carrier_poll_at=now()
+ WHERE id=p_shipment_id AND (last_carrier_poll_at IS NULL OR last_carrier_poll_at<now()-interval '60 seconds')
+ RETURNING id INTO claimed_id;
+ RETURN claimed_id IS NOT NULL;
+END; $logistics$;
+
 -- Service-role-only access. The application never exposes the service-role key to browsers.
 ALTER TABLE logistics_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE seller_carrier_configs ENABLE ROW LEVEL SECURITY;
@@ -218,11 +228,13 @@ REVOKE EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHA
 REVOKE EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION create_shipment_intent(TEXT,TEXT,UUID,UUID,BIGINT,CHAR(3),JSONB) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION retry_shipment_booking(UUID,TEXT) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION claim_carrier_tracking_poll(UUID) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION claim_logistics_job() TO service_role;
 GRANT EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHAR,TIMESTAMPTZ,SMALLINT,TIMESTAMPTZ) TO service_role;
 GRANT EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) TO service_role;
 GRANT EXECUTE ON FUNCTION create_shipment_intent(TEXT,TEXT,UUID,UUID,BIGINT,CHAR(3),JSONB) TO service_role;
 GRANT EXECUTE ON FUNCTION retry_shipment_booking(UUID,TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION claim_carrier_tracking_poll(UUID) TO service_role;
 
 COMMIT;
 -- Compact status codes: 10 CREATED,20 MANIFESTED,30 IN_TRANSIT,40 OUT_FOR_DELIVERY,
