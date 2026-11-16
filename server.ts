@@ -130,6 +130,7 @@ import type {
 } from './src/shared/types.js';
 
 const PORT = 3000;
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\const PORT = 3000;');
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
@@ -2188,7 +2189,7 @@ async function startServer() {
     const sortField = ({ title: 'title', status: 'status', price: 'basePricePaise', createdAt: 'createdAt', updatedAt: 'updatedAt' } as Record<string, string>)[sortKey] || 'updatedAt';
     const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
     const filter: Record<string, any> = { providerId: user._id };
-    const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
+    const escapedQuery = escapeRegex(query);
     filter.$or = [{ title: { $regex: escapedQuery, $options: 'i' } }, { category: { $regex: escapedQuery, $options: 'i' } }, { brand: { $regex: escapedQuery, $options: 'i' } }];
     if (status && status !== 'ALL') filter.status = status;
     const [total, products] = await Promise.all([
@@ -2538,6 +2539,8 @@ async function startServer() {
     if (!parsed.success || !mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_PROVIDER_RATE_REQUEST' });
     try {
       const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
+      const linkedProfile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
+      if (!order || !(linkedProfile?.linkedSellerIds || []).includes(String(order.sellerId))) return res.status(404).json({ error: 'LINKED_SELLER_ORDER_NOT_FOUND' });
       if (!order || !['Packed'].includes(order.status) || (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID')) return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PROVIDER_SHIPMENT' });
       const products = await ProductModel.find({ _id: { $in: order.items.map((item: any) => item.productId) }, providerId: user._id }).select('_id').lean();
       if (!order.items.length || products.length !== order.items.length) return res.status(403).json({ error: 'ORDER_NOT_EXCLUSIVELY_FULFILLED_BY_PROVIDER' });
@@ -2563,6 +2566,8 @@ async function startServer() {
     let auditId: string | null = null;
     try {
       const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
+      const linkedProfile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
+      if (!order || !(linkedProfile?.linkedSellerIds || []).includes(String(order.sellerId))) return res.status(404).json({ error: 'LINKED_SELLER_ORDER_NOT_FOUND' });
       if (!order || order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_SHIPMENT' });
       if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
       const providerProducts = await ProductModel.find({ _id: { $in: order.items.map((item: any) => item.productId) }, providerId: user._id }).select('_id').lean();
@@ -2619,6 +2624,12 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: 'INVALID_SHIPMENT_ID' });
     try {
+      const rows = await listProviderShipments(user._id) as any[];
+      const shipment = rows.find(row => String(row.id) === req.params.id);
+      if (!shipment) return res.status(404).json({ error: 'PROVIDER_SHIPMENT_NOT_FOUND' });
+      const order = await OrderModel.findById(String(shipment.order_id)).select('sellerId').lean() as any;
+      const delegation = order ? await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean() : null;
+      if (!delegation) return res.status(403).json({ error: 'SELLER_FULFILLMENT_AUTHORIZATION_REQUIRED' });
       const jobId = await retryProviderShipment(user._id, req.params.id);
       res.status(202).json({ jobId, status: 'QUEUED' });
     } catch (error) { const e = error as any; res.status(e.statusCode || 409).json({ error: e.message || 'PROVIDER_SHIPMENT_NOT_RETRYABLE' }); }
@@ -2645,7 +2656,7 @@ async function startServer() {
     };
     if (status && status !== 'ALL') filter.status = status;
     if (query) {
-      const escapedQuery = query.replaceAll('\\\\', '\\\\\\\\').replaceAll('.', '\\\\.').replaceAll('*', '\\\\*').replaceAll('+', '\\\\+').replaceAll('?', '\\\\?').replaceAll('^', '\\\\^').replaceAll('$', '\\\\$').replaceAll('{', '\\\\{').replaceAll('}', '\\\\}').replaceAll('(', '\\\\(').replaceAll(')', '\\\\)').replaceAll('|', '\\\\|').replaceAll('[', '\\\\[').replaceAll(']', '\\\\]');
+      const escapedQuery = escapeRegex(query);
       filter.$or = [{ orderNumber: { $regex: escapedQuery, $options: 'i' } }, { _id: { $regex: escapedQuery, $options: 'i' } }];
     }
     const [total, orders, logisticsRows] = await Promise.all([
@@ -2698,6 +2709,10 @@ async function startServer() {
     if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
     const order = await OrderModel.findById(parsed.data.orderId);
     if (order) {
+      const activeAppShipment = (await listProviderShipments(user._id) as any[]).find(row => String(row.order_id) === String(order._id));
+      if (activeAppShipment && (activeAppShipment.booking_status !== 'FAILED' || activeAppShipment.awb_number)) return res.status(409).json({ error: 'APP_SHIPMENT_ALREADY_ACTIVE_OR_BOOKED' });
+    }
+    if (order) {
       const delegation = await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean();
       if (!delegation) return res.status(403).json({ error: 'SELLER_FULFILLMENT_AUTHORIZATION_REQUIRED' });
     }
@@ -2736,7 +2751,7 @@ async function startServer() {
     const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
     const filter: Record<string, any> = { providerId: user._id };
     if (query) {
-      const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
+      const escapedQuery = escapeRegex(query);
       filter.$or = [{ orderId: { $regex: escapedQuery, $options: 'i' } }, { utrReference: { $regex: escapedQuery, $options: 'i' } }, { status: { $regex: escapedQuery, $options: 'i' } }];
     }
     if (status && status !== 'ALL') filter.status = status;
