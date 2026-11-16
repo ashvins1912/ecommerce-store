@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { encryptField, decryptField } from './fieldEncryption.js';
+import { getLogisticsRateCache, setLogisticsRateCache } from './redis.js';
 import { CircuitBreaker, scoreCarriers, withTimeout } from '../../../packages/logistics-core/src/index.js';
 import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
 import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
@@ -169,6 +170,8 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
   .eq('seller_id',input.sellerId).eq('is_active',true)) as any[];
  const warehouse=unwrap(await db().from('warehouses').select('id,postal_code,country_code').eq('seller_id',input.sellerId).eq('is_active',true).order('is_default',{ascending:false}).limit(1).maybeSingle()) as any;
  if(!warehouse||!configs.length)return [];
+ const cacheKey='svc:'+warehouse.postal_code+':'+input.destinationPostalCode+':'+Math.ceil(input.weightGrams/500)+':'+(input.codAmountMinor>0?'cod':'prepaid')+':'+configs.map(x=>x.id).sort().join(',');
+ const cached=await getLogisticsRateCache<any[]>(cacheKey);if(cached)return cached;
  const settled=await Promise.allSettled(configs.map(async config=>{
   const provider=rateAdapter(config.logistics_providers.code);
   const credentials=JSON.parse(decryptField(config.encrypted_credentials));
@@ -184,5 +187,8 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
  const scored=scoreCarriers(candidates.map(x=>({providerCode:x.quote.providerCode,serviceCode:x.quote.serviceCode,costMinor:x.quote.amountMinor,
   estimatedTransitHours:x.quote.estimatedTransitHours,historicalRtoRate:0.5,sellerPriority:x.priorityRank,serviceable:x.quote.serviceable,currency:x.quote.currency})),
   {cost:0.35,transit:0.30,rto:0.20,priority:0.15});
- return scored.map(score=>{const match=candidates.find(x=>x.quote.providerCode===score.providerCode&&x.quote.serviceCode===score.serviceCode);return{...score,carrierConfigId:match?.configId,quote:match?.quote};});
+ const result=scored.map(score=>{const match=candidates.find(x=>x.quote.providerCode===score.providerCode&&x.quote.serviceCode===score.serviceCode);return{...score,carrierConfigId:match?.configId,quote:match?.quote};});
+ const earliestExpiry=result.reduce((min,x)=>Math.min(min,Date.parse(x.quote?.expiresAt||new Date(Date.now()+60000).toISOString())),Date.now()+86400000);
+ await setLogisticsRateCache(cacheKey,result,Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))));
+ return result;
 }
