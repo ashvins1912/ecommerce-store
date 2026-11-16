@@ -130,7 +130,7 @@ import type {
 } from './src/shared/types.js';
 
 const PORT = 3000;
-const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\const PORT = 3000;');
+const escapeRegex = (value: string) => value.split('').map((character) => '.^$*+?()[]{}|\\'.includes(character) ? '\\' + character : character).join('');
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
