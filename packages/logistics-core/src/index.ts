@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 export type CarrierKind = 'DIRECT' | 'AGGREGATOR';
 export type ShipmentStatus = 'CREATED'|'MANIFESTED'|'IN_TRANSIT'|'OUT_FOR_DELIVERY'|'DELIVERED'|'NDR'|'RTO_INITIATED'|'RTO_DELIVERED'|'CANCELLED';
 export const STATUS_CODE: Readonly<Record<ShipmentStatus, number>> = Object.freeze({CREATED:10,MANIFESTED:20,IN_TRANSIT:30,OUT_FOR_DELIVERY:40,DELIVERED:50,NDR:60,RTO_INITIATED:70,RTO_DELIVERED:80,CANCELLED:90});
-const TRANSITIONS: Record<ShipmentStatus, readonly ShipmentStatus[]> = {CREATED:['MANIFESTED','CANCELLED'],MANIFESTED:['IN_TRANSIT','CANCELLED'],IN_TRANSIT:['OUT_FOR_DELIVERY','NDR','RTO_INITIATED'],OUT_FOR_DELIVERY:['DELIVERED','NDR','RTO_INITIATED'],NDR:['IN_TRANSIT','OUT_FOR_DELIVERY','RTO_INITIATED'],RTO_INITIATED:['RTO_DELIVERED'],DELIVERED:[],RTO_DELIVERED:[],CANCELLED:[]};
+const TRANSITIONS: Record<ShipmentStatus, readonly ShipmentStatus[]> = {CREATED:['MANIFESTED','CANCELLED'],MANIFESTED:['IN_TRANSIT','CANCELLED'],IN_TRANSIT:['OUT_FOR_DELIVERY','NDR','RTO_INITIATED'],OUT_FOR_DELIVERY:['DELIVERED','NDR','RTO_INITIATED'],NDR:['RTO_INITIATED'],RTO_INITIATED:['RTO_DELIVERED'],DELIVERED:[],RTO_DELIVERED:[],CANCELLED:[]};
 export const canTransition = (from: ShipmentStatus, to: ShipmentStatus) => TRANSITIONS[from].includes(to);
 export interface AddressRef { warehouseId: string; postalCode: string; countryCode: string }
 export interface RateRequest { origin: AddressRef; destination: AddressRef; weightGrams: number; dimensionsCm?: {length:number;width:number;height:number}; codAmountMinor?: number; declaredValueMinor?: number; currency: string }
