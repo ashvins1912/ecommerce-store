@@ -42,6 +42,22 @@ export function CartDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmedOrders, setConfirmedOrders] = useState<Order[] | null>(null);
+  const [rateGroups,setRateGroups]=useState<Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
+  const [rateLoading,setRateLoading]=useState(false);
+  const [rateError,setRateError]=useState<string|null>(null);
+
+  const checkDeliveryRates=async()=>{
+    const destinationPostalCode=user?.shippingAddresses?.find(address=>address.isDefault)?.pincode||user?.shippingAddresses?.[0]?.pincode;
+    if(!destinationPostalCode){setRateError('Add a delivery address with pincode to check courier rates.');return;}
+    setRateLoading(true);setRateError(null);
+    try{
+      const result=await apiFetch<{groups:Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number}>}>}>('/api/logistics/rates',{
+        method:'POST',body:JSON.stringify({productIds:cart.map(item=>item.productId),destinationPostalCode,weightGrams:Math.max(100,cart.reduce((sum,item)=>sum+500*item.quantity,0)),codAmountMinor:Math.round(finalTotal*100),declaredValueMinor:Math.round(finalTotal*100)})
+      });
+      setRateGroups(result.groups);
+      if(!result.groups.some(group=>group.quotes.length))setRateError('No configured carrier rates are available for this delivery address yet.');
+    }catch(error){setRateError((error as Error).message);}finally{setRateLoading(false);}
+  };
 
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
@@ -433,6 +449,11 @@ export function CartDrawer({
                 <span>{t('cart.total')}</span>
                 <span>{formatINR(finalTotal)}</span>
               </div>
+            </div>
+            <div className="space-y-2">
+              <button type="button" disabled={rateLoading||cart.length===0} onClick={()=>void checkDeliveryRates()} className="w-full rounded-md border border-[#D6D3CD] bg-white px-4 py-2.5 text-xs font-semibold text-[#44403C] disabled:opacity-50">{rateLoading?'Checking courier rates…':'Check delivery rates & ETA'}</button>
+              {rateError&&<p role="status" className="text-[11px] text-amber-800">{rateError}</p>}
+              {rateGroups.map(group=><div key={group.sellerId} className="rounded-md border border-[#E8E6E1] bg-white p-2.5 space-y-1"><p className="text-[10px] font-semibold text-[#78716C]">Seller delivery options</p>{group.quotes.map(quote=><div key={quote.providerCode+quote.serviceCode} className="flex flex-wrap justify-between gap-2 text-[11px]"><span>{quote.providerCode} · {quote.estimatedTransitHours}h</span><span className="font-semibold">{formatINR(quote.costMinor/100)}</span></div>)}</div>)}
             </div>
 
             <button
