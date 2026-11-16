@@ -306,26 +306,48 @@ async function startServer() {
   });
 
   app.post('/api/logistics/rates', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'BUYER') return res.status(401).json({ error: 'BUYER_AUTH_REQUIRED' });
+    const rateLimit = await checkRateLimit('logistics-rates:' + user._id, 12, 60);
+    if (!rateLimit.allowed) return res.status(429).json({ error: 'LOGISTICS_RATE_LIMITED' });
     const parsed = z.object({
-      productIds: z.array(z.string().min(1)).min(1).max(50),
-      destinationPostalCode: z.string().trim().min(4).max(12),
-      weightGrams: z.coerce.number().int().min(1).max(100000),
-      codAmountMinor: z.coerce.number().int().min(0).default(0),
-      declaredValueMinor: z.coerce.number().int().min(0).default(0),
+      items: z.array(z.object({ productId: z.string().min(1), quantity: z.coerce.number().int().min(1).max(50) })).min(1).max(50),
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_RATE_REQUEST' });
+    const quantities = new Map<string, number>();
+    for (const item of parsed.data.items) quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
+    if ([...quantities.values()].some(quantity => quantity > 50)) return res.status(400).json({ error: 'INVALID_ITEM_QUANTITY' });
+    const productIds = [...quantities.keys()];
+    if (productIds.some(id => !mongoose.isValidObjectId(id))) return res.status(400).json({ error: 'INVALID_PRODUCT_ID' });
     try {
-      const products = await ProductModel.find({ _id: { $in: parsed.data.productIds }, isDeleted: { $ne: true }, isDiscontinued: { $ne: true } }).select('sellerId').lean() as any[];
-      const sellerIds = [...new Set(products.map(product => String(product.sellerId)))];
-      const groups = await Promise.all(sellerIds.map(async sellerId => ({
-        sellerId,
-        quotes: await getSellerRateQuotes({ sellerId, destinationPostalCode: parsed.data.destinationPostalCode,
-          weightGrams: parsed.data.weightGrams, codAmountMinor: parsed.data.codAmountMinor,
-          declaredValueMinor: parsed.data.declaredValueMinor, currency: 'INR' }),
-      })));
-      const projection = { groups, partial: groups.some(group => group.quotes.length === 0) };
+      const products = await ProductModel.find({
+        _id: { $in: productIds }, isDeleted: { $ne: true }, isActive: true, isPublished: { $ne: false },
+        listingStatus: { $nin: ['unpublished', 'discontinued'] },
+        $or: [{ visibility: { $ne: 'ASSIGNED' } }, { assignedCustomerIds: user._id }],
+      }).select('sellerId shippingWeightGrams salePrice onlinePaymentRequired codAllowed').lean() as any[];
+      if (products.length !== productIds.length) return res.status(404).json({ error: 'ONE_OR_MORE_PRODUCTS_UNAVAILABLE' });
+      const bySeller = new Map<string, { weightGrams: number; declaredValueMinor: number; codAmountMinor: number }>();
+      for (const product of products) {
+        const sellerId = String(product.sellerId);
+        const quantity = quantities.get(String(product._id)) || 0;
+        const current = bySeller.get(sellerId) || { weightGrams: 100, declaredValueMinor: 0, codAmountMinor: 0 };
+        current.weightGrams += Math.max(1, Number(product.shippingWeightGrams) || 500) * quantity;
+        current.declaredValueMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
+        if (product.codAllowed !== false && product.onlinePaymentRequired !== true) current.codAmountMinor += Math.round(Number(product.salePrice || 0) * quantity * 100);
+        bySeller.set(sellerId, current);
+      }
+      const groups = await Promise.all([...bySeller.entries()].map(async ([sellerId, parcel]) => {
+        const quotes = await getSellerRateQuotes({ sellerId, destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
+          weightGrams: parcel.weightGrams, codAmountMinor: parcel.codAmountMinor,
+          declaredValueMinor: parcel.declaredValueMinor, currency: 'INR' });
+        return { sellerId, quotes: quotes.map(({ providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score, quote }) => ({
+          providerCode, serviceCode, costMinor, currency, estimatedTransitHours, score, expiresAt: quote?.expiresAt,
+        })) };
+      }));
+      const projection = { groups, partial: groups.some(group => group.quotes.length === 0), estimateBasis: 'CATALOG_SHIPPING_WEIGHT' };
       const etag = '"' + crypto.createHash('sha256').update(JSON.stringify(projection)).digest('hex') + '"';
       res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'private, no-cache');
       if (req.headers['if-none-match'] === etag) return res.status(304).end();
       res.json(projection);
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'RATE_LOOKUP_FAILED' }); }
