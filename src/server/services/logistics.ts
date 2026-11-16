@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { encryptField, decryptField } from './fieldEncryption.js';
+import { CircuitBreaker, scoreCarriers, withTimeout } from '../../../packages/logistics-core/src/index.js';
+import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
+import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
 
 let client: SupabaseClient | null = null;
 function db(): SupabaseClient {
@@ -147,4 +150,39 @@ export async function applyLogisticsWebhook(input:{shipmentId:string;eventHash:s
   p_location_code:input.locationCode||null,p_event_timestamp:input.eventTimestamp,
   p_expected_status:input.expectedStatusCode,p_expected_last_event_at:input.expectedLastEventAt,
  }));
+}
+
+const quoteBreakers = new Map<string,CircuitBreaker>();
+const carrierHttp = { async request<T>(url:string,init:{method:string;headers:Record<string,string>;body?:unknown}):Promise<T>{
+ const response=await fetch(url,{method:init.method,headers:init.headers,...(init.body===undefined?{}:{body:JSON.stringify(init.body)})});
+ const raw=await response.text();let payload:any={};try{payload=raw?JSON.parse(raw):{};}catch{payload={message:raw};}
+ if(!response.ok)throw new Error('CARRIER_HTTP_'+response.status+':'+String(payload.message||payload.error||'request failed'));
+ return payload as T;
+}};
+function rateAdapter(code:string){
+ if(code==='shiprocket'){const url=process.env.SHIPROCKET_API_BASE_URL;if(!url)throw new Error('SHIPROCKET_API_BASE_URL_NOT_CONFIGURED');return new ShiprocketAdapter(carrierHttp,url);}
+ if(code==='shadowfax'){const url=process.env.SHADOWFAX_API_BASE_URL;if(!url)throw new Error('SHADOWFAX_API_BASE_URL_NOT_CONFIGURED');return new ShadowfaxAdapter(carrierHttp,url);}
+ throw new Error('UNSUPPORTED_CARRIER:'+code);
+}
+export async function getSellerRateQuotes(input:{sellerId:string;destinationPostalCode:string;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string}){
+ const configs=unwrap(await db().from('seller_carrier_configs').select('id,priority_rank,encrypted_credentials,logistics_providers!inner(code)')
+  .eq('seller_id',input.sellerId).eq('is_active',true)) as any[];
+ const warehouse=unwrap(await db().from('warehouses').select('id,postal_code,country_code').eq('seller_id',input.sellerId).eq('is_active',true).order('is_default',{ascending:false}).limit(1).maybeSingle()) as any;
+ if(!warehouse||!configs.length)return [];
+ const settled=await Promise.allSettled(configs.map(async config=>{
+  const provider=rateAdapter(config.logistics_providers.code);
+  const credentials=JSON.parse(decryptField(config.encrypted_credentials));
+  let breaker=quoteBreakers.get(config.id);if(!breaker){breaker=new CircuitBreaker(3,15000);quoteBreakers.set(config.id,breaker);}
+  const quotes=await breaker.execute(()=>withTimeout(provider.getRates({
+   origin:{warehouseId:warehouse.id,postalCode:warehouse.postal_code,countryCode:warehouse.country_code||'IN'},
+   destination:{warehouseId:'destination',postalCode:input.destinationPostalCode,countryCode:'IN'},
+   weightGrams:input.weightGrams,codAmountMinor:input.codAmountMinor,declaredValueMinor:input.declaredValueMinor,currency:input.currency,
+  },credentials),800));
+  return quotes.map(quote=>({configId:config.id,priorityRank:config.priority_rank,quote}));
+ }));
+ const candidates=settled.flatMap(result=>result.status==='fulfilled'?result.value:[]);
+ const scored=scoreCarriers(candidates.map(x=>({providerCode:x.quote.providerCode,serviceCode:x.quote.serviceCode,costMinor:x.quote.amountMinor,
+  estimatedTransitHours:x.quote.estimatedTransitHours,historicalRtoRate:0.5,sellerPriority:x.priorityRank,serviceable:x.quote.serviceable,currency:x.quote.currency})),
+  {cost:0.35,transit:0.30,rto:0.20,priority:0.15});
+ return scored.map(score=>{const match=candidates.find(x=>x.quote.providerCode===score.providerCode&&x.quote.serviceCode===score.serviceCode);return{...score,carrierConfigId:match?.configId,quote:match?.quote};});
 }
