@@ -52,9 +52,11 @@ export async function setProviderCarrierActive(providerUserId: string, configId:
   return unwrap(await db().from('provider_carrier_configs').update({ is_active: isActive, updated_at: new Date().toISOString() })
     .eq('id', configId).eq('provider_user_id', providerUserId).select('id,is_active').maybeSingle());
 }
-export async function getProviderCarrierSecret(configId: string, providerUserId: string) {
-  const row = unwrap(await db().from('provider_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
-    .eq('id',configId).eq('provider_user_id',providerUserId).eq('is_active',true).eq('logistics_providers.is_active',true).single()) as any;
+export async function getProviderCarrierSecret(configId: string, providerUserId: string, allowInactive = false) {
+  let query = db().from('provider_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
+    .eq('id',configId).eq('provider_user_id',providerUserId);
+  if (!allowInactive) query = query.eq('is_active',true).eq('logistics_providers.is_active',true);
+  const row = unwrap(await query.single()) as any;
   return { ...row, credentials: JSON.parse(decryptField(row.encrypted_credentials)), webhookSecret: decryptField(row.webhook_secret) };
 }
 export async function listProviderWarehouses(providerUserId: string) {
@@ -123,8 +125,14 @@ export async function listProviderShipments(providerUserId:string) {
   const configs=unwrap(await db().from('provider_carrier_configs').select('id').eq('provider_user_id',providerUserId)) as Array<{id:string}>;
   const ids=configs.map(x=>x.id);
   if(!ids.length)return [];
-  return unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,booking_status,pickup_scheduled,manifest_url,label_url,cod_amount_minor,currency,estimated_delivery_at,created_at,updated_at,manual_carrier_name,manual_tracking_reference,manual_tracking_url,provider_carrier_config_id,provider_warehouses(name,postal_code),provider_carrier_configs(logistics_providers(code,name))')
-    .in('provider_carrier_config_id',ids).order('created_at',{ascending:false}).limit(200));
+  const rows=unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,booking_status,pickup_scheduled,manifest_url,label_url,cod_amount_minor,currency,estimated_delivery_at,created_at,updated_at,manual_carrier_name,manual_tracking_reference,manual_tracking_url,provider_carrier_config_id,provider_warehouses(name,postal_code),provider_carrier_configs(logistics_providers(code,name))')
+    .in('provider_carrier_config_id',ids).order('created_at',{ascending:false}).limit(200)) as any[];
+  if(!rows.length)return rows;
+  const events=unwrap(await db().from('shipment_tracking_events').select('shipment_id,status_code,location_code,event_timestamp,event_hash')
+    .in('shipment_id',rows.map(row=>row.id)).order('event_timestamp',{ascending:false}).limit(1000)) as any[];
+  const grouped=new Map<string,any[]>();
+  for(const event of events){const key=String(event.shipment_id);const current=grouped.get(key)||[];if(current.length<20)current.push(event);grouped.set(key,current);}
+  return rows.map(row=>({...row,tracking_events:grouped.get(String(row.id))||[]}));
 }
 
 export async function listSellerCarrierConfigs(sellerId: string) {
@@ -203,22 +211,24 @@ export async function getShipmentForCustomer(orderId:string) {
     .eq('order_id',orderId).order('created_at',{ascending:false}).limit(1).maybeSingle()) as any;
   if(!shipment)return null;
   if(shipment.seller_carrier_config_id){
-    const config=await getSellerCarrierSecretForConfig(shipment.seller_carrier_config_id);
+    const config=await getSellerCarrierSecretForConfig(shipment.seller_carrier_config_id,true);
     return {...shipment,carrierCode:config.logistics_providers.code,credentials:config.credentials};
   }
   if(shipment.provider_carrier_config_id){
-    const config=await getProviderCarrierSecret(shipment.provider_carrier_config_id,shipment.fulfillment_provider_id || '');
+    const config=await getProviderCarrierSecret(shipment.provider_carrier_config_id,shipment.fulfillment_provider_id || '',true);
     return {...shipment,carrierCode:config.logistics_providers.code,credentials:config.credentials};
   }
   return null;
 }
-export async function getSellerCarrierSecretForConfig(configId:string) {
+export async function getSellerCarrierSecretForConfig(configId:string,allowInactive=false) {
  const owner=unwrap(await db().from('seller_carrier_configs').select('seller_id').eq('id',configId).single()) as any;
- return getSellerCarrierSecret(configId,String(owner.seller_id));
+ return getSellerCarrierSecret(configId,String(owner.seller_id),allowInactive);
 }
-export async function getSellerCarrierSecret(configId:string,sellerId:string) {
-  const row = unwrap(await db().from('seller_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
-    .eq('id',configId).eq('seller_id',sellerId).eq('is_active',true).eq('logistics_providers.is_active',true).single()) as any;
+export async function getSellerCarrierSecret(configId:string,sellerId:string,allowInactive=false) {
+  let query = db().from('seller_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
+    .eq('id',configId).eq('seller_id',sellerId);
+  if (!allowInactive) query = query.eq('is_active',true).eq('logistics_providers.is_active',true);
+  const row = unwrap(await query.single()) as any;
   return { ...row, credentials:JSON.parse(decryptField(row.encrypted_credentials)), webhookSecret:decryptField(row.webhook_secret) };
 }
 export async function claimLogisticsJob() {
@@ -291,12 +301,12 @@ export async function findShipmentForWebhook(providerCode:string,awbNumber:strin
   .eq('awb_number',awbNumber).maybeSingle()) as any;
  if(!row)return null;
  if(row.seller_carrier_config_id){
-  const config=await getSellerCarrierSecretForConfig(row.seller_carrier_config_id);
+  const config=await getSellerCarrierSecretForConfig(row.seller_carrier_config_id,true);
   if(String(config.logistics_providers.code)!==providerCode)return null;
   return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
  }
  if(row.provider_carrier_config_id){
-  const config=await getProviderCarrierSecret(row.provider_carrier_config_id,row.fulfillment_provider_id || '');
+  const config=await getProviderCarrierSecret(row.provider_carrier_config_id,row.fulfillment_provider_id || '',true);
   if(String(config.logistics_providers.code)!==providerCode)return null;
   return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
  }
