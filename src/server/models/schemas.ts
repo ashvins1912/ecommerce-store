@@ -326,6 +326,27 @@ export const ATLAS_SEARCH_INDEX_DEFINITION = {
   },
 };
 
+const RootInviteSchema = new Schema({
+  tokenHash: { type: String, required: true, unique: true, index: true },
+  email: { type: String, required: true, lowercase: true, trim: true, index: true },
+  role: { type: String, enum: ['ADMIN', 'SELLER', 'PROVIDER'], required: true },
+  invitedByRootId: { type: String, required: true, index: true },
+  status: { type: String, enum: ['PENDING', 'ACCEPTED', 'REVOKED'], default: 'PENDING', index: true },
+  acceptedUserId: { type: String, default: null },
+  acceptedAt: { type: Date, default: null },
+  expiresAt: { type: Date, required: true, index: true },
+}, { timestamps: true });
+RootInviteSchema.index({ email: 1, role: 1, status: 1 });
+
+const RootAccessAuditSchema = new Schema({
+  actorId: { type: String, required: true, index: true },
+  action: { type: String, required: true, index: true },
+  targetType: { type: String, default: '' },
+  targetId: { type: String, default: '' },
+  query: { type: String, default: '' },
+  ip: { type: String, default: '' },
+}, { timestamps: true });
+
 const SellerInviteSchema = new Schema(
   {
     token: { type: String, required: true, unique: true, index: true },

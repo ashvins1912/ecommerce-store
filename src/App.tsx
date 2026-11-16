@@ -832,6 +832,12 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const openCustomerSignup = () => setActivePage('signup');
+    window.addEventListener('commerce:navigate-signup', openCustomerSignup);
+    return () => window.removeEventListener('commerce:navigate-signup', openCustomerSignup);
+  }, []);
+
   const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
     setActivePage('store');
     if (cat) {
@@ -1324,30 +1330,34 @@ export default function App() {
                 </div>
               </div>
 
-              <section className="rounded-xl border border-[#E8E6E1] bg-white px-3 py-3 sm:px-4" aria-label="Quick filters">
+              <section className="rounded-xl border border-[#E8E6E1] bg-white px-3 py-2.5 sm:px-4" aria-label="Quick filters">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#78716C]">Quick filters</span>
-                  <button type="button" onClick={() => { setCategory('All'); setOccasion('All'); setSeason('All'); setPage(1); }} className="text-[11px] font-medium text-[#881337] hover:underline">Clear filters</button>
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-[#881337]" />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#78716C]">Quick filters</span>
+                    <span className="hidden text-[10px] text-[#A8A29E] sm:inline">Refine your edit</span>
+                  </div>
+                  <button type="button" onClick={() => { setCategory('All'); setOccasion('All'); setSeason('All'); setPage(1); }} className="text-[11px] font-medium text-[#881337] hover:underline">Clear all</button>
                 </div>
-                <div className="flex flex-col gap-3">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <label className="shrink-0 text-[11px] font-semibold text-[#57534E]">Category</label>
-                    <select aria-label="Category quick filter" value={category} onChange={(e) => { setCategory(e.target.value as ProductCategory | 'All'); setPage(1); }} className="h-8 min-w-[150px] rounded-md border border-[#D6D3CD] bg-[#FAF9F6] px-2.5 text-xs font-medium text-[#292524] focus:border-[#881337] focus:outline-none">
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <label className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Category</label>
+                    <select aria-label="Category quick filter" value={category} onChange={(e) => { setCategory(e.target.value as ProductCategory | 'All'); setPage(1); }} className="h-8 min-w-0 flex-1 rounded-lg border border-[#E7E5E4] bg-[#FAF9F6] px-2.5 text-xs font-medium text-[#292524] focus:border-[#881337] focus:outline-none sm:max-w-[280px]">
                       <option value="All">{t('filter.allCategories')}</option>
                       {(storeCategories.length > 0 ? storeCategories.map((c) => c.name) : ['Artificial Jewellery', 'Clothing', 'Accessories']).map((catName) => <option key={catName} value={catName}>{tc(catName)}</option>)}
                     </select>
                   </div>
-                  <div className="grid gap-2 lg:grid-cols-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="w-[58px] shrink-0 text-[11px] font-semibold text-[#57534E]">Occasion</span>
+                      <span className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Occasion</span>
                       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
-                        {OCCASIONS.map((occ) => <button key={occ} type="button" onClick={() => { setOccasion(occ); setPage(1); }} aria-pressed={occasion===occ} className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${occasion===occ?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E] hover:bg-white'}`}>{occ === 'All' ? t('filter.allOccasions') : to(occ)}</button>)}
+                        {OCCASIONS.map((occ) => <button key={occ} type="button" onClick={() => { setOccasion(occ); setPage(1); }} aria-pressed={occasion===occ} className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors ${occasion===occ?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E]'}`}>{occ === 'All' ? t('filter.allOccasions') : to(occ)}</button>)}
                       </div>
                     </div>
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="w-[58px] shrink-0 text-[11px] font-semibold text-[#57534E]">Season</span>
+                      <span className="w-[66px] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[#78716C]">Season</span>
                       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
-                        {SEASONS.map((ssn) => <button key={ssn} type="button" onClick={() => { setSeason(ssn); setPage(1); }} aria-pressed={season===ssn} className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${season===ssn?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E] hover:bg-white'}`}>{ssn === 'All' ? t('season.all') : tseason(ssn)}</button>)}
+                        {SEASONS.map((ssn) => <button key={ssn} type="button" onClick={() => { setSeason(ssn); setPage(1); }} aria-pressed={season===ssn} className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium transition-colors ${season===ssn?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E]'}`}>{ssn === 'All' ? t('season.all') : tseason(ssn)}</button>)}
                       </div>
                     </div>
                   </div>
@@ -1522,7 +1532,7 @@ export default function App() {
         onSelectProduct={handleSelectProduct}
         onQuickBuy={handleQuickBuy}
         onShareWhatsApp={handleShareWhatsApp}
-        onOpenAuth={() => setAuthOpen(true)}
+        onOpenAuth={() => { setActivePage('signup'); setAuthOpen(false); }}
         compareIds={compareIds}
         onToggleCompare={handleToggleCompare}
         categoryTop10Thresholds={catalog.categoryTop10Thresholds}

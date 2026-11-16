@@ -9,6 +9,7 @@ import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from './src/s
 import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeProfileDto, toSellerSafeProviderProfileDto, toProviderSafeProductDto, toProviderSafeSettlementDto } from './src/server/services/privacy.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel, ProviderFulfillmentDelegationModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
+import { canInviteRole } from './src/server/services/roles.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
@@ -306,28 +307,9 @@ async function startServer() {
     next();
   });
 
-  // Root is a break-glass, read-only observer across the platform. Only its own
-  // credential/session controls and root invitation lifecycle may change state.
-  app.use(async (req, res, next) => {
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
-    try {
-      const { user } = await resolveActor(req, res);
-      if (!user?.isRootSuperuser) return next();
-      const path = req.path;
-      const allowed =
-        path === '/api/auth/logout' ||
-        path === '/api/auth/sessions/rotate' ||
-        path === '/api/auth/sessions/revoke-others' ||
-        path.startsWith('/api/auth/sessions/') && req.method === 'DELETE' ||
-        path === '/api/root/password' ||
-        path === '/api/root/invites' && req.method === 'POST' ||
-        /^\\/api\\/root\\/invites\\/[^/]+\\/revoke$/.test(path) && req.method === 'POST';
-      if (!allowed) return res.status(403).json({ error: 'ROOT_READ_ONLY_RESTRICTION', message: 'Root accounts can inspect platform data and manage invitations, but cannot change business records.' });
-      return next();
-    } catch {
-      return res.status(401).json({ error: 'ROOT_SESSION_VALIDATION_FAILED' });
-    }
-  });
+  // Level 0 root is the platform-wide administrator. Route handlers still enforce
+  // their domain-specific authorization; root is represented as ADMIN plus the immutable root flag.
+
 
   // Static serving for generated images & Sharp WebP uploads
   app.use('/uploads', express.static(getUploadDir()));
@@ -1170,6 +1152,7 @@ async function startServer() {
     if (!root) return;
     const parsed = z.object({ email: z.string().trim().email().max(254), role: z.enum(['ADMIN', 'SELLER', 'PROVIDER']), expiresInDays: z.number().int().min(1).max(30).default(7), note: z.string().trim().max(300).optional().default('') }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'VALID_EMAIL_ROLE_AND_EXPIRY_REQUIRED' });
+    if (!canInviteRole(root, parsed.data.role)) return res.status(403).json({ error: 'ROLE_INVITATION_NOT_PERMITTED' });
     const email = parsed.data.email.toLowerCase();
     const existingUser = await UserModel.findOne({ email }).select('_id role isRootSuperuser').lean() as any;
     if (existingUser?.isRootSuperuser) return res.status(409).json({ error: 'ROOT_ACCOUNT_CANNOT_BE_INVITED_OR_REASSIGNED' });
@@ -1272,8 +1255,8 @@ async function startServer() {
 
   app.post('/api/admin/seller-invites', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || user.role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Only platform Administrators can issue seller invitations.' });
+    if (!user || !canInviteRole(user, 'SELLER') || user.isRootSuperuser === true) {
+      return res.status(403).json({ error: 'Only Level 1 Administrators can issue seller invitations.' });
     }
     const schema = z.object({
       email: z.string().email('Valid seller email is required').optional().or(z.literal('')),
@@ -2447,7 +2430,7 @@ async function startServer() {
 
   app.post('/api/seller/providers/invites', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    if (!user || !canInviteRole(user, 'PROVIDER') || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
     const parsed = z.object({ email: z.string().trim().email().max(254), note: z.string().max(500).optional() }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'PROVIDER_EMAIL_REQUIRED_AND_MUST_BE_VALID' });
     const normalizedEmail = parsed.data.email.toLowerCase();
@@ -2570,7 +2553,7 @@ async function startServer() {
     if (!profile) return res.status(409).json({ error: 'PROVIDER_ONBOARDING_REQUIRED' });
     if (!profile.linkedSellerIds?.length) return res.status(409).json({ error: 'LINK_TO_A_SELLER_BEFORE_SUBMITTING_PRODUCTS' });
     const parsed = z.object({
-      title: z.string().trim().min(2).max(180, category: z.string().trim().min(2).max(100),
+      title: z.string().trim().min(2).max(180), category: z.string().trim().min(2).max(100),
       subCategory: z.string().max(100).optional().default(''), description: z.string().trim().min(10).max(5000),
       brand: z.string().max(120).optional().default(''), manufacturerName: z.string().trim().min(2).max(180),
       manufacturingDate: z.string().optional(), sizeVariants: z.array(z.string().max(40)).max(40).optional().default([]),
@@ -2832,7 +2815,7 @@ async function startServer() {
     const profile = await ProviderProfileModel.findOne({ userId: user._id }).lean();
     if (!profile || !(profile.linkedSellerIds || []).includes(parsed.data.sellerId)) return res.status(403).json({ error: 'SELLER_NOT_LINKED_TO_PROVIDER' });
     const configs = await listProviderCarrierConfigs(user._id);
-    const configuredCodes = new Set(configs.filter((c: any) => c.is_active).map((c: any) => String(c.logistics_providers?.code || '').toLowerCase()));
+    const configuredCodes = new Set((configs || []).filter((c: any) => c.is_active).map((c: any) => String(c.logistics_providers?.code || '').toLowerCase()));
     if (parsed.data.carrierCodes.some(code => !configuredCodes.has(code))) return res.status(409).json({ error: 'REQUESTED_CARRIER_NOT_CONFIGURED_BY_PROVIDER' });
     const existing = await ProviderFulfillmentDelegationModel.findOne({ sellerId: parsed.data.sellerId, providerId: user._id });
     if (existing?.status === 'ACTIVE') return res.status(409).json({ error: 'FULFILLMENT_DELEGATION_ALREADY_ACTIVE' });
