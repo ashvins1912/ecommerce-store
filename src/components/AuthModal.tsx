@@ -12,6 +12,7 @@ import type { AuthSessionSummary, CartItem, User } from '../shared/types';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onLogout?: () => Promise<void>;
   user: User | null;
   initialMode?: 'signin' | 'signup';
   onAuthChanged: (payload: {
@@ -24,6 +25,7 @@ interface AuthModalProps {
 export function AuthModal({
   isOpen,
   onClose,
+  onLogout,
   user,
   initialMode = 'signin',
   onAuthChanged,
@@ -230,17 +232,24 @@ export function AuthModal({
   };
 
   const handleLogout = async () => {
+    setError(null);
     setLoading(true);
     try {
-      await apiFetch('/api/auth/logout', { method: 'POST' });
-      clearClientSessionTokens();
-      const me = await apiFetch<{
-        user: User | null;
-        likedProductIds: string[];
-        cart: CartItem[];
-      }>('/api/auth/me');
-      onAuthChanged(me);
-      onClose();
+      if (onLogout) {
+        await onLogout();
+      } else {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+        clearClientSessionTokens();
+        const me = await apiFetch<{
+          user: User | null;
+          likedProductIds: string[];
+          cart: CartItem[];
+        }>('/api/auth/me');
+        onAuthChanged(me);
+        onClose();
+      }
+    } catch (err) {
+      setError((err as Error).message || 'Unable to sign out. Please try again.');
     } finally {
       setLoading(false);
     }
