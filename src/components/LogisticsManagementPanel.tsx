@@ -6,7 +6,7 @@ type Provider = { id:string;code:string;name:string;type:'DIRECT'|'AGGREGATOR';a
 type Carrier = {id:string;provider_id:string;priority_rank:number;is_active:boolean;logistics_providers?:{code:string;name:string;type:string}};
 type WarehouseRow = {id:string;warehouse_code:string;name:string;city:string;state:string;postal_code:string;is_default:boolean};
 type DisclosurePolicy = {recipientName:boolean;recipientPhone:boolean;recipientAddress:boolean;recipientEmail:boolean};
-type DisclosureAudit = {orderId:string;carrierCode:string;fieldsAuthorized:string[];authorizedAt:string;actorId:string};
+type DisclosureAudit = {orderId:string;carrierCode:string;fieldsAuthorized:string[];authorizedAt:string;actorId:string;dispatchStatus?:'AUTHORIZED'|'DISPATCHING'|'DISPATCHED'|'NOT_DISPATCHED'|'BLOCKED'|'FAILED';dispatchedAt?:string|null;dispatchErrorCode?:string|null};
 type Shipment = {id:string;order_id:string;awb_number?:string;normalized_status:number;booking_status:'PENDING'|'PROCESSING'|'BOOKED'|'FAILED';pickup_scheduled:boolean;manifest_url?:string;label_url?:string;created_at:string;warehouses?:{name:string;postal_code:string};seller_carrier_configs?:{logistics_providers?:{code:string;name:string}}};
 const statusNames:Record<number,string>={10:'Created',20:'Manifested',30:'In transit',40:'Out for delivery',50:'Delivered',60:'NDR',70:'RTO initiated',80:'RTO delivered',90:'Cancelled'};
 
@@ -40,7 +40,7 @@ export function LogisticsManagementPanel(){
   </form>
   <div className="overflow-hidden rounded-xl border border-[#E8E6E1] bg-white">
    <div className="border-b p-4"><h3 className="font-semibold">Carrier disclosure audit</h3><p className="mt-1 text-xs text-[#78716C]">Seller-authorized customer fields recorded for shipment fulfilment. Latest 100 records.</p></div>
-   {disclosures.length?<div className="divide-y">{disclosures.map((d,i)=><div key={d.orderId+'-'+d.authorizedAt+'-'+i} className="flex flex-wrap items-center justify-between gap-2 p-3 text-xs"><span><strong>{d.carrierCode.toUpperCase()}</strong> · Order {d.orderId}</span><span className="text-[#78716C]">{d.fieldsAuthorized.join(', ')} · {new Date(d.authorizedAt).toLocaleString()}</span></div>)}</div>:<p className="p-4 text-xs text-[#78716C]">No carrier disclosure authorizations recorded.</p>}
+   {disclosures.length?<div className="divide-y">{disclosures.map((d,i)=><div key={d.orderId+'-'+d.authorizedAt+'-'+i} className="flex flex-wrap items-center justify-between gap-2 p-3 text-xs"><span><strong>{d.carrierCode.toUpperCase()}</strong> · Order {d.orderId}</span><span className="text-[#78716C]">{d.fieldsAuthorized.join(', ')} · {d.dispatchStatus||'AUTHORIZED'} · {d.dispatchedAt?new Date(d.dispatchedAt).toLocaleString():new Date(d.authorizedAt).toLocaleString()}{d.dispatchErrorCode?' · '+d.dispatchErrorCode:''}</span></div>)}</div>:<p className="p-4 text-xs text-[#78716C]">No carrier disclosure authorizations recorded.</p>}
   </div>
   <div className="grid gap-5 xl:grid-cols-2">
    <form onSubmit={saveCarrier} className="space-y-3 rounded-xl border border-[#E8E6E1] bg-white p-4 sm:p-5"><div className="flex items-center gap-2"><Truck className="h-4 w-4"/><h3 className="font-semibold">Carrier accounts</h3></div>
