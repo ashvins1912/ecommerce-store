@@ -1343,7 +1343,7 @@ export default function App() {
           </section>
 
           {/* Recently Viewed Horizontal Carousel (persisted in sessionStorage, last 5 clicked) */}
-          <RecentlyViewedCarousel
+          {recentlyViewed.length > 0 && <RecentlyViewedCarousel
             items={recentlyViewed}
             likedIds={likedIds}
             onToggleLike={handleToggleLike}
@@ -1355,7 +1355,7 @@ export default function App() {
             onToggleCompare={handleToggleCompare}
             categoryTop10Thresholds={catalog.categoryTop10Thresholds}
             onClearHistory={clearRecentlyViewed}
-          />
+          />}
         </main>
       )}
 
