@@ -2472,7 +2472,7 @@ async function startServer() {
     res.json({ delegations: rows.map((row: any) => ({
       providerId: row.providerId, provider: byId.get(row.providerId) || null,
       requestedCarrierCodes: row.requestedCarrierCodes, requestedDisclosureFields: row.requestedDisclosureFields,
-      requestedAt: row.requestedAt,
+      requestedAt: row.requestedAt, status: row.status, allowedCarrierCodes: row.allowedCarrierCodes, allowedDisclosureFields: row.allowedDisclosureFields, expiresAt: row.expiresAt,
     })) });
   });
 
