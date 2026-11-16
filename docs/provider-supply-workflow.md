@@ -119,3 +119,27 @@ Use `usr_provider_2` and `provider.nisha@example.com` for the second account. Th
 - BUYER / guest sessions land on the customer storefront.
 - Tailwind CSS v4 is the UI utility system. The shared stylesheet imports `tailwindcss` and scans `src`, `apps` and `packages`; Vite uses `@tailwindcss/vite`. Provider dashboard layouts use responsive utility breakpoints, min-width-safe grids and overflow-managed tables. Seller dashboard components use the shared Tailwind stylesheet.
 - Verify at 360px, 390px, 768px, 1024px and 1440px widths. Check no horizontal page overflow, keyboard focus, touch target sizing, form wrapping, dialog scrolling and table horizontal scrolling.
+
+## Customer privacy and carrier disclosure enforcement
+
+Customer delivery details are seller-controlled data. The privacy controls are enforced by the API and logistics worker; hiding fields in the React UI is not an authorization boundary.
+
+- `GET/PUT /api/seller/privacy-settings` reads and writes the seller's own policy. The request schema is strict, seller access requires a verified seller session (Admin is permitted for administration), responses are `private, no-store`, and a missing policy is treated as all-false (deny by default).
+- The seller must explicitly enable recipient name, phone and delivery address before a shipment can be queued. Customer email is a separate optional permission; Shiprocket additionally requires both explicit email permission and a non-empty buyer email. A carrier that does not require email is not sent an email when the buyer email is absent.
+- `POST /api/seller/logistics/shipments` verifies that the order and carrier configuration belong to the authenticated seller, evaluates the current disclosure policy, and records an authorization audit with the exact fields, carrier, order, actor and timestamp. The queue payload contains encrypted delivery data rather than plaintext customer contact/address fields.
+- The logistics worker decrypts the minimum delivery payload, reloads the seller's current policy and re-evaluates authorization. It compares the currently authorized field set with the queued field set and fails closed if consent has been revoked or changed. It repeats the check immediately before calling the carrier adapter. The worker refuses to dispatch if the policy database or encryption key is unavailable.
+- Provider-facing profile, catalogue and receivable endpoints use explicit allowlist DTO projections. Provider product negotiation comments are omitted because they are free-form text and could accidentally contain personal data. The safe order summary helper is available for any future provider order view; do not return raw `OrderModel` documents from provider routes.
+- Provider accounts have no order-list or customer-contact endpoint. Seller order and fulfilment operations remain seller-scoped; carrier disclosure is the only path that sends required delivery fields to an external carrier.
+
+Run the privacy regression suite with:
+
+```bash
+npm run test:privacy
+```
+
+Production deployment requirements:
+- Configure MongoDB and `ENCRYPTION_MASTER_KEY` on both the API and logistics worker. They must use the same key so queued ciphertext can be decrypted.
+- Configure the logistics PostgreSQL service-role connection and apply the logistics SQL migrations before enabling the worker.
+- Deploy the API and worker from the same release. Do not run a worker build that predates the privacy recheck.
+- Keep the worker private; it must not expose an HTTP endpoint for reading queue payloads or customer data.
+- Before enabling a carrier, verify its sandbox request contains only the seller-authorized recipient fields. Test both an enabled and revoked policy, including revocation while a job is queued.
