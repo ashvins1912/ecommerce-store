@@ -172,3 +172,9 @@ The CI workflow now runs the existing logistics tests and the new hybrid-engine 
 - Category top-10 thresholds are computed in a Mongo aggregation window rather than transferring the full product catalog to the Node process for standard browse requests.
 - Semantic search, campaign-specific filtering, color filtering and non-indexed legacy sort modes deliberately retain the established in-memory pipeline until their ranking semantics are separately optimized and regression-tested.
 - L1/L2 LRU-K cache, single-flight request coalescing and Merkle delta synchronization remain outstanding.
+
+
+### Cache and delta primitives (P2)
+- Added bounded LRU-K L1 cache and integrated it with the existing Redis L2 logistics cache.
+- Added process-local single-flight coalescing around carrier quote cache misses; negative quote results receive a short cache lifetime.
+- Added deterministic Merkle snapshot and added/updated/deleted diff primitives with unit coverage. They are ready for a future catalog synchronization endpoint but are not yet wired to a client sync API.
