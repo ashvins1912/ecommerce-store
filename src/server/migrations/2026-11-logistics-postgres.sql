@@ -39,7 +39,9 @@ CREATE TABLE shipments (
  currency CHAR(3) NOT NULL DEFAULT 'INR', estimated_delivery_at TIMESTAMPTZ, last_event_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX shipments_order_seller_idx ON shipments(order_id,seller_id,created_at DESC);
+CREATE INDEX shipments_order_idx ON shipments(order_id,created_at DESC);
+-- This platform creates one parcel shipment per seller order. Use a package table before enabling multi-parcel orders.
+CREATE UNIQUE INDEX shipments_one_per_order_idx ON shipments(order_id);
 CREATE INDEX shipments_warehouse_status_idx ON shipments(warehouse_id,normalized_status,updated_at DESC);
 CREATE UNIQUE INDEX shipments_config_awb_unique_idx ON shipments(seller_carrier_config_id,awb_number) WHERE awb_number IS NOT NULL;
 CREATE TABLE shipment_tracking_events (
@@ -83,11 +85,13 @@ CREATE OR REPLACE FUNCTION claim_logistics_job()
 RETURNS SETOF logistics_jobs LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
 DECLARE claimed logistics_jobs;
 BEGIN
+ UPDATE logistics_jobs SET status='FAILED',locked_at=NULL,last_error=COALESCE(last_error,'Worker lease expired after maximum attempts')
+ WHERE status='PROCESSING' AND locked_at<now()-interval '10 minutes' AND attempts>=max_attempts;
  SELECT * INTO claimed FROM logistics_jobs
  WHERE ((status='PENDING' AND available_at<=now()) OR (status='PROCESSING' AND locked_at<now()-interval '10 minutes')) AND attempts<max_attempts
- ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1;
+ ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED;
  IF NOT FOUND THEN RETURN; END IF;
- UPDATE logistics_jobs SET status='PROCESSING',locked_at=now() WHERE id=claimed.id RETURNING * INTO claimed;
+ UPDATE logistics_jobs SET status='PROCESSING',locked_at=now(),attempts=attempts+1 WHERE id=claimed.id RETURNING * INTO claimed;
  RETURN NEXT claimed;
 END; $;
 
@@ -119,11 +123,46 @@ BEGIN
  RETURN TRUE;
 END; $;
 
--- Restrict queue and event mutations to service-role callers. Configure grants to match your Supabase roles.
+
+-- A default-warehouse change and insert are one transaction, protected by the partial unique index.
+CREATE OR REPLACE FUNCTION create_seller_warehouse(p_seller_id TEXT,p_warehouse JSONB)
+RETURNS SETOF warehouses LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+DECLARE created warehouses;
+BEGIN
+ IF COALESCE((p_warehouse->>'is_default')::boolean,FALSE) THEN
+  UPDATE warehouses SET is_default=FALSE,updated_at=now() WHERE seller_id=p_seller_id AND is_default=TRUE;
+ END IF;
+ INSERT INTO warehouses(seller_id,warehouse_code,name,contact_name,contact_phone,address_line1,address_line2,locality,city,state,postal_code,country_code,is_default)
+ VALUES(p_seller_id,p_warehouse->>'warehouse_code',p_warehouse->>'name',p_warehouse->>'contact_name',p_warehouse->>'contact_phone',
+  p_warehouse->>'address_line1',NULLIF(p_warehouse->>'address_line2',''),NULLIF(p_warehouse->>'locality',''),
+  p_warehouse->>'city',p_warehouse->>'state',p_warehouse->>'postal_code',COALESCE(p_warehouse->>'country_code','IN'),
+  COALESCE((p_warehouse->>'is_default')::boolean,FALSE))
+ RETURNING * INTO created;
+ RETURN NEXT created;
+END; $;
+
+-- Service-role-only access. The application never exposes the service-role key to browsers.
+ALTER TABLE logistics_providers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE seller_carrier_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE warehouses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shipments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE shipment_tracking_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE logistics_jobs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON logistics_providers,seller_carrier_configs,warehouses,shipments,shipment_tracking_events,logistics_jobs FROM PUBLIC,anon,authenticated;
+GRANT SELECT ON logistics_providers TO service_role;
+GRANT SELECT,INSERT,UPDATE ON seller_carrier_configs,warehouses,shipments,logistics_jobs TO service_role;
+GRANT SELECT,INSERT ON shipment_tracking_events TO service_role;
+GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+REVOKE EXECUTE ON FUNCTION claim_logistics_job() FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHAR,TIMESTAMPTZ,SMALLINT,TIMESTAMPTZ) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION claim_logistics_job() TO service_role;
+GRANT EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHAR,TIMESTAMPTZ,SMALLINT,TIMESTAMPTZ) TO service_role;
+GRANT EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) TO service_role;
 
 COMMIT;
 -- Compact status codes: 10 CREATED,20 MANIFESTED,30 IN_TRANSIT,40 OUT_FOR_DELIVERY,
 -- 50 DELIVERED,60 NDR,70 RTO_INITIATED,80 RTO_DELIVERED,90 CANCELLED.
--- Encrypt BYTEA envelopes with AES-256-GCM and a KMS-managed 32-byte key; never store keys here.
+-- Encrypt TEXT AES-256-GCM envelopes with the app's 32-byte ENCRYPTION_MASTER_KEY; never store keys here.
 -- Apply only after provisioning PostgreSQL. Do not dual-write existing MongoDB orders without a
 -- separately reviewed backfill/reconciliation/cutover plan. Revoke UPDATE/DELETE on event table from app roles.
