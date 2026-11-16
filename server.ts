@@ -2240,6 +2240,7 @@ async function startServer() {
     const settledRecords: any[] = [];
     try {
       await session.withTransaction(async () => {
+        settledRecords.length = 0;
         const records = await ProviderSettlementModel.find(filter).session(session);
         if (records.length !== parsed.data.settlementIds.length) throw new Error('ONE_OR_MORE_SETTLEMENTS_NOT_PAYABLE');
         for (const record of records) {
