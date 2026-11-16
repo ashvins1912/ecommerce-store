@@ -2353,6 +2353,257 @@ async function startServer() {
     res.status(201).json({ product: listing });
   });
 
+  // Provider-owned courier accounts and pickup locations.
+  app.get('/api/provider/logistics/carriers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    try {
+      const [providers, carriers] = await Promise.all([listLogisticsProviders(), listProviderCarrierConfigs(user._id)]);
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ providers, carriers });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_CARRIER_LIST_FAILED' }); }
+  });
+
+  app.post('/api/provider/logistics/carriers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({ providerId: z.string().uuid(), credentials: z.record(z.string(), z.string()), priorityRank: z.coerce.number().int().min(0).max(10000).default(100) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_CARRIER_CONFIG' });
+    try {
+      const carrier = await saveProviderCarrierConfig({ providerUserId: user._id, ...parsed.data });
+      await providerAudit(user, 'PROVIDER_CARRIER_CONFIG_SAVED', user._id, carrier.id, { providerId: parsed.data.providerId });
+      res.status(201).json({ carrier, message: 'Carrier credentials validated and encrypted. Copy the one-time webhook secret now.' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_CARRIER_SAVE_FAILED' }); }
+  });
+
+  app.patch('/api/provider/logistics/carriers/:id/active', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({ isActive: z.boolean() }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_ACTIVE_FLAG' });
+    try {
+      const carrier = await setProviderCarrierActive(user._id, req.params.id, parsed.data.isActive);
+      if (!carrier) return res.status(404).json({ error: 'PROVIDER_CARRIER_NOT_FOUND' });
+      await providerAudit(user, 'PROVIDER_CARRIER_CONFIG_TOGGLED', user._id, req.params.id, { isActive: parsed.data.isActive });
+      res.json({ carrier });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_CARRIER_UPDATE_FAILED' }); }
+  });
+
+  app.get('/api/provider/logistics/warehouses', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    try { res.setHeader('Cache-Control', 'private, no-store'); res.json({ warehouses: await listProviderWarehouses(user._id) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_WAREHOUSE_LIST_FAILED' }); }
+  });
+
+  app.post('/api/provider/logistics/warehouses', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({
+      warehouseCode: z.string().trim().min(2).max(64), name: z.string().trim().min(2).max(120),
+      contactName: z.string().trim().min(2).max(120), contactPhone: z.string().trim().min(8).max(24),
+      addressLine1: z.string().trim().min(3).max(180), addressLine2: z.string().max(180).optional(),
+      city: z.string().trim().min(2).max(100), state: z.string().trim().min(2).max(100),
+      postalCode: z.string().trim().regex(/^\\d{5,6}$/), countryCode: z.string().length(2).default('IN'),
+      isDefault: z.boolean().default(false),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_WAREHOUSE' });
+    try { res.status(201).json({ warehouse: await createProviderWarehouse({ providerUserId: user._id, ...parsed.data }) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_WAREHOUSE_SAVE_FAILED' }); }
+  });
+
+  app.get('/api/provider/fulfillment-delegations', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const rows = await ProviderFulfillmentDelegationModel.find({ providerId: user._id }).sort({ updatedAt: -1 }).lean();
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ delegations: rows.map((row: any) => ({
+      sellerId: row.sellerId, status: row.status, requestedCarrierCodes: row.requestedCarrierCodes,
+      allowedCarrierCodes: row.allowedCarrierCodes, requestedDisclosureFields: row.requestedDisclosureFields,
+      allowedDisclosureFields: row.allowedDisclosureFields, requestedAt: row.requestedAt,
+      approvedAt: row.approvedAt, expiresAt: row.expiresAt,
+    })) });
+  });
+
+  app.post('/api/provider/fulfillment-delegations', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({
+      sellerId: z.string().min(1).max(100),
+      carrierCodes: z.array(z.string().trim().toLowerCase().min(2).max(48)).min(1).max(10),
+      disclosureFields: z.array(z.enum(['recipientName','recipientPhone','recipientAddress','recipientEmail'])).min(3).max(4),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_FULFILLMENT_DELEGATION_REQUEST' });
+    const profile = await ProviderProfileModel.findOne({ userId: user._id }).lean();
+    if (!profile || !(profile.linkedSellerIds || []).includes(parsed.data.sellerId)) return res.status(403).json({ error: 'SELLER_NOT_LINKED_TO_PROVIDER' });
+    const configs = await listProviderCarrierConfigs(user._id);
+    const configuredCodes = new Set(configs.filter((c: any) => c.is_active).map((c: any) => String(c.logistics_providers?.code || '').toLowerCase()));
+    if (parsed.data.carrierCodes.some(code => !configuredCodes.has(code))) return res.status(409).json({ error: 'REQUESTED_CARRIER_NOT_CONFIGURED_BY_PROVIDER' });
+    const existing = await ProviderFulfillmentDelegationModel.findOne({ sellerId: parsed.data.sellerId, providerId: user._id });
+    if (existing?.status === 'ACTIVE') return res.status(409).json({ error: 'FULFILLMENT_DELEGATION_ALREADY_ACTIVE' });
+    const delegation = await ProviderFulfillmentDelegationModel.findOneAndUpdate(
+      { sellerId: parsed.data.sellerId, providerId: user._id },
+      { $set: { status: 'REQUESTED', requestedCarrierCodes: parsed.data.carrierCodes, requestedDisclosureFields: parsed.data.disclosureFields, allowedCarrierCodes: [], allowedDisclosureFields: [], requestedAt: new Date(), approvedAt: null, approvedBy: '', revokedAt: null, expiresAt: null } },
+      { upsert: true, returnDocument: 'after', runValidators: true },
+    ).lean();
+    await providerAudit(user, 'PROVIDER_FULFILLMENT_DELEGATION_REQUESTED', user._id, parsed.data.sellerId, { carrierCodes: parsed.data.carrierCodes, disclosureFields: parsed.data.disclosureFields });
+    res.status(202).json({ delegation: { sellerId: delegation?.sellerId, status: delegation?.status }, message: 'Seller authorization requested.' });
+  });
+
+  app.get('/api/seller/providers/fulfillment-delegations', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const filter = user!.role === 'ADMIN' ? { status: 'REQUESTED' } : { sellerId: user!._id, status: 'REQUESTED' };
+    const rows = await ProviderFulfillmentDelegationModel.find(filter).sort({ requestedAt: 1 }).lean();
+    const providerIds = [...new Set(rows.map((row: any) => row.providerId))];
+    const profiles = await ProviderProfileModel.find({ userId: { $in: providerIds } }).select('userId businessName contactPerson kycStatus').lean();
+    const byId = new Map(profiles.map((p: any) => [p.userId, p]));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ delegations: rows.map((row: any) => ({
+      providerId: row.providerId, provider: byId.get(row.providerId) || null,
+      requestedCarrierCodes: row.requestedCarrierCodes, requestedDisclosureFields: row.requestedDisclosureFields,
+      requestedAt: row.requestedAt,
+    })) });
+  });
+
+  app.post('/api/seller/providers/fulfillment-delegations/:providerId/approve', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    if (user!.role !== 'ADMIN' && !mongoose.isValidObjectId(user!._id)) return res.status(400).json({ error: 'INVALID_SELLER_ID' });
+    const parsed = z.object({
+      carrierCodes: z.array(z.string().trim().toLowerCase().min(2).max(48)).min(1).max(10),
+      disclosureFields: z.array(z.enum(['recipientName','recipientPhone','recipientAddress','recipientEmail'])).min(3).max(4),
+      expiresAt: z.string().datetime().optional(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_DELEGATION_APPROVAL' });
+    const sellerId = user!._id;
+    const filter: any = { providerId: req.params.providerId, status: 'REQUESTED' };
+    if (user!.role !== 'ADMIN') filter.sellerId = sellerId;
+    const requested = await ProviderFulfillmentDelegationModel.findOne(filter);
+    if (!requested) return res.status(404).json({ error: 'FULFILLMENT_REQUEST_NOT_FOUND' });
+    const requestedCodes = new Set(requested.requestedCarrierCodes || []);
+    if (parsed.data.carrierCodes.some(code => !requestedCodes.has(code))) return res.status(400).json({ error: 'APPROVED_CARRIERS_EXCEED_REQUEST' });
+    const requestedFields = new Set(requested.requestedDisclosureFields || []);
+    if (parsed.data.disclosureFields.some(field => !requestedFields.has(field))) return res.status(400).json({ error: 'APPROVED_DISCLOSURE_EXCEEDS_REQUEST' });
+    const privacy = await SellerPrivacySettingsModel.findOne({ sellerId: requested.sellerId }).lean();
+    const policy = normalizeCarrierDisclosurePolicy(privacy?.carrierDisclosure || DEFAULT_CARRIER_DISCLOSURE_POLICY);
+    const requiredFields = ['recipientName','recipientPhone','recipientAddress'];
+    if (requiredFields.some(field => !parsed.data.disclosureFields.includes(field as any) || !policy[field as keyof typeof policy])) return res.status(403).json({ error: 'SELLER_PRIVACY_POLICY_DOES_NOT_ALLOW_REQUIRED_DISCLOSURE' });
+    if (parsed.data.carrierCodes.includes('shiprocket') && (!parsed.data.disclosureFields.includes('recipientEmail') || !policy.recipientEmail)) return res.status(403).json({ error: 'SHIPROCKET_REQUIRES_SEPARATE_EMAIL_DISCLOSURE_PERMISSION' });
+    const now = new Date();
+    const updated = await ProviderFulfillmentDelegationModel.findOneAndUpdate(
+      { _id: requested._id, status: 'REQUESTED' },
+      { $set: { status: 'ACTIVE', allowedCarrierCodes: parsed.data.carrierCodes, allowedDisclosureFields: parsed.data.disclosureFields, approvedAt: now, approvedBy: user!._id, expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null } },
+      { returnDocument: 'after', runValidators: true },
+    ).lean();
+    await providerAudit(user!, 'SELLER_APPROVED_PROVIDER_FULFILLMENT', req.params.providerId, String(requested._id), { carrierCodes: parsed.data.carrierCodes, disclosureFields: parsed.data.disclosureFields });
+    res.json({ delegation: { providerId: req.params.providerId, status: updated?.status, allowedCarrierCodes: updated?.allowedCarrierCodes, allowedDisclosureFields: updated?.allowedDisclosureFields, expiresAt: updated?.expiresAt } });
+  });
+
+  app.post('/api/seller/providers/fulfillment-delegations/:providerId/revoke', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireVerifiedLogisticsSeller(user)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    const filter: any = { providerId: req.params.providerId, status: 'ACTIVE' };
+    if (user!.role !== 'ADMIN') filter.sellerId = user!._id;
+    const updated = await ProviderFulfillmentDelegationModel.findOneAndUpdate(filter, { $set: { status: 'REVOKED', revokedAt: new Date() } }, { returnDocument: 'after' }).lean();
+    if (!updated) return res.status(404).json({ error: 'ACTIVE_FULFILLMENT_DELEGATION_NOT_FOUND' });
+    await providerAudit(user!, 'SELLER_REVOKED_PROVIDER_FULFILLMENT', req.params.providerId, String(updated._id));
+    res.json({ delegation: { providerId: req.params.providerId, status: updated.status, revokedAt: updated.revokedAt } });
+  });
+
+  app.post('/api/provider/shipments/rates', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({ orderId: z.string().min(1), carrierConfigId: z.string().uuid(), warehouseId: z.string().uuid(), weightGrams: z.coerce.number().int().min(1).max(100000) }).strict().safeParse(req.body);
+    if (!parsed.success || !mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_PROVIDER_RATE_REQUEST' });
+    try {
+      const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
+      if (!order || !['Packed'].includes(order.status) || (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID')) return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PROVIDER_SHIPMENT' });
+      const products = await ProductModel.find({ _id: { $in: order.items.map((item: any) => item.productId) }, providerId: user._id }).select('_id').lean();
+      if (!order.items.length || products.length !== order.items.length) return res.status(403).json({ error: 'ORDER_NOT_EXCLUSIVELY_FULFILLED_BY_PROVIDER' });
+      const delegation = await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean();
+      if (!delegation) return res.status(403).json({ error: 'SELLER_FULFILLMENT_AUTHORIZATION_REQUIRED' });
+      const config = await getProviderCarrierSecret(parsed.data.carrierConfigId, user._id);
+      const carrierCode = String(config.logistics_providers.code).toLowerCase();
+      if (!(delegation.allowedCarrierCodes || []).includes(carrierCode)) return res.status(403).json({ error: 'CARRIER_NOT_APPROVED_BY_SELLER' });
+      if (!(delegation.allowedDisclosureFields || []).includes('recipientAddress')) return res.status(403).json({ error: 'SELLER_ADDRESS_DISCLOSURE_NOT_APPROVED' });
+      const privacy = await SellerPrivacySettingsModel.findOne({ sellerId: String(order.sellerId) }).lean();
+      if (!privacy?.carrierDisclosure?.recipientAddress) return res.status(403).json({ error: 'SELLER_ADDRESS_DISCLOSURE_REVOKED' });
+      const quotes = await getProviderRateQuotes({ providerUserId: user._id, carrierConfigId: parsed.data.carrierConfigId, warehouseId: parsed.data.warehouseId, destinationPostalCode: String(order.shippingAddress?.pincode || ''), weightGrams: parsed.data.weightGrams, codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0, declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR' });
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json({ quotes: quotes.map((row: any) => ({ providerCode: row.providerCode, serviceCode: row.quote.serviceCode, amountMinor: row.quote.amountMinor, currency: row.quote.currency, estimatedTransitHours: row.quote.estimatedTransitHours, serviceable: row.quote.serviceable, codSupported: row.quote.codSupported, expiresAt: row.quote.expiresAt })) });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_RATE_LOOKUP_FAILED' }); }
+  });
+
+  app.post('/api/provider/shipments/book', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({ orderId: z.string().min(1), carrierConfigId: z.string().uuid(), warehouseId: z.string().uuid(), weightGrams: z.coerce.number().int().min(1).max(100000), serviceCode: z.string().trim().min(1).max(120) }).strict().safeParse(req.body);
+    if (!parsed.success || !mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_PROVIDER_SHIPMENT_BOOKING' });
+    let auditId: string | null = null;
+    try {
+      const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
+      if (!order || order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_SHIPMENT' });
+      if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
+      const providerProducts = await ProductModel.find({ _id: { $in: order.items.map((item: any) => item.productId) }, providerId: user._id }).select('_id').lean();
+      if (!order.items.length || providerProducts.length !== order.items.length) return res.status(403).json({ error: 'ORDER_NOT_EXCLUSIVELY_FULFILLED_BY_PROVIDER' });
+      const delegation = await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean() as any;
+      if (!delegation) return res.status(403).json({ error: 'SELLER_FULFILLMENT_AUTHORIZATION_REQUIRED' });
+      const config = await getProviderCarrierSecret(parsed.data.carrierConfigId, user._id);
+      const carrierCode = String(config.logistics_providers.code).toLowerCase();
+      if (!(delegation.allowedCarrierCodes || []).includes(carrierCode)) return res.status(403).json({ error: 'CARRIER_NOT_APPROVED_BY_SELLER' });
+      const buyer = await findUserById(String(order.buyerId));
+      const privacy = await SellerPrivacySettingsModel.findOne({ sellerId: String(order.sellerId) }).lean();
+      const authorization = authorizeCarrierDisclosure(privacy?.carrierDisclosure, carrierCode, buyer?.email);
+      if (!authorization.allowed) return res.status(403).json({ error: 'SELLER_CUSTOMER_DATA_DISCLOSURE_NOT_AUTHORIZED', requiredFields: authorization.missing });
+      const fields = authorization.fields.filter((field: string) => (delegation.allowedDisclosureFields || []).includes(field));
+      if (!fields.includes('recipientName') || !fields.includes('recipientPhone') || !fields.includes('recipientAddress')) return res.status(403).json({ error: 'DELEGATION_DOES_NOT_ALLOW_REQUIRED_DELIVERY_FIELDS' });
+      if (carrierCode === 'shiprocket' && !fields.includes('recipientEmail')) return res.status(403).json({ error: 'SHIPROCKET_EMAIL_DISCLOSURE_NOT_APPROVED' });
+      const address = order.shippingAddress || {};
+      const pin = String(address.pincode || '').trim();
+      if (!pin || !address.street || !address.city || !address.state || !address.fullName || !address.phone) return res.status(422).json({ error: 'ORDER_SHIPPING_ADDRESS_INCOMPLETE' });
+      const quoteRows = await getProviderRateQuotes({ providerUserId: user._id, carrierConfigId: parsed.data.carrierConfigId, warehouseId: parsed.data.warehouseId, destinationPostalCode: pin, weightGrams: parsed.data.weightGrams, codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0, declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR' });
+      const chosen = quoteRows.find((row: any) => row.quote.serviceCode === parsed.data.serviceCode && row.quote.serviceable && Date.parse(row.quote.expiresAt) > Date.now());
+      if (!chosen) return res.status(409).json({ error: 'SELECTED_CARRIER_SERVICE_QUOTE_EXPIRED_OR_UNAVAILABLE' });
+      if (order.paymentMode === 'COD' && !chosen.quote.codSupported) return res.status(409).json({ error: 'CARRIER_SERVICE_DOES_NOT_SUPPORT_COD' });
+      if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
+      const audit = await PrivacyDisclosureAuditModel.create({ sellerId: String(order.sellerId), orderId: String(order._id), carrierConfigId: parsed.data.carrierConfigId, carrierCode, fieldsAuthorized: fields, actorId: user._id, authorizedAt: new Date(), dispatchStatus: 'AUTHORIZED', purpose: 'SHIPMENT_FULFILLMENT' });
+      auditId = String(audit._id);
+      const result = await createProviderShipmentIntent({
+        orderId: String(order._id), sellerId: String(order.sellerId), providerUserId: user._id,
+        providerCarrierConfigId: parsed.data.carrierConfigId, carrierCode, providerWarehouseId: parsed.data.warehouseId,
+        weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode, destinationPostalCode: pin, destinationCountryCode: 'IN',
+        codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
+        declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
+        recipientName: fields.includes('recipientName') ? String(address.fullName) : '',
+        recipientPhone: fields.includes('recipientPhone') ? String(address.phone) : '',
+        recipientEmail: fields.includes('recipientEmail') ? String(buyer?.email || '') : '',
+        disclosureAuthorizedAt: new Date().toISOString(), disclosureFields: fields, disclosureAuditId: auditId,
+        destinationAddressLine1: fields.includes('recipientAddress') ? String(address.street) : '',
+        destinationCity: fields.includes('recipientAddress') ? String(address.city) : '',
+        destinationState: fields.includes('recipientAddress') ? String(address.state) : '',
+        orderDate: new Date(order.createdAt || Date.now()).toISOString(),
+        items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
+      });
+      await PrivacyDisclosureAuditModel.updateOne({ _id: audit._id }, { $set: result.duplicate ? { jobId: result.jobId || null, dispatchStatus: 'NOT_DISPATCHED', dispatchErrorCode: 'DUPLICATE_SHIPMENT_NO_NEW_DISCLOSURE' } : { jobId: result.jobId || null } });
+      await providerAudit(user, 'PROVIDER_SHIPMENT_BOOKING_QUEUED', user._id, String(order._id), { carrierCode, serviceCode: parsed.data.serviceCode });
+      res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED' });
+    } catch (error) {
+      if (auditId) await PrivacyDisclosureAuditModel.updateOne({ _id: auditId, dispatchStatus: 'AUTHORIZED' }, { $set: { dispatchStatus: 'FAILED', dispatchErrorCode: 'SHIPMENT_QUEUE_FAILED' } }).catch(() => {});
+      const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_SHIPMENT_BOOKING_FAILED' });
+    }
+  });
+
+  app.post('/api/provider/shipments/:id/retry', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: 'INVALID_SHIPMENT_ID' });
+    try {
+      const jobId = await retryProviderShipment(user._id, req.params.id);
+      res.status(202).json({ jobId, status: 'QUEUED' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 409).json({ error: e.message || 'PROVIDER_SHIPMENT_NOT_RETRYABLE' }); }
+  });
+
   app.get('/api/provider/shipments', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
