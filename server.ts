@@ -2352,6 +2352,84 @@ async function startServer() {
     res.status(201).json({ product: listing });
   });
 
+  app.get('/api/provider/shipments', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
+    if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
+    const providerProducts = await ProductModel.find({ providerId: user._id }).select('_id title').lean();
+    const productIds = providerProducts.map((product: any) => String(product._id));
+    if (!productIds.length) return res.json({ shipments: [], total: 0, page: 1, limit: 10, totalPages: 0 });
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(50, Math.max(5, Number.parseInt(String(req.query.limit || '10'), 10) || 10));
+    const query = String(req.query.q || '').trim().slice(0, 100);
+    const status = String(req.query.status || '').trim();
+    const filter: Record<string, any> = {
+      sellerId: { $in: profile.linkedSellerIds || [] },
+      'items.productId': { $in: productIds },
+      status: { $in: ['Packed', 'Shipped', 'Out for Delivery', 'Delivered'] },
+    };
+    if (status && status !== 'ALL') filter.status = status;
+    if (query) filter.$or = [{ orderNumber: { $regex: query, $options: 'i' } }, { _id: { $regex: query, $options: 'i' } }];
+    const [total, orders] = await Promise.all([
+      OrderModel.countDocuments(filter),
+      OrderModel.find(filter).select('_id orderNumber sellerId items status courierTracking createdAt updatedAt paymentMode paymentStatus').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    ]);
+    const owned = new Set(productIds);
+    const shipments = orders.map((order: any) => ({
+      id: String(order._id),
+      orderNumber: String(order.orderNumber || order._id),
+      status: order.status,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      paymentMode: order.paymentMode,
+      paymentStatus: order.paymentStatus,
+      items: (order.items || []).filter((item: any) => owned.has(String(item.productId))).map((item: any) => ({
+        productId: String(item.productId), title: String(item.title), quantity: Number(item.quantity),
+      })),
+      courierTracking: order.courierTracking || null,
+      manualDispatchAllowed: order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID'),
+    }));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ shipments, total, page, limit, totalPages: Math.ceil(total / limit) });
+  });
+
+  app.post('/api/provider/shipments/manual', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
+    const parsed = z.object({
+      orderId: z.string().min(1).max(100),
+      carrierName: z.string().trim().min(2).max(100),
+      trackingId: z.string().trim().min(3).max(120),
+      trackingUrl: z.string().url().max(2048).optional().or(z.literal('')),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_MANUAL_SHIPMENT_DETAILS' });
+    if (!mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_ORDER_ID' });
+    const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
+    if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
+    const order = await OrderModel.findById(parsed.data.orderId);
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (!(profile.linkedSellerIds || []).some((sellerId: any) => String(sellerId) === String(order.sellerId))) return res.status(403).json({ error: 'ORDER_NOT_LINKED_TO_PROVIDER_SELLER' });
+    const orderProductIds = [...new Set((order.items || []).map((item: any) => String(item.productId)))];
+    const providerProducts = await ProductModel.find({ _id: { $in: orderProductIds }, providerId: user._id }).select('_id').lean();
+    if (!orderProductIds.length || providerProducts.length !== orderProductIds.length) return res.status(403).json({ error: 'ORDER_CONTAINS_PRODUCTS_OUTSIDE_PROVIDER_FULFILMENT_SCOPE' });
+    if (order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_PROVIDER_DISPATCH' });
+    if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
+    const shippedAt = new Date();
+    const updated = await OrderModel.findOneAndUpdate(
+      { _id: order._id, sellerId: order.sellerId, status: 'Packed' },
+      {
+        $set: { status: 'Shipped', courierTracking: { companyName: parsed.data.carrierName, trackingId: parsed.data.trackingId, trackingUrl: parsed.data.trackingUrl || '', shippedAt: shippedAt.toISOString() } },
+        $push: { statusTimeline: { status: 'Shipped', note: 'Shipment dispatched by provider', timestamp: shippedAt.toISOString() } },
+      },
+      { returnDocument: 'after', runValidators: true },
+    ).lean();
+    if (!updated) return res.status(409).json({ error: 'ORDER_STATUS_CHANGED_RELOAD_SHIPMENT_QUEUE' });
+    await providerAudit(user, 'PROVIDER_MANUAL_SHIPMENT_RECORDED', user._id, String(order._id), { carrierName: parsed.data.carrierName, trackingId: parsed.data.trackingId });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ shipment: { orderId: String(updated._id), orderNumber: updated.orderNumber, status: updated.status, courierTracking: updated.courierTracking } });
+  });
+
   app.get('/api/provider/settlements', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
