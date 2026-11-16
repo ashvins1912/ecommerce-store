@@ -71,7 +71,7 @@ export async function createSellerWarehouse(input: {
 export async function createShipmentIntent(input: {
  orderId:string;sellerId:string;carrierConfigId:string;warehouseId:string;codAmountMinor:number;currency:string;
  weightGrams:number;destinationPostalCode:string;destinationCountryCode:string;declaredValueMinor:number;serviceCode?:string;
- recipientName:string;recipientPhone:string;recipientEmail?:string;destinationAddressLine1:string;destinationAddressLine2?:string;
+ recipientName:string;recipientPhone:string;recipientEmail?:string;disclosureAuthorizedAt:string;disclosureFields:string[];destinationAddressLine1:string;destinationAddressLine2?:string;
  destinationCity:string;destinationState:string;orderDate:string;
  items:Array<{name:string;sku:string;quantity:number;unitPrice:number}>;
 }) {
@@ -82,7 +82,7 @@ export async function createShipmentIntent(input: {
    orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,warehouseId:input.warehouseId,
    weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,destinationCountryCode:input.destinationCountryCode,
    declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
-   recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',
+   recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,
    destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',
    destinationCity:input.destinationCity,destinationState:input.destinationState,orderDate:input.orderDate,items:input.items,
   },
