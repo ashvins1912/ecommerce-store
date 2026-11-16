@@ -103,8 +103,11 @@ import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerc
 import {
   listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
-  getCustomerTrackingEvents,
+  getCustomerTrackingEvents, findShipmentForWebhook, applyLogisticsWebhook,
 } from './src/server/services/logistics.js';
+import { STATUS_CODE, verifyHmacSha256 } from './packages/logistics-core/src/index.js';
+import { ShadowfaxAdapter } from './packages/adapters/shadowfax/src/index.js';
+import { ShiprocketAdapter } from './packages/adapters/shiprocket/src/index.js';
 import {
   isValidE164,
   checkWhatsAppNumberExists,
@@ -262,7 +265,7 @@ async function startServer() {
   const configuredOrigins = originConfig
     .split(',').map((origin) => origin.trim()).filter(Boolean).map((origin) => new URL(origin).origin);
   app.use(async (req, res, next) => {
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/')) return next();
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/') || req.path.startsWith('/api/logistics/webhooks/')) return next();
     let suppliedOrigin = String(req.headers.origin || '');
     if (!suppliedOrigin && req.headers.referer) { try { suppliedOrigin = new URL(String(req.headers.referer)).origin; } catch { return res.status(403).json({ error: 'INVALID_REFERER' }); } }
     if (suppliedOrigin) {
@@ -392,6 +395,30 @@ async function startServer() {
       });
       res.status(202).json({ ...result, status: 'QUEUED', message: 'Shipment creation queued for the logistics worker.' });
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
+  });
+
+  app.post('/api/logistics/webhooks/:providerCode', async (req, res) => {
+    try {
+      const providerCode = String(req.params.providerCode || '').toLowerCase();
+      const raw = (req as any).rawBody as Buffer | undefined;
+      const signature = String(req.headers['x-logistics-signature'] || req.headers['x-signature'] || '');
+      if (!raw || !signature) return res.status(400).json({ error: 'WEBHOOK_RAW_BODY_OR_SIGNATURE_MISSING' });
+      let adapter: any;
+      const noHttp = { request: async () => { throw new Error('HTTP_NOT_AVAILABLE_IN_WEBHOOK_PARSER'); } };
+      if (providerCode === 'shadowfax') adapter = new ShadowfaxAdapter(noHttp, process.env.SHADOWFAX_API_BASE_URL || 'https://invalid.local');
+      else if (providerCode === 'shiprocket') adapter = new ShiprocketAdapter(noHttp, process.env.SHIPROCKET_API_BASE_URL || 'https://invalid.local');
+      else return res.status(404).json({ error: 'UNKNOWN_LOGISTICS_PROVIDER' });
+      const event = adapter.parseWebhook(JSON.parse(raw.toString('utf8')));
+      const shipment = await findShipmentForWebhook(providerCode, event.awbNumber);
+      if (!shipment) return res.status(202).json({ accepted: true, applied: false, reason: 'SHIPMENT_NOT_FOUND' });
+      if (!adapter.verifyWebhook(raw, signature, shipment.webhookSecret)) return res.status(401).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
+      const applied = await applyLogisticsWebhook({
+        shipmentId: shipment.shipmentId, eventHash: event.eventHash, statusCode: STATUS_CODE[event.status],
+        locationCode: event.locationCode, eventTimestamp: event.occurredAt,
+        expectedStatusCode: shipment.currentStatusCode, expectedLastEventAt: shipment.lastEventAt,
+      });
+      res.status(200).json({ accepted: true, applied: Boolean(applied), reason: applied ? undefined : 'DUPLICATE_STALE_OR_INVALID_TRANSITION' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 400).json({ error: e.message || 'WEBHOOK_PROCESSING_FAILED' }); }
   });
 
   app.get('/api/logistics/orders/:orderId/tracking', async (req, res) => {
