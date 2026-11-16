@@ -58,7 +58,7 @@ export async function createSellerWarehouse(input: {
 }
 export async function createShipmentIntent(input: {
   orderId:string; sellerId:string; carrierConfigId:string; warehouseId:string; codAmountMinor:number; currency:string;
-  weightGrams:number; destinationPostalCode:string; destinationCountryCode:string; declaredValueMinor:number;
+  weightGrams:number; destinationPostalCode:string; destinationCountryCode:string; declaredValueMinor:number; serviceCode?:string;
 }) {
   const config = unwrap(await db().from('seller_carrier_configs').select('id,provider_id,priority_rank,logistics_providers(code,name,type)')
     .eq('id',input.carrierConfigId).eq('seller_id',input.sellerId).eq('is_active',true).single()) as any;
@@ -72,7 +72,7 @@ export async function createShipmentIntent(input: {
       shipmentId:shipment.id,carrierConfigId:config.id,providerCode:config.logistics_providers.code,
       orderId:input.orderId,sellerId:input.sellerId,warehouseId:input.warehouseId,
       weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,
-      destinationCountryCode:input.destinationCountryCode,declaredValueMinor:input.declaredValueMinor,
+      destinationCountryCode:input.destinationCountryCode,declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,
       codAmountMinor:input.codAmountMinor,currency:input.currency,
     },status:'PENDING',attempts:0,max_attempts:5,
   }).select('id').single()) as any;
