@@ -14,6 +14,7 @@ const upstashClient = hasUpstash
 const memoryCarts = new Map<string, CartItem[]>();
 const memoryOtp = new Map<string, { code: string; expiresAt: number }>();
 const memoryRateLimits = new Map<string, { count: number; resetAt: number }>();
+const memoryLogisticsRates = new Map<string,{value:unknown;expiresAt:number}>();
 
 export async function getCartCache(key: string): Promise<CartItem[] | null> {
   if (upstashClient) {
@@ -121,4 +122,13 @@ export async function checkRateLimit(
   }
   current.count += 1;
   return { allowed: current.count <= maxRequests, remaining: Math.max(0, maxRequests - current.count) };
+}
+
+export async function getLogisticsRateCache<T>(key:string):Promise<T|null>{
+ if(upstashClient){try{return await upstashClient.get<T>('logistics:'+key)??null;}catch{/* memory fallback */}}
+ const item=memoryLogisticsRates.get(key);if(!item)return null;if(item.expiresAt<Date.now()){memoryLogisticsRates.delete(key);return null;}return item.value as T;
+}
+export async function setLogisticsRateCache(key:string,value:unknown,ttlSeconds=86400):Promise<void>{
+ const ttl=Math.max(1,Math.min(86400,Math.floor(ttlSeconds)));memoryLogisticsRates.set(key,{value,expiresAt:Date.now()+ttl*1000});
+ if(upstashClient){try{await upstashClient.set('logistics:'+key,value,{ex:ttl});}catch{/* memory cache remains available */}}
 }
