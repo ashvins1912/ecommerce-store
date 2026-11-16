@@ -107,8 +107,16 @@ async function processJob(job:any){
 }
 export async function runLogisticsWorker(){
  const pollMs=Math.max(500,Number(process.env.LOGISTICS_WORKER_POLL_MS||1500));
+ let shutdownRequested=false;
+ const requestShutdown=(signal:string)=>{
+  if(shutdownRequested)return;
+  shutdownRequested=true;
+  console.log('Logistics worker received '+signal+'; finishing the active job before shutdown.');
+ };
+ process.once('SIGTERM',()=>requestShutdown('SIGTERM'));
+ process.once('SIGINT',()=>requestShutdown('SIGINT'));
  console.log('Logistics worker started; polling PostgreSQL job queue.');
- for(;;){
+ for(;!shutdownRequested;){
   try{
    const claimed=await claimLogisticsJob();
    const job=Array.isArray(claimed)?claimed[0]:claimed;
@@ -130,4 +138,5 @@ export async function runLogisticsWorker(){
    }
   }catch(error){console.error('Logistics queue poll failed:',error);await delay(Math.max(pollMs,5000));}
  }
+ console.log('Logistics worker stopped cleanly.');
 }
