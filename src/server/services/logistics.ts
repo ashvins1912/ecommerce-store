@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { encryptField, decryptField } from './fieldEncryption.js';
 import { getLogisticsRateCache, setLogisticsRateCache } from './redis.js';
 import { CircuitBreaker, withTimeout, STATUS_CODE } from '../../../packages/logistics-core/src/index.js';
-import { rankCarriersHybrid } from '../../../packages/hybrid-engine/src/index.js';
+import { rankCarriersHybrid, SingleFlight } from '../../../packages/hybrid-engine/src/index.js';
 import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
 import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
 
@@ -195,6 +195,7 @@ export async function applyLogisticsWebhook(input:{shipmentId:string;eventHash:s
 }
 
 const quoteBreakers = new Map<string,CircuitBreaker>();
+const rateQuoteFlights = new SingleFlight();
 const carrierHttp = { async request<T>(url:string,init:{method:string;headers:Record<string,string>;body?:unknown}):Promise<T>{
  const response=await fetch(url,{method:init.method,headers:init.headers,signal:AbortSignal.timeout(15000),...(init.body===undefined?{}:{body:JSON.stringify(init.body)})});
  const raw=await response.text();let payload:any={};try{payload=raw?JSON.parse(raw):{};}catch{payload={message:raw};}
@@ -239,7 +240,8 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
   feedbackVersion,configs:configs.map(x=>[x.id,x.priority_rank,x.updated_at]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
  })).digest('hex');
  const cached=await getLogisticsRateCache<any[]>(cacheKey);if(cached)return cached;
-
+ return rateQuoteFlights.run(cacheKey,async()=>{
+ const secondCached=await getLogisticsRateCache<any[]>(cacheKey);if(secondCached)return secondCached;
  const settled=await Promise.allSettled(configs.map(async config=>{
   const providerCode=String(config.logistics_providers.code);
   const provider=rateAdapter(providerCode);
@@ -285,6 +287,7 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
  const earliestExpiry=result.reduce((min,x)=>Math.min(min,Date.parse(x.quote?.expiresAt||new Date(Date.now()+60000).toISOString())),Date.now()+86400000);
  await setLogisticsRateCache(cacheKey,result,Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))));
  return result;
+ });
 }
 export async function retrySellerShipment(sellerId:string,shipmentId:string) {
  return unwrap(await db().rpc('retry_shipment_booking',{p_shipment_id:shipmentId,p_seller_id:sellerId}));
