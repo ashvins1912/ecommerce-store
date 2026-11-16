@@ -108,12 +108,13 @@ BEGIN
  IF current_row.last_event_at IS DISTINCT FROM p_expected_last_event_at THEN RETURN FALSE; END IF;
  IF current_row.last_event_at IS NOT NULL AND p_event_timestamp<=current_row.last_event_at THEN RETURN FALSE; END IF;
  IF EXISTS(SELECT 1 FROM shipment_tracking_events WHERE shipment_id=p_shipment_id AND event_hash=p_event_hash) THEN RETURN FALSE; END IF;
- valid_edge := CASE current_row.normalized_status
-  WHEN 10 THEN p_status_code IN (20,90)
-  WHEN 20 THEN p_status_code IN (30,90)
-  WHEN 30 THEN p_status_code IN (40,60,70)
+ -- Accept skipped forward milestones and repeated same-state scans; never allow a backwards transition.
+ valid_edge := p_status_code=current_row.normalized_status OR CASE current_row.normalized_status
+  WHEN 10 THEN p_status_code IN (20,30,40,50,60,70,90)
+  WHEN 20 THEN p_status_code IN (30,40,50,60,70,90)
+  WHEN 30 THEN p_status_code IN (40,50,60,70)
   WHEN 40 THEN p_status_code IN (50,60,70)
-  WHEN 60 THEN p_status_code IN (70)
+  WHEN 60 THEN p_status_code IN (30,40,70)
   WHEN 70 THEN p_status_code IN (80)
   ELSE FALSE END;
  IF NOT valid_edge THEN RETURN FALSE; END IF;
