@@ -21,7 +21,8 @@ Keep one same-origin Express + Vite web/API service. The root app serves custome
 |---|---|---|
 | Web + API | Render Free Web Service | One Node/Bun process, same-origin cookies and API |
 | Main application data | MongoDB Atlas Free cluster | Users, products, orders, sessions and core commerce |
-| Logistics data + queue | Supabase Free Postgres + Render paid background worker | Carrier registry, warehouses, shipments and durable queue processing |
+| Logistics data + queue | Supabase Free Postgres | Carrier registry, warehouses, shipments and durable job queue |
+| Queue consumer | Render paid Starter background worker | Private, single-concurrency shipment processor |
 | Authentication | Supabase Auth | Customer authentication / OAuth where configured |
 | Cache + rate limits | Upstash Redis Free | Shared carts/cache/rate-limit state |
 | Uploaded images | Cloudflare R2 Standard | Persistent product and return-photo objects |
@@ -203,6 +204,6 @@ Move beyond this free pilot before relying on it for revenue-critical operations
 
 - Do not use Render's local filesystem as durable storage.
 - Do not rely on in-memory carts, OTPs, rate limits or queue state across restarts. Use MongoDB/Supabase/Redis for durable/shared state.
-- The free web/API service may sleep; the separately deployed paid worker remains running and can continue processing the durable logistics queue.
+- The free web/API service may sleep; the separately deployed paid worker remains running. It still depends on the Supabase logistics database being available.
 - Supabase Free can pause after inactivity and has no automatic backups on the free plan.
 - A free-tier deployment is appropriate for a pilot/demo and controlled low-risk launch, not a guaranteed production SLA.
