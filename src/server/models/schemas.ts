@@ -2,6 +2,9 @@ import mongoose, { Schema, type Model } from 'mongoose';
 
 const ShippingAddressSchema = new Schema(
   {
+    // Address IDs are application strings (legacy seeds use values like "addr_s1").
+    // Keep them as strings rather than Mongoose's default ObjectId subdocument IDs.
+    _id: { type: String, default: () => new mongoose.Types.ObjectId().toString() },
     label: { type: String, required: true, default: 'Home' },
     fullName: { type: String, required: true },
     phone: { type: String, required: true },
@@ -11,12 +14,13 @@ const ShippingAddressSchema = new Schema(
     pincode: { type: String, required: true },
     isDefault: { type: Boolean, default: false },
   },
-  { _id: true }
+  { _id: false }
 );
 
 const UserSchema = new Schema(
   {
     role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], default: 'BUYER', index: true },
+    isRootSuperuser: { type: Boolean, default: false, index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     avatarUrl: { type: String },
@@ -251,6 +255,12 @@ const OrderSchema = new Schema(
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
     cancellationRequestedAt: { type: Date, default: null },
     cancellationPreviousStatus: { type: String, default: null },
+    providerCancellationReview: {
+      providerId: { type: String, default: null, index: true },
+      status: { type: String, enum: ['NOT_FORWARDED', 'PENDING', 'APPROVED', 'REJECTED'], default: 'NOT_FORWARDED', index: true },
+      note: { type: String, default: '', maxlength: 1000 },
+      forwardedAt: Date, reviewedAt: Date,
+    },
     inventoryRestored: { type: Boolean, default: false },
     deliveredAt: { type: Date, default: null },
     refundStatus: { type: String, enum: ['NONE', 'REQUESTED', 'APPROVED', 'PROCESSING', 'PARTIAL', 'REFUNDED', 'REJECTED'], default: 'NONE' },
@@ -470,6 +480,22 @@ const ReturnRequestSchema = new Schema({
   courierName: String,
   trackingId: String,
   trackingUrl: String,
+  providerId: { type: String, default: null, index: true },
+  providerReviewStatus: { type: String, enum: ['NOT_FORWARDED', 'PENDING', 'APPROVED', 'REJECTED'], default: 'NOT_FORWARDED', index: true },
+  providerForwardedAt: Date,
+  providerReviewedAt: Date,
+  providerDecisionNote: { type: String, default: '', maxlength: 1000 },
+  providerPickupAddressShared: { type: Boolean, default: false },
+  providerReturnAddress: {
+    warehouseId: String, name: String, contactName: String, contactPhone: String,
+    addressLine1: String, addressLine2: String, city: String, state: String, postalCode: String, countryCode: String,
+  },
+  returnPickupStatus: { type: String, enum: ['NOT_BOOKED', 'BOOKED', 'PICKED_UP', 'DELIVERED', 'FAILED'], default: 'NOT_BOOKED' },
+  returnPickupBookedBy: { type: String, default: '' },
+  returnPickupCarrier: { type: String, default: '' },
+  returnPickupTrackingId: { type: String, default: '' },
+  returnPickupTrackingUrl: { type: String, default: '' },
+  returnPickupBookedAt: Date,
   status: { type: String, enum: ['REQUESTED', 'APPROVED', 'REJECTED', 'IN_TRANSIT', 'RECEIVED', 'REFUND_PENDING', 'REFUNDED'], default: 'REQUESTED', index: true },
   receivedAt: Date,
   refundDestination: { type: String, enum: ['ORIGINAL_SOURCE', 'WALLET'], default: 'WALLET' },
@@ -490,6 +516,36 @@ const PaymentEventSchema = new Schema({
 PaymentEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
 PaymentEventSchema.index({ status: 1, processingLeaseUntil: 1 });
 
+const SellerPrivacySettingsSchema = new Schema({
+  sellerId: { type: String, required: true, unique: true, index: true },
+  carrierDisclosure: {
+    recipientName: { type: Boolean, default: false },
+    recipientPhone: { type: Boolean, default: false },
+    recipientAddress: { type: Boolean, default: false },
+    recipientEmail: { type: Boolean, default: false },
+  },
+}, { timestamps: true });
+const PrivacyDisclosureAuditSchema = new Schema({
+  sellerId: { type: String, required: true, index: true },
+  orderId: { type: String, required: true, index: true },
+  carrierConfigId: { type: String, required: true },
+  carrierCode: { type: String, required: true },
+  fieldsAuthorized: { type: [String], required: true },
+  actorId: { type: String, required: true },
+  authorizedAt: { type: Date, required: true },
+  jobId: { type: String, default: null, index: true },
+  dispatchStatus: { type: String, enum: ['AUTHORIZED', 'DISPATCHING', 'DISPATCHED', 'NOT_DISPATCHED', 'BLOCKED', 'FAILED'], default: 'AUTHORIZED', index: true },
+  dispatchedAt: { type: Date, default: null },
+  dispatchErrorCode: { type: String, default: null, maxlength: 120 },
+  purpose: { type: String, enum: ['SHIPMENT_FULFILLMENT'], required: true },
+}, { timestamps: true });
+PrivacyDisclosureAuditSchema.index({ sellerId: 1, orderId: 1, authorizedAt: -1 });
+
+export const SellerPrivacySettingsModel: Model<any> =
+  mongoose.models.SellerPrivacySettings || mongoose.model('SellerPrivacySettings', SellerPrivacySettingsSchema);
+export const PrivacyDisclosureAuditModel: Model<any> =
+  mongoose.models.PrivacyDisclosureAudit || mongoose.model('PrivacyDisclosureAudit', PrivacyDisclosureAuditSchema);
+
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);
 export const ProductModel: Model<any> =
@@ -500,6 +556,10 @@ export const ReviewModel: Model<any> =
   mongoose.models.Review || mongoose.model('Review', ReviewSchema);
 export const OrderModel: Model<any> =
   mongoose.models.Order || mongoose.model('Order', OrderSchema);
+export const RootInviteModel: Model<any> =
+  mongoose.models.RootInvite || mongoose.model('RootInvite', RootInviteSchema);
+export const RootAccessAuditModel: Model<any> =
+  mongoose.models.RootAccessAudit || mongoose.model('RootAccessAudit', RootAccessAuditSchema);
 export const SellerInviteModel: Model<any> =
   mongoose.models.SellerInvite || mongoose.model('SellerInvite', SellerInviteSchema);
 export const AuthSessionModel: Model<any> =

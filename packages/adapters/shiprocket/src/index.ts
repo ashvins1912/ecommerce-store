@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { verifyHmacSha256, type ICarrierProvider, type CarrierCredentials, type RateRequest, type RateQuote, type ShipmentRequest, type ShipmentResult, type TrackingCheckpoint, type WebhookEnvelope } from '../../../logistics-core/src/index.js';
+import { verifyHmacSha256, type ICarrierProvider, type CarrierCredentials, type RateRequest, type RateQuote, type ShipmentRequest, type ShipmentResult, type TrackingCheckpoint, type WebhookEnvelope, type ReturnPickupRequest, type ReturnPickupResult } from '../../../logistics-core/src/index.js';
 interface HttpTransport {request<T>(url:string,init:{method:string;headers:Record<string,string>;body?:unknown}):Promise<T>}
 export class ShiprocketAdapter implements ICarrierProvider {
  readonly code='shiprocket'; readonly kind='AGGREGATOR' as const;
@@ -95,6 +95,44 @@ export class ShiprocketAdapter implements ICarrierProvider {
    labelUrl=label.label_url||label.response?.label_url||label.data?.label_url;
   }catch{/* Label can be generated later from the Shiprocket panel. */}
   return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,manifestUrl,pickupScheduled,estimatedDeliveryAt:new Date(Date.now()+r.quote.estimatedTransitHours*3600000).toISOString(),status:'CREATED'};
+ }
+ async createReturnPickup(r:ReturnPickupRequest,c:CarrierCredentials):Promise<ReturnPickupResult>{
+  const pickup=r.customer,drop=r.returnTo;
+  if(!pickup.name||!pickup.contact||!pickup.addressLine1||!pickup.city||!pickup.state||!pickup.postalCode)throw new Error('SHIPROCKET_RETURN_PICKUP_ADDRESS_INCOMPLETE');
+  if(!drop.name||!drop.contact||!drop.addressLine1||!drop.city||!drop.state||!drop.postalCode)throw new Error('SHIPROCKET_RETURN_DESTINATION_INCOMPLETE');
+  const phone=(value:string)=>{const digits=value.replace(/\\D/g,'');return digits.length===12&&digits.startsWith('91')?digits.slice(2):digits;};
+  const pickupPhone=phone(pickup.contact),dropPhone=phone(drop.contact);
+  if(!/^\\d{10}$/.test(pickupPhone)||!/^\\d{10}$/.test(dropPhone)||!/^\\d{6}$/.test(pickup.postalCode)||!/^\\d{6}$/.test(drop.postalCode))throw new Error('SHIPROCKET_RETURN_PHONE_OR_PINCODE_INVALID');
+  const headers=await this.headers(c);
+  const params=new URLSearchParams({pickup_postcode:pickup.postalCode,delivery_postcode:drop.postalCode,weight:String(r.weightGrams/1000),cod:'0',declared_value:String(r.declaredValueMinor/100),is_return:'1'});
+  const serviceability=await this.http.request<any>(this.baseUrl+'/v1/external/courier/serviceability?'+params,{method:'GET',headers});
+  const couriers=(serviceability.data?.available_courier_companies||[]).filter((row:any)=>Number.isFinite(Number(row.rate)));
+  const selected=couriers.sort((a:any,b:any)=>Number(a.rate)-Number(b.rate))[0];
+  if(!selected)throw new Error('SHIPROCKET_RETURN_PICKUP_NOT_SERVICEABLE');
+  const orderId=r.orderId.slice(0,50);
+  const created=await this.http.request<any>(this.baseUrl+'/v1/external/orders/create/return',{method:'POST',headers,body:{
+   order_id:orderId,order_date:(r.orderDate||new Date().toISOString()).slice(0,10),payment_method:'Prepaid',sub_total:Math.round(r.declaredValueMinor/100),
+   pickup_customer_name:pickup.name,pickup_address:pickup.addressLine1,pickup_address_2:pickup.addressLine2||'',pickup_city:pickup.city,pickup_state:pickup.state,pickup_country:'India',pickup_pincode:Number(pickup.postalCode),pickup_email:pickup.email||r.email||'',pickup_phone:Number(pickupPhone),
+   shipping_customer_name:drop.name,shipping_address:drop.addressLine1,shipping_address_2:drop.addressLine2||'',shipping_city:drop.city,shipping_state:drop.state,shipping_country:'India',shipping_pincode:Number(drop.postalCode),shipping_phone:Number(dropPhone),shipping_email:drop.email||r.email||'',
+   order_items:r.items.map(item=>({name:item.name,sku:item.sku,units:item.quantity,selling_price:Math.round(item.unitPrice)})),
+   weight:r.weightGrams/1000,length:10,breadth:10,height:10,
+  }});
+  let shipmentId=created.shipment_id||created.data?.shipment_id;
+  let awb=created.awb_code||created.data?.awb_code;
+  if(!shipmentId)throw new Error('SHIPROCKET_RETURN_ORDER_CREATE_FAILED:'+String(created.message||'shipment id missing'));
+  if(!awb){
+   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:Number(shipmentId),courier_id:Number(selected.courier_company_id)}});
+   awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
+   if(!awb)throw new Error('SHIPROCKET_RETURN_AWB_ASSIGN_FAILED:'+String(assigned.message||'AWB missing'));
+  }
+  const pickupResult=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/pickup',{method:'POST',headers,body:{shipment_id:Number(shipmentId)}});
+  if(pickupResult.status===false)throw new Error('SHIPROCKET_RETURN_PICKUP_SCHEDULING_FAILED:'+String(pickupResult.message||'pickup rejected'));
+  let labelUrl:string|undefined;
+  try{
+   const label=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/label',{method:'POST',headers,body:{shipment_id:[Number(shipmentId)]}});
+   labelUrl=label.label_url||label.response?.data?.label_url||label.data?.label_url;
+  }catch{/* Label can be regenerated later from the Shiprocket panel. */}
+  return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,pickupScheduled:true,status:'CREATED'};
  }
  async getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>{
   const x=await this.http.request<any>(this.baseUrl+'/v1/external/courier/track/awb/'+encodeURIComponent(awb),{method:'GET',headers:await this.headers(c)});

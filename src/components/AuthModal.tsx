@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
 import { getSupabaseBrowserClient } from '../lib/supabase';
 import {
   apiFetch,
@@ -14,7 +14,6 @@ interface AuthModalProps {
   onClose: () => void;
   user: User | null;
   initialMode?: 'signin' | 'signup';
-  onOpenSignUpPage?: () => void;
   onAuthChanged: (payload: {
     user: User | null;
     likedProductIds?: string[];
@@ -27,7 +26,6 @@ export function AuthModal({
   onClose,
   user,
   initialMode = 'signin',
-  onOpenSignUpPage,
   onAuthChanged,
 }: AuthModalProps) {
   const { t, locale } = useI18n();
@@ -292,11 +290,12 @@ export function AuthModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs">
-      <div className="max-h-[90vh] overflow-y-auto w-full max-w-lg rounded-lg border border-[#E8E6E1] bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17120F]/55 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl border border-[#E8E6E1] bg-white p-5 shadow-2xl sm:p-7">
         <div className="flex items-start justify-between gap-4 border-b border-[#F0EEE9] pb-4">
           <div>
-            <h2 className="font-display text-2xl font-semibold text-[#141413]">
+            {!user && <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#881337]">Kala &amp; Karat · Secure customer access</p>}
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-[#141413]">
               {user
                 ? t('auth.sessionTitle')
                 : mode === 'signup'
@@ -451,7 +450,7 @@ export function AuthModal({
               <span>Create one account to shop and sell</span>
             </div>
             {/* Account access */}
-            <div className="grid grid-cols-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] p-1">
+            <div className="grid grid-cols-2 rounded-xl border border-[#E8E6E1] bg-[#FAF9F6] p-1">
               <button
                 type="button"
                 onClick={() => {
@@ -484,7 +483,7 @@ export function AuthModal({
 
             <div className="grid grid-cols-2 gap-3">
               <button type="button" disabled={loading} onClick={() => void handleSocialSignIn('google')}
-                className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold text-[#292524] hover:border-[#881337] disabled:opacity-60">
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-[#D6D3CD] bg-white px-3 py-2 text-xs font-semibold text-[#292524] hover:border-[#881337] hover:bg-[#FAF9F6] disabled:opacity-60">
                 <span aria-hidden="true" className="text-base font-bold">G</span>
                 <span>Google</span>
               </button>
@@ -518,7 +517,7 @@ export function AuthModal({
                   placeholder={t('auth.emailPlaceholder')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm focus:border-[#881337] focus:outline-none"
+                  className="min-h-11 w-full rounded-lg border border-[#D6D3CD] px-3 py-2.5 text-sm focus:border-[#881337] focus:outline-none focus:ring-2 focus:ring-[#881337]/10"
                 />
                 <div className="relative">
                   <input
@@ -527,7 +526,7 @@ export function AuthModal({
                     placeholder={t('auth.passwordPlaceholder')}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-md border border-[#D6D3CD] px-3 py-2 pr-10 text-sm focus:border-[#881337] focus:outline-none"
+                    className="min-h-11 w-full rounded-lg border border-[#D6D3CD] px-3 py-2.5 pr-10 text-sm focus:border-[#881337] focus:outline-none focus:ring-2 focus:ring-[#881337]/10"
                   />
                   <button
                     type="button"
@@ -541,7 +540,7 @@ export function AuthModal({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full min-h-[42px] rounded-md bg-[#881337] px-4 py-2.5 text-xs font-medium text-white hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
+                  className="w-full min-h-11 rounded-lg bg-[#881337] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#9F1239] disabled:opacity-60 cursor-pointer"
                 >
                   {loading ? t('auth.signingIn') : t('auth.signInSync')}
                 </button>
@@ -610,24 +609,7 @@ export function AuthModal({
               </form>
             )}
 
-            {onOpenSignUpPage && (
-              <div className="flex items-center justify-between gap-2 rounded-md border border-[#E8E6E1] bg-[#FAF9F6] px-3 py-2 text-xs">
-                <span className="text-[#57534E]">
-                  {mode === 'signin' ? t('auth.noAccountYet') : t('auth.signUpTitle')}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onOpenSignUpPage();
-                  }}
-                  className="inline-flex items-center gap-1 font-semibold text-[#881337] hover:underline cursor-pointer"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  <span>{t('auth.openSignUpPage')}</span>
-                </button>
-              </div>
-            )}
+
           </div>
         )}
 

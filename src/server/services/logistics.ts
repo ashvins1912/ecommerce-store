@@ -25,6 +25,116 @@ export function encryptLogisticsSecret(value: string): string { return encryptFi
 export async function listLogisticsProviders() {
   return unwrap(await db().from('logistics_providers').select('id,code,name,type,auth_schema_json').eq('is_active', true).order('name'));
 }
+export async function listProviderCarrierConfigs(providerUserId: string) {
+  return unwrap(await db().from('provider_carrier_configs')
+    .select('id,provider_id,priority_rank,is_active,created_at,logistics_providers(code,name,type)')
+    .eq('provider_user_id', providerUserId).order('priority_rank'));
+}
+export async function saveProviderCarrierConfig(input: { providerUserId: string; providerId: string; credentials: Record<string,string>; priorityRank: number }) {
+  const provider = unwrap(await db().from('logistics_providers').select('code,auth_schema_json').eq('id',input.providerId).eq('is_active',true).single()) as any;
+  const fields = Array.isArray(provider.auth_schema_json?.fields) ? provider.auth_schema_json.fields : [];
+  const credentials = Object.fromEntries(Object.entries(input.credentials).map(([k,v]) => [k, String(v).trim()]).filter(([,v]) => v));
+  const missing = fields.filter((field:any) => !credentials[field.name]);
+  if (missing.length) throw Object.assign(new Error('CARRIER_CREDENTIALS_REQUIRED:'+missing.map((field:any)=>field.name).join(',')), { statusCode: 400 });
+  if (!Object.keys(credentials).length) throw Object.assign(new Error('CARRIER_CREDENTIALS_REQUIRED'), { statusCode: 400 });
+  await rateAdapter(provider.code).validateCredentials(credentials);
+  const encryptedCredentials = encryptField(JSON.stringify(credentials));
+  const webhookSecretPlain = crypto.randomBytes(32).toString('hex');
+  const webhookSecret = encryptField(webhookSecretPlain);
+  const carrier = unwrap(await db().from('provider_carrier_configs').upsert({
+    provider_user_id: input.providerUserId, provider_id: input.providerId,
+    encrypted_credentials: encryptedCredentials, webhook_secret: webhookSecret,
+    priority_rank: input.priorityRank, is_active: true,
+  }, { onConflict: 'provider_user_id,provider_id' }).select('id,provider_id,priority_rank,is_active').single());
+  return { ...(carrier as any), webhookSecret: webhookSecretPlain };
+}
+export async function setProviderCarrierActive(providerUserId: string, configId: string, isActive: boolean) {
+  return unwrap(await db().from('provider_carrier_configs').update({ is_active: isActive, updated_at: new Date().toISOString() })
+    .eq('id', configId).eq('provider_user_id', providerUserId).select('id,is_active').maybeSingle());
+}
+export async function getProviderCarrierSecret(configId: string, providerUserId: string, allowInactive = false) {
+  let query = db().from('provider_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
+    .eq('id',configId).eq('provider_user_id',providerUserId);
+  if (!allowInactive) query = query.eq('is_active',true).eq('logistics_providers.is_active',true);
+  const row = unwrap(await query.single()) as any;
+  return { ...row, credentials: JSON.parse(decryptField(row.encrypted_credentials)), webhookSecret: decryptField(row.webhook_secret) };
+}
+export async function listProviderWarehouses(providerUserId: string) {
+  return unwrap(await db().from('provider_warehouses').select('id,warehouse_code,name,contact_name,contact_phone,address_line1,address_line2,city,state,postal_code,country_code,is_default,is_active')
+    .eq('provider_user_id',providerUserId).eq('is_active',true).order('is_default',{ascending:false}).order('name'));
+}
+export async function createProviderWarehouse(input: { providerUserId:string;warehouseCode:string;name:string;contactName:string;contactPhone:string;addressLine1:string;addressLine2?:string;city:string;state:string;postalCode:string;countryCode:string;isDefault:boolean }) {
+  const rows=unwrap(await db().rpc('create_provider_warehouse',{p_provider_user_id:input.providerUserId,p_warehouse:{
+    warehouse_code:input.warehouseCode,name:input.name,contact_name:input.contactName,contact_phone:input.contactPhone,
+    address_line1:input.addressLine1,address_line2:input.addressLine2||null,city:input.city,state:input.state,
+    postal_code:input.postalCode,country_code:input.countryCode||'IN',is_default:input.isDefault,
+  }})) as any[];
+  return rows[0];
+}
+export async function getProviderWarehouse(providerUserId:string,warehouseId:string) {
+  return unwrap(await db().from('provider_warehouses').select('id,name,contact_name,contact_phone,address_line1,address_line2,city,state,postal_code,country_code')
+    .eq('provider_user_id',providerUserId).eq('id',warehouseId).eq('is_active',true).single());
+}
+export async function getProviderRateQuotes(input:{providerUserId:string;carrierConfigId:string;warehouseId:string;destinationPostalCode:string;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string}) {
+  const config=unwrap(await db().from('provider_carrier_configs').select('id,priority_rank,encrypted_credentials,logistics_providers!inner(code,is_active)')
+    .eq('id',input.carrierConfigId).eq('provider_user_id',input.providerUserId).eq('is_active',true).eq('logistics_providers.is_active',true).single()) as any;
+  const warehouse=await getProviderWarehouse(input.providerUserId,input.warehouseId) as any;
+  const providerCode=String(config.logistics_providers.code);
+  const carrier=rateAdapter(providerCode);
+  const credentials=JSON.parse(decryptField(config.encrypted_credentials));
+  const quotes=await withTimeout(carrier.getRates({
+    origin:{warehouseId:input.warehouseId,postalCode:warehouse.postal_code,countryCode:warehouse.country_code||'IN'},
+    destination:{warehouseId:'destination',postalCode:input.destinationPostalCode,countryCode:'IN'},
+    weightGrams:input.weightGrams,codAmountMinor:input.codAmountMinor,declaredValueMinor:input.declaredValueMinor,currency:input.currency,
+  },credentials),4500);
+  return quotes.filter(q=>q.currency===input.currency).map(quote=>({configId:config.id,providerCode,priorityRank:config.priority_rank,quote}));
+}
+export async function createProviderShipmentIntent(input:{
+  orderId:string;sellerId:string;providerUserId:string;providerCarrierConfigId:string;carrierCode:string;providerWarehouseId:string;
+  codAmountMinor:number;currency:string;weightGrams:number;destinationPostalCode:string;destinationCountryCode:string;
+  declaredValueMinor:number;serviceCode?:string;recipientName:string;recipientPhone:string;recipientEmail?:string;
+  disclosureAuthorizedAt:string;disclosureFields:string[];disclosureAuditId:string;destinationAddressLine1:string;
+  destinationAddressLine2?:string;destinationCity:string;destinationState:string;orderDate:string;
+  items:Array<{name:string;sku:string;quantity:number;unitPrice:number}>;
+}) {
+  const result=unwrap(await db().rpc('create_provider_shipment_intent',{
+    p_order_id:input.orderId,p_seller_id:input.sellerId,p_provider_user_id:input.providerUserId,
+    p_provider_carrier_config_id:input.providerCarrierConfigId,p_provider_warehouse_id:input.providerWarehouseId,
+    p_cod_amount_minor:input.codAmountMinor,p_currency:input.currency,
+    p_payload:{
+      orderId:input.orderId,sellerId:input.sellerId,providerId:input.providerUserId,
+      providerCarrierConfigId:input.providerCarrierConfigId,carrierCode:input.carrierCode,warehouseId:input.providerWarehouseId,
+      weightGrams:input.weightGrams,destinationCountryCode:input.destinationCountryCode,declaredValueMinor:input.declaredValueMinor,
+      serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
+      customerDisclosureCiphertext:encryptField(JSON.stringify({
+        recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',
+        destinationPostalCode:input.destinationPostalCode,destinationAddressLine1:input.destinationAddressLine1,
+        destinationAddressLine2:input.destinationAddressLine2||'',destinationCity:input.destinationCity,destinationState:input.destinationState,
+      })),
+      disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,disclosureAuditId:input.disclosureAuditId,
+      orderDate:input.orderDate,items:input.items,
+    },
+  })) as any[];
+  const row=result[0];
+  return {shipmentId:row.shipment_id,jobId:row.job_id,duplicate:!row.created};
+}
+export async function retryProviderShipment(providerUserId:string,shipmentId:string) {
+  return unwrap(await db().rpc('retry_provider_shipment_booking',{p_shipment_id:shipmentId,p_provider_user_id:providerUserId}));
+}
+export async function listProviderShipments(providerUserId:string) {
+  const configs=unwrap(await db().from('provider_carrier_configs').select('id').eq('provider_user_id',providerUserId)) as Array<{id:string}>;
+  const ids=configs.map(x=>x.id);
+  if(!ids.length)return [];
+  const rows=unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,booking_status,pickup_scheduled,manifest_url,label_url,cod_amount_minor,currency,estimated_delivery_at,created_at,updated_at,manual_carrier_name,manual_tracking_reference,manual_tracking_url,provider_carrier_config_id,provider_warehouses(name,postal_code),provider_carrier_configs(logistics_providers(code,name))')
+    .in('provider_carrier_config_id',ids).order('created_at',{ascending:false}).limit(200)) as any[];
+  if(!rows.length)return rows;
+  const events=unwrap(await db().from('shipment_tracking_events').select('shipment_id,status_code,location_code,event_timestamp,event_hash')
+    .in('shipment_id',rows.map(row=>row.id)).order('event_timestamp',{ascending:false}).limit(1000)) as any[];
+  const grouped=new Map<string,any[]>();
+  for(const event of events){const key=String(event.shipment_id);const current=grouped.get(key)||[];if(current.length<20)current.push(event);grouped.set(key,current);}
+  return rows.map(row=>({...row,tracking_events:grouped.get(String(row.id))||[]}));
+}
+
 export async function listSellerCarrierConfigs(sellerId: string) {
   return unwrap(await db().from('seller_carrier_configs')
     .select('id,provider_id,priority_rank,is_active,created_at,logistics_providers(code,name,type)')
@@ -69,9 +179,9 @@ export async function createSellerWarehouse(input: {
  return rows[0];
 }
 export async function createShipmentIntent(input: {
- orderId:string;sellerId:string;carrierConfigId:string;warehouseId:string;codAmountMinor:number;currency:string;
+ orderId:string;sellerId:string;carrierConfigId:string;carrierCode:string;warehouseId:string;codAmountMinor:number;currency:string;
  weightGrams:number;destinationPostalCode:string;destinationCountryCode:string;declaredValueMinor:number;serviceCode?:string;
- recipientName:string;recipientPhone:string;recipientEmail?:string;destinationAddressLine1:string;destinationAddressLine2?:string;
+ recipientName:string;recipientPhone:string;recipientEmail?:string;disclosureAuthorizedAt:string;disclosureFields:string[];disclosureAuditId:string;destinationAddressLine1:string;destinationAddressLine2?:string;
  destinationCity:string;destinationState:string;orderDate:string;
  items:Array<{name:string;sku:string;quantity:number;unitPrice:number}>;
 }) {
@@ -79,12 +189,11 @@ export async function createShipmentIntent(input: {
   p_order_id:input.orderId,p_seller_id:input.sellerId,p_carrier_config_id:input.carrierConfigId,p_warehouse_id:input.warehouseId,
   p_cod_amount_minor:input.codAmountMinor,p_currency:input.currency,
   p_payload:{
-   orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,warehouseId:input.warehouseId,
-   weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,destinationCountryCode:input.destinationCountryCode,
+   orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,carrierCode:input.carrierCode,warehouseId:input.warehouseId,
+   weightGrams:input.weightGrams,destinationCountryCode:input.destinationCountryCode,
    declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
-   recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',
-   destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',
-   destinationCity:input.destinationCity,destinationState:input.destinationState,orderDate:input.orderDate,items:input.items,
+   customerDisclosureCiphertext:encryptField(JSON.stringify({recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',destinationPostalCode:input.destinationPostalCode,destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',destinationCity:input.destinationCity,destinationState:input.destinationState})),
+   disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,disclosureAuditId:input.disclosureAuditId,orderDate:input.orderDate,items:input.items,
   },
  })) as any[];
  const row=result[0];
@@ -98,12 +207,28 @@ export async function listSellerShipments(sellerId:string) {
     .in('seller_carrier_config_id',ids).order('created_at',{ascending:false}).limit(100));
 }
 export async function getShipmentForCustomer(orderId:string) {
-  return unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,last_event_at,last_carrier_poll_at,estimated_delivery_at,created_at,seller_carrier_configs!inner(seller_id,encrypted_credentials,logistics_providers!inner(code))')
-    .eq('order_id',orderId).order('created_at',{ascending:false}).limit(1).maybeSingle());
+  const shipment=unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,last_event_at,last_carrier_poll_at,estimated_delivery_at,created_at,seller_carrier_config_id,provider_carrier_config_id,fulfillment_seller_id,fulfillment_provider_id')
+    .eq('order_id',orderId).order('created_at',{ascending:false}).limit(1).maybeSingle()) as any;
+  if(!shipment)return null;
+  if(shipment.seller_carrier_config_id){
+    const config=await getSellerCarrierSecretForConfig(shipment.seller_carrier_config_id,true);
+    return {...shipment,carrierCode:config.logistics_providers.code,credentials:config.credentials};
+  }
+  if(shipment.provider_carrier_config_id){
+    const config=await getProviderCarrierSecret(shipment.provider_carrier_config_id,shipment.fulfillment_provider_id || '',true);
+    return {...shipment,carrierCode:config.logistics_providers.code,credentials:config.credentials};
+  }
+  return null;
 }
-export async function getSellerCarrierSecret(configId:string,sellerId:string) {
-  const row = unwrap(await db().from('seller_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
-    .eq('id',configId).eq('seller_id',sellerId).eq('is_active',true).eq('logistics_providers.is_active',true).single()) as any;
+export async function getSellerCarrierSecretForConfig(configId:string,allowInactive=false) {
+ const owner=unwrap(await db().from('seller_carrier_configs').select('seller_id').eq('id',configId).single()) as any;
+ return getSellerCarrierSecret(configId,String(owner.seller_id),allowInactive);
+}
+export async function getSellerCarrierSecret(configId:string,sellerId:string,allowInactive=false) {
+  let query = db().from('seller_carrier_configs').select('id,provider_id,encrypted_credentials,webhook_secret,logistics_providers!inner(code,is_active)')
+    .eq('id',configId).eq('seller_id',sellerId);
+  if (!allowInactive) query = query.eq('is_active',true).eq('logistics_providers.is_active',true);
+  const row = unwrap(await query.single()) as any;
   return { ...row, credentials:JSON.parse(decryptField(row.encrypted_credentials)), webhookSecret:decryptField(row.webhook_secret) };
 }
 export async function claimLogisticsJob() {
@@ -129,7 +254,9 @@ export async function updateShipmentFromCarrier(input:{shipmentId:string;provide
   }).eq('id',input.shipmentId));
 }
 export async function getCustomerTrackingEvents(orderId:string) {
-  const shipment = await getShipmentForCustomer(orderId) as any;
+  // Customer tracking reads only shipment state; it must not decrypt carrier credentials.
+  const shipment = unwrap(await db().from('shipments').select('id,normalized_status,estimated_delivery_at')
+    .eq('order_id',orderId).order('created_at',{ascending:false}).limit(1).maybeSingle()) as any;
   if (!shipment) return null;
   const events = unwrap(await db().from('shipment_tracking_events').select('status_code,location_code,event_timestamp')
     .eq('shipment_id',shipment.id).order('event_timestamp',{ascending:false}).limit(1)) as any[];
@@ -142,8 +269,8 @@ export async function refreshCarrierTrackingForOrder(orderId:string) {
  const claimed=unwrap(await db().rpc('claim_carrier_tracking_poll',{p_shipment_id:shipment.id})) as boolean;
  if(!claimed)return getCustomerTrackingEvents(orderId);
  try{
-  const provider=rateAdapter(shipment.seller_carrier_configs.logistics_providers.code);
-  const credentials=JSON.parse(decryptField(shipment.seller_carrier_configs.encrypted_credentials));
+  const provider=rateAdapter(shipment.carrierCode);
+  const credentials=shipment.credentials;
   const checkpoints=await provider.getTracking(shipment.awb_number,credentials);
   let currentStatus=Number(shipment.normalized_status);
   let lastEventAt=shipment.last_event_at||null;
@@ -172,10 +299,21 @@ export async function setShipmentStatusForSeller(input:{shipmentId:string;seller
 }
 
 export async function findShipmentForWebhook(providerCode:string,awbNumber:string) {
- const row=unwrap(await db().from('shipments').select('id,normalized_status,last_event_at,seller_carrier_configs!inner(id,webhook_secret,logistics_providers!inner(code))')
-  .eq('awb_number',awbNumber).eq('seller_carrier_configs.logistics_providers.code',providerCode).maybeSingle()) as any;
- if(!row)return null;
- return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:decryptField(row.seller_carrier_configs.webhook_secret)};
+ const rows=unwrap(await db().from('shipments').select('id,normalized_status,last_event_at,seller_carrier_config_id,provider_carrier_config_id,fulfillment_seller_id,fulfillment_provider_id')
+  .eq('awb_number',awbNumber).limit(20)) as any[];
+ for(const row of rows){
+  if(row.seller_carrier_config_id){
+   const config=await getSellerCarrierSecretForConfig(row.seller_carrier_config_id,true);
+   if(String(config.logistics_providers.code)!==providerCode)continue;
+   return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
+  }
+  if(row.provider_carrier_config_id){
+   const config=await getProviderCarrierSecret(row.provider_carrier_config_id,row.fulfillment_provider_id || '',true);
+   if(String(config.logistics_providers.code)!==providerCode)continue;
+   return {shipmentId:row.id,currentStatusCode:row.normalized_status,lastEventAt:row.last_event_at,webhookSecret:config.webhookSecret};
+  }
+ }
+ return null;
 }
 export async function applyLogisticsWebhook(input:{shipmentId:string;eventHash:string;statusCode:number;locationCode?:string;eventTimestamp:string;expectedStatusCode:number;expectedLastEventAt:string|null}) {
  const applied=unwrap(await db().rpc('apply_logistics_webhook',{

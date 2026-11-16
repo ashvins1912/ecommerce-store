@@ -12,6 +12,9 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // Allow the deployed Render hostname while keeping Vite's host validation enabled.
+      // Add other trusted preview domains here if this app is deployed under another host.
+      allowedHosts: ['ecommerce-store-bg2l.onrender.com'],
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

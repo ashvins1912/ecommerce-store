@@ -33,6 +33,7 @@ import { ProductCardSkeleton } from './components/ProductCardSkeleton';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { AuthModal } from './components/AuthModal';
+import { RootInviteAcceptance } from './components/RootInviteAcceptance';
 import { OrdersView } from './components/OrdersView';
 import { SellerHubView } from './components/SellerHubView';
 import { WishlistView } from './components/WishlistView';
@@ -155,11 +156,7 @@ function upsertJsonLdScript(payload: Record<string, unknown>): void {
 
 export default function App() {
   const { t, tc, to, tseason, tsort } = useI18n();
-  const [activePage, setActivePage] = useState<ActivePage>(() =>
-    typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/seller-hub'
-      ? 'seller'
-      : 'store'
-  );
+  const [activePage, setActivePage] = useState<ActivePage>('store');
   const [user, setUser] = useState<User | null>(null);
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
@@ -209,6 +206,7 @@ export default function App() {
   const [selectedInitialVariantSku, setSelectedInitialVariantSku] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  useEffect(() => { if (new URLSearchParams(window.location.search).has('rootInvite')) setAuthOpen(true); }, []);
   const [compareItems, setCompareItems] = useState<Product[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -280,9 +278,8 @@ export default function App() {
     ) {
       setSeason(urlSeason as SeasonType | 'All');
     }
-    const pathIsSellerHub = window.location.pathname.replace(/\/+$/, '') === '/seller-hub';
     const inviteParam = params.get('sellerInvite') || params.get('invite');
-    if (inviteParam || pathIsSellerHub) {
+    if (inviteParam) {
       setSellerInviteToken(inviteParam);
       setActivePage('seller');
     } else if (params.get('page') === 'signup' || params.get('signup') === '1') {
@@ -481,6 +478,7 @@ export default function App() {
         if (cancelled) return;
         setClientSessionTokens(signedIn.accessToken, signedIn.csrfToken);
         setUser(signedIn.user);
+        setActivePage(signedIn.user.role === 'SELLER' || signedIn.user.role === 'ADMIN' ? 'seller' : 'store');
         setLikedIds(new Set(signedIn.likedProductIds || []));
         setCart(signedIn.cart || []);
         localStorage.setItem('kk_guest_cart', JSON.stringify(signedIn.cart || []));
@@ -506,6 +504,7 @@ export default function App() {
         const session = await apiFetch<AuthSessionResponse>('/api/auth/me');
         setClientSessionTokens(session.accessToken, session.csrfToken);
         setUser(session.user);
+        setActivePage(session.user?.role === 'SELLER' || session.user?.role === 'ADMIN' ? 'seller' : 'store');
         setLikedIds(new Set(session.likedProductIds));
 
         let activeCart = session.cart;
@@ -834,13 +833,6 @@ export default function App() {
   }, []);
 
   const navigateToStore = useCallback((cat?: ProductCategory | 'All') => {
-    if (window.location.pathname.replace(/\/+$/, '') === '/seller-hub') {
-      const nextUrl = new URL(window.location.href);
-      nextUrl.pathname = '/';
-      nextUrl.searchParams.delete('sellerInvite');
-      nextUrl.searchParams.delete('invite');
-      window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
-    }
     setActivePage('store');
     if (cat) {
       setCategory(cat);
@@ -850,10 +842,13 @@ export default function App() {
 
   const compareIds = new Set(compareItems.map((i) => i._id));
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
+  if (user?.role === 'PROVIDER' || window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
+  const isSellerWorkspace = user?.role === 'SELLER' || user?.role === 'ADMIN';
+  const isSellerDashboard = isSellerWorkspace && activePage === 'seller';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF9F6] text-[#141413] overflow-x-clip">
-      <TopBar
+      {!isSellerDashboard && <TopBar
         activePage={activePage}
         activeCategory={category}
         onNavigateStore={navigateToStore}
@@ -867,7 +862,7 @@ export default function App() {
           setAuthInitialMode('signin');
           setAuthOpen(true);
         }}
-      />
+      />}
 
       {activePage === 'signup' && (
         <div className="flex-1">
@@ -1175,29 +1170,6 @@ export default function App() {
               <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-end gap-3 sm:gap-4 rounded-lg border border-[#E8E6E1] bg-white p-4 text-xs">
                 <div className="w-full sm:w-auto">
                   <label className="block font-medium text-[#44403C] mb-1">
-                    {t('filter.category')}
-                  </label>
-                  <select
-                    value={category}
-                    onChange={(e) => {
-                      setCategory(e.target.value as ProductCategory | 'All');
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-auto min-h-[44px] rounded border border-[#D6D3CD] bg-white px-3 py-2 text-xs"
-                  >
-                    <option value="All">{t('filter.allCategories')}</option>
-                    {(storeCategories.length > 0
-                      ? storeCategories.map((c) => c.name)
-                      : ['Artificial Jewellery', 'Clothing', 'Accessories']
-                    ).map((catName) => (
-                      <option key={catName} value={catName}>
-                        {tc(catName)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="w-full sm:w-auto">
-                  <label className="block font-medium text-[#44403C] mb-1">
                     {t('search.minPrice')}
                   </label>
                   <input
@@ -1352,47 +1324,35 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
-                  {OCCASIONS.map((occ) => (
-                    <button
-                      key={occ}
-                      type="button"
-                      onClick={() => {
-                        setOccasion(occ);
-                        setPage(1);
-                      }}
-                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        occasion === occ
-                          ? 'bg-white text-[#141413] shadow-xs'
-                          : 'text-[#57534E] hover:text-[#141413]'
-                      }`}
-                    >
-                      {occ === 'All' ? t('filter.allOccasions') : to(occ)}
-                    </button>
-                  ))}
+              <section className="rounded-xl border border-[#E8E6E1] bg-white px-3 py-3 sm:px-4" aria-label="Quick filters">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#78716C]">Quick filters</span>
+                  <button type="button" onClick={() => { setCategory('All'); setOccasion('All'); setSeason('All'); setPage(1); }} className="text-[11px] font-medium text-[#881337] hover:underline">Clear filters</button>
                 </div>
-
-                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
-                  {SEASONS.map((ssn) => (
-                    <button
-                      key={ssn}
-                      type="button"
-                      onClick={() => {
-                        setSeason(ssn);
-                        setPage(1);
-                      }}
-                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        season === ssn
-                          ? 'bg-white text-[#881337] font-semibold shadow-xs'
-                          : 'text-[#57534E] hover:text-[#141413]'
-                      }`}
-                    >
-                      {ssn === 'All' ? t('season.all') : tseason(ssn)}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <label className="shrink-0 text-[11px] font-semibold text-[#57534E]">Category</label>
+                    <select aria-label="Category quick filter" value={category} onChange={(e) => { setCategory(e.target.value as ProductCategory | 'All'); setPage(1); }} className="h-8 min-w-[150px] rounded-md border border-[#D6D3CD] bg-[#FAF9F6] px-2.5 text-xs font-medium text-[#292524] focus:border-[#881337] focus:outline-none">
+                      <option value="All">{t('filter.allCategories')}</option>
+                      {(storeCategories.length > 0 ? storeCategories.map((c) => c.name) : ['Artificial Jewellery', 'Clothing', 'Accessories']).map((catName) => <option key={catName} value={catName}>{tc(catName)}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="w-[58px] shrink-0 text-[11px] font-semibold text-[#57534E]">Occasion</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
+                        {OCCASIONS.map((occ) => <button key={occ} type="button" onClick={() => { setOccasion(occ); setPage(1); }} aria-pressed={occasion===occ} className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${occasion===occ?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E] hover:bg-white'}`}>{occ === 'All' ? t('filter.allOccasions') : to(occ)}</button>)}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="w-[58px] shrink-0 text-[11px] font-semibold text-[#57534E]">Season</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
+                        {SEASONS.map((ssn) => <button key={ssn} type="button" onClick={() => { setSeason(ssn); setPage(1); }} aria-pressed={season===ssn} className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${season===ssn?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E] hover:bg-white'}`}>{ssn === 'All' ? t('season.all') : tseason(ssn)}</button>)}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </section>
             </div>
 
             {/* Product Grid */}
@@ -1436,9 +1396,7 @@ export default function App() {
                   const isTopTrending =
                     typeof threshold === 'number' && product.trendScore >= threshold;
 
-                  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
-
-  return (
+                  return (
                     <ProductCard
                       key={product._id}
                       product={product}
@@ -1515,7 +1473,7 @@ export default function App() {
       )}
 
       {/* Quiet Editorial Footer */}
-      <footer className="border-t border-[#E8E6E1] bg-white">
+      {!isSellerDashboard && <footer className="border-t border-[#E8E6E1] bg-white">
         <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
           <div className="font-display text-lg font-semibold text-[#141413]">{t('brand')}</div>
           <div className="flex flex-wrap items-center gap-6">
@@ -1543,17 +1501,10 @@ export default function App() {
             >
               {t('footer.orderHistory')}
             </button>
-            <button
-              type="button"
-              onClick={() => setActivePage('seller')}
-              className="hover:text-[#141413] cursor-pointer"
-            >
-              {t('nav.sellerHub')}
-            </button>
           </div>
           <div>© 2026 {t('brand')}</div>
         </div>
-      </footer>
+      </footer>}
 
       {/* Overlays */}
       <ProductDetailModal
@@ -1625,9 +1576,9 @@ export default function App() {
         onClose={() => setAuthOpen(false)}
         user={user}
         initialMode={authInitialMode}
-        onOpenSignUpPage={() => setActivePage('signup')}
         onAuthChanged={(payload) => {
           setUser(payload.user);
+          setActivePage(payload.user?.role === 'SELLER' || payload.user?.role === 'ADMIN' ? 'seller' : 'store');
           const returnTo = new URLSearchParams(window.location.search).get('returnTo');
           if (returnTo && returnTo.startsWith('/')) { const target = new URL(returnTo, window.location.origin); if (target.origin === window.location.origin) window.location.assign(target.pathname + target.search + target.hash); }
           if (payload.likedProductIds) setLikedIds(new Set(payload.likedProductIds));
@@ -1636,6 +1587,12 @@ export default function App() {
             localStorage.setItem('kk_guest_cart', JSON.stringify(payload.cart));
           }
         }}
+      />
+
+      <RootInviteAcceptance
+        user={user}
+        onRequireAuth={() => { setAuthInitialMode('signin'); setAuthOpen(true); }}
+        onAccepted={(acceptedUser) => { setUser(acceptedUser); setActivePage(acceptedUser.role === 'SELLER' || acceptedUser.role === 'ADMIN' ? 'seller' : 'store'); }}
       />
 
       {/* Floating Artificial Jewellery Comparison Bar */}

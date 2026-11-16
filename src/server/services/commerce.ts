@@ -37,7 +37,7 @@ export async function saveGatewayConfiguration(input: {
   const doc = await PaymentGatewayConfigModel.findOneAndUpdate(
     { sellerId: input.sellerId, provider: input.provider },
     { $set: update, $setOnInsert: { sellerId: input.sellerId, provider: input.provider } },
-    { upsert: true, new: true, runValidators: true }
+    { upsert: true, returnDocument: 'after', runValidators: true }
   ).select('+encryptedSecret +encryptedWebhookSecret').lean();
   return {
     provider: doc.provider as GatewayProvider,
@@ -97,7 +97,7 @@ export async function applyWalletTransaction(input: {
       const wallet = await WalletModel.findOneAndUpdate(
         { userId: input.userId, ...(input.type === 'DEBIT_ORDER_REDEMPTION' ? { balancePaise: { $gte: input.amountPaise } } : {}) },
         { $inc: { balancePaise: input.type === 'DEBIT_ORDER_REDEMPTION' ? -input.amountPaise : input.amountPaise, version: 1 }, $setOnInsert: { userId: input.userId, currency: 'INR' } },
-        { new: true, upsert: input.type !== 'DEBIT_ORDER_REDEMPTION', session, setDefaultsOnInsert: true }
+        { returnDocument: 'after', upsert: input.type !== 'DEBIT_ORDER_REDEMPTION', session, setDefaultsOnInsert: true }
       );
       if (!wallet) throw new Error('INSUFFICIENT_WALLET_BALANCE');
       const [entry] = await WalletTransactionModel.create([{
@@ -221,7 +221,7 @@ export async function claimPaymentEvent(provider: GatewayProvider, eventId: stri
       $set: { status: 'PROCESSING', processingLeaseUntil: leaseUntil, payloadHash, lastError: null },
       $inc: { attempts: 1 },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   return Boolean(reclaimed);
 }
@@ -286,7 +286,7 @@ export async function restoreCancelledOrderInventory(orderId: string) {
       const order = await OrderModel.findOneAndUpdate(
         { _id: orderId, status: 'Cancelled', inventoryRestored: { $ne: true } },
         { $set: { inventoryRestored: true } },
-        { new: true, session }
+        { returnDocument: 'after', session }
       );
       if (!order) return;
       for (const item of order.items || []) {

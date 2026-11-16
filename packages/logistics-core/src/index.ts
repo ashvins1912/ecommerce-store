@@ -10,10 +10,18 @@ export interface RateRequest { origin: AddressRef; destination: AddressRef; weig
 export interface RateQuote { providerCode:string; serviceCode:string; amountMinor:number; currency:string; estimatedTransitHours:number; serviceable:boolean; codSupported:boolean; fetchedAt:string; expiresAt:string }
 export interface ShipmentRequest { orderId:string;sellerId:string;warehouseId:string;quote:RateQuote;origin?:AddressRef;destination:AddressRef;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string;idempotencyKey:string;orderDate?:string;items?:Array<{name:string;sku:string;quantity:number;unitPrice:number;category?:string}> }
 export interface ShipmentResult {providerCode:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;manifestUrl?:string;estimatedDeliveryAt?:string;pickupScheduled?:boolean;status:ShipmentStatus}
+export interface ReturnPickupRequest {
+ orderId:string; customer:AddressRef; returnTo:AddressRef; items:Array<{name:string;sku:string;quantity:number;unitPrice:number;category?:string}>;
+ weightGrams:number; declaredValueMinor:number; currency:string; reason:string; orderDate?:string; email?:string;
+}
+export interface ReturnPickupResult {
+ providerCode:string; providerShipmentId:string; awbNumber:string; labelUrl?:string; estimatedPickupAt?:string; pickupScheduled:boolean; status:string;
+}
+
 export interface TrackingCheckpoint {status:ShipmentStatus;statusCode:string;locationCode?:string;message?:string;occurredAt:string;eventHash:string}
 export interface CarrierCredentials { [key:string]:string }
 export interface WebhookEnvelope {providerCode:string;awbNumber:string;eventHash:string;status:ShipmentStatus;occurredAt:string;locationCode?:string;raw:unknown}
-export interface ICarrierProvider {readonly code:string;readonly kind:CarrierKind;validateCredentials(c:CarrierCredentials):Promise<void>;checkServiceability(r:RateRequest,c:CarrierCredentials):Promise<boolean>;getRates(r:RateRequest,c:CarrierCredentials):Promise<RateQuote[]>;createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>;getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>;cancelShipment(awb:string,c:CarrierCredentials):Promise<void>;verifyWebhook(raw:string|Buffer,signature:string,secret:string):boolean;parseWebhook(payload:unknown):WebhookEnvelope}
+export interface ICarrierProvider {readonly code:string;readonly kind:CarrierKind;createReturnPickup?(r:ReturnPickupRequest,c:CarrierCredentials):Promise<ReturnPickupResult>;validateCredentials(c:CarrierCredentials):Promise<void>;checkServiceability(r:RateRequest,c:CarrierCredentials):Promise<boolean>;getRates(r:RateRequest,c:CarrierCredentials):Promise<RateQuote[]>;createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>;getTracking(awb:string,c:CarrierCredentials):Promise<TrackingCheckpoint[]>;cancelShipment(awb:string,c:CarrierCredentials):Promise<void>;verifyWebhook(raw:string|Buffer,signature:string,secret:string):boolean;parseWebhook(payload:unknown):WebhookEnvelope}
 export class CarrierFactory {private providers=new Map<string,ICarrierProvider>();register(p:ICarrierProvider){const k=p.code.toLowerCase();if(this.providers.has(k))throw new Error('CARRIER_ALREADY_REGISTERED:'+k);this.providers.set(k,p);return this;}get(code:string){const p=this.providers.get(code.toLowerCase());if(!p)throw new Error('UNSUPPORTED_CARRIER:'+code);return p;}list(){return [...this.providers.values()];}}
 export interface CarrierCandidate {providerCode:string;serviceCode:string;costMinor:number;estimatedTransitHours:number;historicalRtoRate:number;sellerPriority:number;serviceable:boolean;currency:string}
 export interface CarrierWeights {cost:number;transit:number;rto:number;priority:number}

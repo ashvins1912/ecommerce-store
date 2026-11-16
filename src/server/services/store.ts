@@ -55,6 +55,8 @@ import {
   CouponModel,
   CategoryControlModel,
   ShareEventModel,
+  SellerPrivacySettingsModel,
+  PrivacyDisclosureAuditModel,
 } from '../models/schemas.js';
 import { ProviderProfileModel, ProviderProductModel } from '../models/providerSchemas.js';
 import { encryptField } from './fieldEncryption.js';
@@ -273,54 +275,54 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
         ReviewModel.syncIndexes(),
         OrderModel.syncIndexes(),
         SellerInviteModel.syncIndexes(),
+        SellerPrivacySettingsModel.syncIndexes(),
+        PrivacyDisclosureAuditModel.syncIndexes(),
       ]);
-      // Seed Atlas M0 if empty
+      // Idempotently ensure one sample account per configured demo identity. The unique
+      // email index is the database-level guard; $setOnInsert never overwrites a real
+      // account or changes an existing user's role/profile on application restart.
+      const idMap = new Map<string, mongoose.Types.ObjectId>();
+      for (const u of ACTIVE_SEED_USERS) {
+        const email = u.email.trim().toLowerCase();
+        let account: any;
+        try {
+          // Mongoose timestamps manage these fields on upsert. Do not include seed
+          // timestamps in $setOnInsert or MongoDB sees conflicting updatedAt paths.
+          const seedUser = Object.fromEntries(
+            Object.entries(u).filter(([key]) => key !== 'createdAt' && key !== 'updatedAt'),
+          ) as Omit<User, 'createdAt' | 'updatedAt'>;
+          account = await UserModel.findOneAndUpdate(
+            { email },
+            { $setOnInsert: { ...seedUser, _id: new mongoose.Types.ObjectId(), email } },
+            { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+          ).lean();
+        } catch (error) {
+          // Concurrent application starts can race on the unique email index.
+          // In that case, read the winner rather than failing startup or duplicating it.
+          if ((error as { code?: number }).code !== 11000) throw error;
+          account = await UserModel.findOne({ email }).lean();
+        }
+        if (!account) throw new Error(`Unable to ensure demo account for ${email}`);
+        idMap.set(u._id, new mongoose.Types.ObjectId(String(account._id)));
+      }
+
+      // Seed the sample catalogue only when it is empty. Existing products and users
+      // are never replaced; seller references always point at the ensured DB users.
       const productCount = await ProductModel.countDocuments();
       if (productCount === 0) {
-        const idMap = new Map<string, mongoose.Types.ObjectId>();
-        for (const u of ACTIVE_SEED_USERS) {
-          const oid = new mongoose.Types.ObjectId();
-          idMap.set(u._id, oid);
-          await UserModel.create({ ...u, _id: oid });
-        }
         for (const p of SEED_PRODUCTS) {
           const oid = new mongoose.Types.ObjectId();
           idMap.set(p._id, oid);
+          const sellerId = idMap.get(p.sellerId);
+          if (!sellerId) throw new Error(`Missing seeded seller reference for product ${p._id}`);
           await ProductModel.create({
             ...p,
             _id: oid,
-            sellerId: idMap.get(p.sellerId) || new mongoose.Types.ObjectId(),
+            sellerId,
           });
         }
-      } else {
-        // Ensure dummy test users (Buyer, Seller, Admin) always exist for testing
-        for (const u of ACTIVE_SEED_USERS) {
-          const existing = await UserModel.findOne({ email: u.email.toLowerCase() }).lean();
-          if (!existing) {
-            await UserModel.create({ ...u, _id: new mongoose.Types.ObjectId() });
-          }
-        }
       }
-      // Ensure development provider demo identities exist even when this database was
-      // populated before provider demos were added. Keep synthetic users out of production.
-      if (process.env.NODE_ENV !== 'production') {
-        for (const provider of [
-          { _id: 'usr_provider_1', name: 'Aarav Artisan Supply', email: 'provider.aarav@example.com', mobileNumber: '+919876540001' },
-          { _id: 'usr_provider_2', name: 'Nisha Craft Works', email: 'provider.nisha@example.com', mobileNumber: '+919876540002' },
-        ]) {
-          const existingProvider = await UserModel.findOne({ email: provider.email }).lean();
-          if (!existingProvider) {
-            await UserModel.create({
-              ...provider,
-              role: 'PROVIDER',
-              authProvider: 'demo',
-              oauthAccounts: [],
-              isWhatsappVerified: false,
-              shippingAddresses: [],
-            });
-          }
-        }
-      }
+      console.info(`[seed] Demo identities checked: ${ACTIVE_SEED_USERS.length}; catalogue mode: ${productCount === 0 ? 'initialized' : 'existing'}`);
 
       // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
       if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
@@ -797,7 +799,7 @@ async function queryMongoProductsPage(filters: ProductFilterQuery, page: number,
       { $match: MONGO_PUBLIC_PRODUCT_FILTER },
       { $setWindowFields: { partitionBy: '$category', sortBy: { trendScore: -1 }, output: {
         rank: { $documentNumber: {} },
-        categoryCount: { $count: { window: { documents: ['unbounded', 'unbounded'] } } },
+        categoryCount: { $count: {}, window: { documents: ['unbounded', 'unbounded'] } },
       } } },
       { $match: { $expr: { $lte: ['$rank', { $max: [1, { $ceil: { $multiply: ['$categoryCount', 0.1] } }] }] } } },
       { $group: { _id: '$category', threshold: { $min: { $ifNull: ['$trendScore', 0] } } } },
@@ -1216,7 +1218,7 @@ export async function updateProductDiscountOrStock(
   };
 
   if (mongoConnected && mongoose.isValidObjectId(productId)) {
-    const updated = await ProductModel.findByIdAndUpdate(productId, { $set: patch }, { new: true }).lean();
+    const updated = await ProductModel.findByIdAndUpdate(productId, { $set: patch }, { returnDocument: 'after' }).lean();
     return updated ? normalizeProductDoc(updated) : null;
   }
 
@@ -1399,7 +1401,7 @@ export async function updateProductControlState(
     const doc = await ProductModel.findByIdAndUpdate(
       productId,
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     updated = doc ? normalizeProductDoc(doc) : null;
   } else {
@@ -1565,6 +1567,63 @@ export async function findUserById(id: string): Promise<User | null> {
   }
   const found = localState.users.find((u) => u._id === id);
   return found ? sanitizeUser(found) : null;
+}
+
+export async function ensureRootSuperuser(): Promise<void> {
+  const email = (process.env.ROOT_SUPERUSER_EMAIL || 'ashvinsingh25@gmail.com').trim().toLowerCase();
+  const initialPassword = process.env.ROOT_SUPERUSER_INITIAL_PASSWORD || '';
+  if (!initialPassword) {
+    if (process.env.NODE_ENV === 'production') throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must be configured with at least 14 characters; refusing to start without secure root provisioning.');
+    return;
+  }
+  if (initialPassword.length < 14) throw new Error('ROOT_SUPERUSER_INITIAL_PASSWORD must contain at least 14 characters.');
+  if (mongoConnected) {
+    const existing = await UserModel.findOne({ email }).select('+passwordHash');
+    if (!existing) {
+      await UserModel.create({
+        role: 'ADMIN', isRootSuperuser: true, name: 'Root Superuser', email,
+        passwordHash: hashPassword(initialPassword), authProvider: 'invite', oauthAccounts: [],
+        isWhatsappVerified: false, shippingAddresses: [],
+      });
+    } else {
+      const firstRootProvision = existing.isRootSuperuser !== true;
+      existing.role = 'ADMIN';
+      existing.isRootSuperuser = true;
+      if (firstRootProvision || !(existing as any).passwordHash) (existing as any).passwordHash = hashPassword(initialPassword);
+      await existing.save();
+    }
+    return;
+  }
+  const existing = localState.users.find((user) => user.email.toLowerCase() === email) as (User & { passwordHash?: string; isRootSuperuser?: boolean }) | undefined;
+  if (!existing) {
+    const now = new Date().toISOString();
+    localState.users.push({
+      _id: 'root_' + crypto.randomBytes(12).toString('hex'), role: 'ADMIN', isRootSuperuser: true,
+      name: 'Root Superuser', email, passwordHash: hashPassword(initialPassword), authProvider: 'invite',
+      oauthAccounts: [], isWhatsappVerified: false, shippingAddresses: [], createdAt: now, updatedAt: now,
+    } as any);
+  } else {
+    const firstRootProvision = existing.isRootSuperuser !== true;
+    existing.role = 'ADMIN';
+    existing.isRootSuperuser = true;
+    if (firstRootProvision || !existing.passwordHash) existing.passwordHash = hashPassword(initialPassword);
+  }
+  saveLocalStore(localState);
+}
+
+export async function updateRootSuperuserPassword(userId: string, currentPassword: string, nextPassword: string): Promise<boolean> {
+  if (mongoConnected && mongoose.isValidObjectId(userId)) {
+    const doc = await UserModel.findOne({ _id: userId, isRootSuperuser: true }).select('+passwordHash');
+    if (!doc || !verifyPassword(currentPassword, (doc as any).passwordHash)) return false;
+    (doc as any).passwordHash = hashPassword(nextPassword);
+    await doc.save();
+    return true;
+  }
+  const user = localState.users.find((item) => item._id === userId && (item as any).isRootSuperuser) as (User & { passwordHash?: string }) | undefined;
+  if (!user || !verifyPassword(currentPassword, user.passwordHash)) return false;
+  user.passwordHash = hashPassword(nextPassword);
+  saveLocalStore(localState);
+  return true;
 }
 
 export async function findUserByEmail(email: string): Promise<User | null> {
@@ -1820,7 +1879,7 @@ export async function activateSellerProfile(
           sellerProfile,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     return doc ? sanitizeUser(doc) : null;
   }
@@ -2014,7 +2073,7 @@ export async function logShareEvent(input: {
     const updated = await ProductModel.findOneAndUpdate(
       { _id: input.productId, ...MONGO_PUBLIC_PRODUCT_FILTER },
       { $inc: { sharesCount: 1, trendScore: 2 } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!updated) return null;
     const ev = await ShareEventModel.create({
@@ -2944,7 +3003,7 @@ export async function revokeSellerInvite(inviteId: string): Promise<SellerInvite
     const doc = await SellerInviteModel.findByIdAndUpdate(
       inviteId,
       { $set: { status: 'revoked', revokedAt: new Date() } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!doc) return null;
     return {
@@ -3083,7 +3142,7 @@ export async function acceptSellerInvite(input: {
     const updatedInvite = await SellerInviteModel.findOneAndUpdate(
       { token: input.token.trim(), status: 'pending' },
       { $set: { status: 'accepted', email: invitedEmail, acceptedAt: nowDate, acceptedUserId: userDoc._id } },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!updatedInvite) {
       throw new Error('This seller invitation could not be redeemed.');
