@@ -12,15 +12,14 @@
     "lint": "tsc --noEmit",
     "dev:customer": "vite --config apps/customer-web/vite.config.ts",
     "build:customer": "vite build --config apps/customer-web/vite.config.ts",
-    "dev:seller": "vite --config apps/seller-hub/vite.config.ts",
-    "build:seller": "vite build --config apps/seller-hub/vite.config.ts",
     "dev:provider": "vite --config apps/provider-portal/vite.config.ts",
     "build:provider": "vite build --config apps/provider-portal/vite.config.ts",
-    "build:workspace": "npm run build:customer && npm run build:seller && npm run build:provider",
+    "build:workspace": "npm run build:customer && npm run build:provider",
     "logistics:worker": "RUN_LOGISTICS_WORKER=1 tsx apps/logistics-worker/src/run.ts",
     "test:logistics": "tsx --test packages/logistics-core/src/index.test.ts packages/adapters/shadowfax/src/index.test.ts packages/adapters/shiprocket/src/index.test.ts",
     "test:hybrid": "tsx --test packages/hybrid-engine/src/index.test.ts",
-    "test": "npm run test:logistics && npm run test:hybrid"
+    "test": "npm run test:logistics && npm run test:hybrid",
+    "dev:all": "bash scripts/dev-all.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
@@ -66,7 +65,6 @@
   },
   "workspaces": [
     "apps/customer-web",
-    "apps/seller-hub",
     "apps/provider-portal",
     "packages/shared-types",
     "packages/shared-utils",
