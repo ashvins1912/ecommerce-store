@@ -1800,7 +1800,7 @@ async function startServer() {
     } catch (err) {
       const code = (err as Error).message;
       const status = code === 'MONGODB_TRANSACTIONAL_CHECKOUT_REQUIRED' ? 503
-        : ['INVENTORY_RESERVATION_CONFLICT', 'COUPON_USAGE_LIMIT_REACHED', 'CART_PRICE_CHANGED', 'CART_SELLER_MISMATCH', 'PRODUCT_VARIANT_UNAVAILABLE'].includes(code) ? 409 : 400;
+        : ['INVENTORY_RESERVATION_CONFLICT', 'COUPON_USAGE_LIMIT_REACHED', 'CART_PRICE_CHANGED', 'CART_SELLER_MISMATCH', 'PRODUCT_VARIANT_UNAVAILABLE', 'IDEMPOTENCY_KEY_CONFLICT'].includes(code) ? 409 : 400;
       return res.status(status).json({ error: code, retryable: status === 503 });
     }
 
