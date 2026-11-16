@@ -9,7 +9,7 @@ export interface AddressRef { warehouseId: string; postalCode: string; countryCo
 export interface RateRequest { origin: AddressRef; destination: AddressRef; weightGrams: number; dimensionsCm?: {length:number;width:number;height:number}; codAmountMinor?: number; declaredValueMinor?: number; currency: string }
 export interface RateQuote { providerCode:string; serviceCode:string; amountMinor:number; currency:string; estimatedTransitHours:number; serviceable:boolean; codSupported:boolean; fetchedAt:string; expiresAt:string }
 export interface ShipmentRequest { orderId:string;sellerId:string;warehouseId:string;quote:RateQuote;origin?:AddressRef;destination:AddressRef;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string;idempotencyKey:string;orderDate?:string;items?:Array<{name:string;sku:string;quantity:number;unitPrice:number;category?:string}> }
-export interface ShipmentResult {providerCode:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;status:ShipmentStatus}
+export interface ShipmentResult {providerCode:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;manifestUrl?:string;estimatedDeliveryAt?:string;pickupScheduled?:boolean;status:ShipmentStatus}
 export interface TrackingCheckpoint {status:ShipmentStatus;statusCode:string;locationCode?:string;message?:string;occurredAt:string;eventHash:string}
 export interface CarrierCredentials { [key:string]:string }
 export interface WebhookEnvelope {providerCode:string;awbNumber:string;eventHash:string;status:ShipmentStatus;occurredAt:string;locationCode?:string;raw:unknown}
