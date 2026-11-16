@@ -2356,22 +2356,57 @@ async function startServer() {
         ...(order.paymentCheckoutUrl ? { url: order.paymentCheckoutUrl } : {}),
       }});
     }
+    const attemptKey = crypto.randomUUID();
+    const now = new Date();
+    const claimedOrder = await OrderModel.findOneAndUpdate(
+      {
+        _id: order._id, buyerId: user._id, status: 'CONFIRMED_AWAITING_PAYMENT',
+        paymentStatus: { $ne: 'PAID' }, paymentReference: { $in: [null, ''] },
+        $or: [{ paymentIntentLeaseUntil: null }, { paymentIntentLeaseUntil: { $lte: now } }],
+      },
+      { $set: { paymentIntentRequestKey: attemptKey, paymentIntentLeaseUntil: new Date(now.getTime() + 60_000) } },
+      { new: true }
+    );
+    if (!claimedOrder) {
+      const latest = await OrderModel.findOne({ _id: order._id, buyerId: user._id }).lean();
+      if (latest?.paymentReference && latest.paymentProvider === parsed.data.provider) {
+        const existingGateway = parsed.data.provider === 'razorpay' ? await getGatewaySecrets(String(order.sellerId), 'razorpay') : null;
+        return res.json({ checkout: {
+          provider: parsed.data.provider, reference: latest.paymentReference,
+          amountPaise: Math.max(0, Math.round(Number(latest.totalAmount) * 100) - Number(latest.walletAppliedPaise || 0)),
+          currency: 'INR', ...(existingGateway ? { keyId: existingGateway.keyId } : {}),
+          ...(latest.paymentCheckoutUrl ? { url: latest.paymentCheckoutUrl } : {}),
+        }});
+      }
+      return res.status(409).json({ error: 'PAYMENT_INTENT_IN_PROGRESS', retryable: true });
+    }
     try {
       const checkout = await createGatewayCheckout({
-        sellerId: String(order.sellerId), provider: parsed.data.provider,
-        orderId: String(order._id), orderNumber: order.orderNumber,
-        amountPaise: Math.max(0, Math.round(Number(order.totalAmount) * 100) - Number(order.walletAppliedPaise || 0)),
+        sellerId: String(claimedOrder.sellerId), provider: parsed.data.provider,
+        orderId: String(claimedOrder._id), orderNumber: claimedOrder.orderNumber,
+        amountPaise: Math.max(0, Math.round(Number(claimedOrder.totalAmount) * 100) - Number(claimedOrder.walletAppliedPaise || 0)),
+        idempotencyKey: `checkout:${String(claimedOrder._id)}:${parsed.data.provider}`,
       });
-      order.paymentProvider = checkout.provider;
-      order.paymentReference = checkout.reference;
-      order.paymentCheckoutUrl = checkout.url || null;
-      order.paymentMode = checkout.provider === 'razorpay' ? 'RAZORPAY' : 'STRIPE';
-      order.paymentStatus = 'PENDING';
-      await order.save();
+      const persisted = await OrderModel.findOneAndUpdate(
+        { _id: claimedOrder._id, buyerId: user._id, paymentIntentRequestKey: attemptKey, paymentReference: { $in: [null, ''] } },
+        {
+          $set: {
+            paymentProvider: checkout.provider, paymentReference: checkout.reference,
+            paymentCheckoutUrl: checkout.url || null,
+            paymentMode: checkout.provider === 'razorpay' ? 'RAZORPAY' : 'STRIPE',
+            paymentStatus: 'PENDING',
+          },
+          $unset: { paymentIntentRequestKey: 1, paymentIntentLeaseUntil: 1 },
+        },
+        { new: true }
+      );
+      if (!persisted) throw new Error('PAYMENT_INTENT_LEASE_LOST');
       res.setHeader('Cache-Control', 'no-store');
       res.json({ checkout });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      // Keep the lease until expiry after an ambiguous provider error; this avoids
+      // immediately creating a second external intent when the first response was lost.
+      res.status(503).json({ error: (err as Error).message, retryable: true });
     }
   });
 
