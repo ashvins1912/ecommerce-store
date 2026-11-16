@@ -36,7 +36,7 @@ export function toProviderSafeOrderDto(order: any) {
   };
 }
 
-const PROVIDER_FORBIDDEN_KEYS = /^(buyer|buyerId|customer|customerId|customerName|customerEmail|customerPhone|shippingAddress|billingAddress|recipient|recipientName|recipientPhone|recipientEmail|deliveryAddress|deliveryInstructions)$/i;
+const PROVIDER_FORBIDDEN_KEYS = /^(buyer|customer|recipient|shippingAddress|billingAddress|deliveryAddress|deliveryInstructions)/i;
 export function toProviderSafeDto<T>(value: T): T {
   if (Array.isArray(value)) return value.map((item) => toProviderSafeDto(item)) as T;
   if (!value || typeof value !== 'object' || value instanceof Date) return value;
