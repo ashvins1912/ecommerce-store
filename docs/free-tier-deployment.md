@@ -130,7 +130,7 @@ The Render blueprint runs lint, the logistics/hybrid/privacy/role tests, and bot
 8. Confirm that Level 1 admin cannot invite another ADMIN and that seller invitations remain scoped to provider onboarding.
 9. Disable demo/quick-login flows in production (the server already rejects quick demo login in production).
 
-Do not create production test accounts by editing the seed file. Treat all sample catalogue content as demo content until reviewed.
+Production startup deliberately does not seed the demo users or sample catalogue. Create the one seller, ten providers and ten customers through the real onboarding/sign-up flows. Local development seed identities and sample products are not production accounts.
 
 ## 8. Smoke test the complete workflow
 
