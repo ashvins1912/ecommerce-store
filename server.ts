@@ -2372,7 +2372,7 @@ async function startServer() {
     };
     if (status && status !== 'ALL') filter.status = status;
     const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
-    filter.$or = [{ title: { $regex: escapedQuery, $options: 'i' } }, { category: { $regex: escapedQuery, $options: 'i' } }, { brand: { $regex: escapedQuery, $options: 'i' } }];
+    filter.$or = [{ orderId: { $regex: escapedQuery, $options: 'i' } }, { utrReference: { $regex: escapedQuery, $options: 'i' } }, { status: { $regex: escapedQuery, $options: 'i' } }];
     const [total, orders] = await Promise.all([
       OrderModel.countDocuments(filter),
       OrderModel.find(filter).select('_id orderNumber sellerId items status courierTracking createdAt updatedAt paymentMode paymentStatus').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
@@ -2445,7 +2445,7 @@ async function startServer() {
     const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
     const filter: Record<string, any> = { providerId: user._id };
     const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
-    filter.$or = [{ title: { $regex: escapedQuery, $options: 'i' } }, { category: { $regex: escapedQuery, $options: 'i' } }, { brand: { $regex: escapedQuery, $options: 'i' } }];
+    filter.$or = [{ orderNumber: { $regex: escapedQuery, $options: 'i' } }, { _id: { $regex: escapedQuery, $options: 'i' } }];
     if (status && status !== 'ALL') filter.status = status;
     const [total, settlements] = await Promise.all([
       ProviderSettlementModel.countDocuments(filter),
