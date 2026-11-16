@@ -129,7 +129,14 @@ export async function getLogisticsRateCache<T>(key:string):Promise<T|null>{
  if(upstashClient){
   try{
    const cached=await upstashClient.get<T>('logistics:'+key);
-   if(cached!==null&&cached!==undefined){memoryLogisticsRates.set(key,cached,30_000);return cached;}
+   if(cached!==null&&cached!==undefined){
+    let ttlMs=5_000;
+    if(Array.isArray(cached)){
+     const expiries=cached.map((entry:any)=>Date.parse(entry?.quote?.expiresAt||'')).filter((value:number)=>Number.isFinite(value));
+     if(expiries.length)ttlMs=Math.max(1,Math.min(ttlMs,Math.min(...expiries)-Date.now()));
+    }
+    memoryLogisticsRates.set(key,cached,ttlMs);return cached;
+   }
   }catch{/* fall back to L1 */}
  }
  return (memoryLogisticsRates.get(key) as T|undefined)??null;
