@@ -8,8 +8,8 @@
     "build": "vite build --config vite.config.ts"
   },
   "dependencies": {
-    "@commerce/shared-types": "^1.0.0",
-    "@commerce/shared-utils": "^1.0.0",
-    "@commerce/shared-ui": "^1.0.0"
+    "@commerce/shared-types": "workspace:*",
+    "@commerce/shared-utils": "workspace:*",
+    "@commerce/shared-ui": "workspace:*"
   }
 }
