@@ -793,7 +793,7 @@ async function queryMongoProductsPage(filters: ProductFilterQuery, page: number,
     ProductModel.find(queryFilter).sort({ [selectedSort.field]: selectedSort.direction, _id: selectedSort.direction })
       .skip(filters.cursor ? 0 : (page - 1) * limit).limit(limit + 1).lean(),
     ProductModel.countDocuments(baseFilter),
-    ProductModel.aggregate([
+    ProductModel.aggregate(([
       { $match: MONGO_PUBLIC_PRODUCT_FILTER },
       { $setWindowFields: { partitionBy: '$category', sortBy: { trendScore: -1 }, output: {
         rank: { $documentNumber: {} },
@@ -801,7 +801,7 @@ async function queryMongoProductsPage(filters: ProductFilterQuery, page: number,
       } } },
       { $match: { $expr: { $lte: ['$rank', { $max: [1, { $ceil: { $multiply: ['$categoryCount', 0.1] } }] }] } } },
       { $group: { _id: '$category', threshold: { $min: { $ifNull: ['$trendScore', 0] } } } },
-    ]),
+    ] as any)),
   ]);
   const hasMore = docs.length > limit, pageDocs = hasMore ? docs.slice(0, limit) : docs;
   const products = pageDocs.map((doc: any) => normalizeProductDoc(doc));
