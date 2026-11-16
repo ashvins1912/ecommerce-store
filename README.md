@@ -78,3 +78,8 @@ Seller payment configuration endpoints support Razorpay and Stripe. Configure ea
 ## Modular provider supply workspace
 
 See [Provider Supply, Negotiation & Settlement Workflow](docs/provider-supply-workflow.md) for workspace commands, API contracts, onboarding, seller negotiation, retail publishing, settlement lifecycle and production readiness boundaries. The independent role apps are available through `bun run dev:customer`, `bun run dev:seller`, and `bun run dev:provider`.
+
+
+## Deployment and customer-data privacy
+
+See [Deployment and Customer-Data Privacy Runbook](docs/deployment-and-customer-data-privacy.md) for service-level environment configuration, independent deployment, single-command startup, seller-controlled delivery disclosure, provider data isolation and privacy release gates. Start the API and role apps together with `bun run dev:all`.
