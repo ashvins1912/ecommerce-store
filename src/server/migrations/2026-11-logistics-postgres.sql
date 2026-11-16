@@ -70,6 +70,7 @@ CREATE TABLE logistics_jobs (
  attempts SMALLINT NOT NULL DEFAULT 0,
  max_attempts SMALLINT NOT NULL DEFAULT 5,
  available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ locked_at TIMESTAMPTZ,
  last_error TEXT,
  result JSONB,
  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -83,10 +84,10 @@ RETURNS SETOF logistics_jobs LANGUAGE plpgsql SECURITY DEFINER SET search_path=p
 DECLARE claimed logistics_jobs;
 BEGIN
  SELECT * INTO claimed FROM logistics_jobs
- WHERE status='PENDING' AND available_at<=now() AND attempts<max_attempts
+ WHERE ((status='PENDING' AND available_at<=now()) OR (status='PROCESSING' AND locked_at<now()-interval '10 minutes')) AND attempts<max_attempts
  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1;
  IF NOT FOUND THEN RETURN; END IF;
- UPDATE logistics_jobs SET status='PROCESSING' WHERE id=claimed.id RETURNING * INTO claimed;
+ UPDATE logistics_jobs SET status='PROCESSING',locked_at=now() WHERE id=claimed.id RETURNING * INTO claimed;
  RETURN NEXT claimed;
 END; $;
 
@@ -100,6 +101,7 @@ BEGIN
  SELECT * INTO current_row FROM shipments WHERE id=p_shipment_id FOR UPDATE;
  IF NOT FOUND THEN RETURN FALSE; END IF;
  IF current_row.normalized_status<>p_expected_status THEN RETURN FALSE; END IF;
+ IF current_row.last_event_at IS DISTINCT FROM p_expected_last_event_at THEN RETURN FALSE; END IF;
  IF current_row.last_event_at IS NOT NULL AND p_event_timestamp<=current_row.last_event_at THEN RETURN FALSE; END IF;
  IF EXISTS(SELECT 1 FROM shipment_tracking_events WHERE shipment_id=p_shipment_id AND event_hash=p_event_hash) THEN RETURN FALSE; END IF;
  valid_edge := CASE current_row.normalized_status
