@@ -14,9 +14,9 @@ export function dispatchActionHelp(detail: TutorialHelpDetail): void {
 }
 
 export function useI18nTutorial(role: TutorialRole): {
-  startRoleTour: (customKeys?: string[]) => boolean;
-  startCustomerTour: () => boolean;
-  startActionHelp: (actionKey: string) => boolean;
+  startRoleTour: (customKeys?: string[]) => Promise<boolean>;
+  startCustomerTour: () => Promise<boolean>;
+  startActionHelp: (actionKey: string) => Promise<boolean>;
   closeTour: () => void;
   hasSeenCustomerTour: boolean;
   dismissCustomerTourPrompt: () => void;
