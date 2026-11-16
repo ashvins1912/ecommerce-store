@@ -5,10 +5,10 @@ export type ShipmentStatus = 'CREATED'|'MANIFESTED'|'IN_TRANSIT'|'OUT_FOR_DELIVE
 export const STATUS_CODE: Readonly<Record<ShipmentStatus, number>> = Object.freeze({CREATED:10,MANIFESTED:20,IN_TRANSIT:30,OUT_FOR_DELIVERY:40,DELIVERED:50,NDR:60,RTO_INITIATED:70,RTO_DELIVERED:80,CANCELLED:90});
 const TRANSITIONS: Record<ShipmentStatus, readonly ShipmentStatus[]> = {CREATED:['MANIFESTED','CANCELLED'],MANIFESTED:['IN_TRANSIT','CANCELLED'],IN_TRANSIT:['OUT_FOR_DELIVERY','NDR','RTO_INITIATED'],OUT_FOR_DELIVERY:['DELIVERED','NDR','RTO_INITIATED'],NDR:['RTO_INITIATED'],RTO_INITIATED:['RTO_DELIVERED'],DELIVERED:[],RTO_DELIVERED:[],CANCELLED:[]};
 export const canTransition = (from: ShipmentStatus, to: ShipmentStatus) => TRANSITIONS[from].includes(to);
-export interface AddressRef { warehouseId: string; postalCode: string; countryCode: string }
+export interface AddressRef { warehouseId: string; postalCode: string; countryCode: string; name?:string; contact?:string; email?:string; addressLine1?:string; addressLine2?:string; city?:string; state?:string }
 export interface RateRequest { origin: AddressRef; destination: AddressRef; weightGrams: number; dimensionsCm?: {length:number;width:number;height:number}; codAmountMinor?: number; declaredValueMinor?: number; currency: string }
 export interface RateQuote { providerCode:string; serviceCode:string; amountMinor:number; currency:string; estimatedTransitHours:number; serviceable:boolean; codSupported:boolean; fetchedAt:string; expiresAt:string }
-export interface ShipmentRequest { orderId:string;sellerId:string;warehouseId:string;quote:RateQuote;destination:AddressRef;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string;idempotencyKey:string }
+export interface ShipmentRequest { orderId:string;sellerId:string;warehouseId:string;quote:RateQuote;origin?:AddressRef;destination:AddressRef;weightGrams:number;codAmountMinor:number;declaredValueMinor:number;currency:string;idempotencyKey:string;orderDate?:string;items?:Array<{name:string;sku:string;quantity:number;unitPrice:number;category?:string}> }
 export interface ShipmentResult {providerCode:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;status:ShipmentStatus}
 export interface TrackingCheckpoint {status:ShipmentStatus;statusCode:string;locationCode?:string;message?:string;occurredAt:string;eventHash:string}
 export interface CarrierCredentials { [key:string]:string }
