@@ -479,6 +479,7 @@ async function startServer() {
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_SHIPMENT_REQUEST' });
     if (!mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_ORDER_ID' });
+    let disclosureAuditId: string | null = null;
     try {
       const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
       if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
@@ -506,6 +507,7 @@ async function startServer() {
         carrierCode, fieldsAuthorized: disclosure.fields, actorId: user!._id,
         authorizedAt: new Date(), dispatchStatus: 'AUTHORIZED', purpose: 'SHIPMENT_FULFILLMENT',
       });
+      disclosureAuditId = String(disclosureAudit._id);
       const result = await createShipmentIntent({
         orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId, carrierCode,
         warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
@@ -514,14 +516,28 @@ async function startServer() {
         declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
         recipientName: disclosure.policy.recipientName ? String(address.fullName) : '', recipientPhone: disclosure.policy.recipientPhone ? String(address.phone) : '', recipientEmail: disclosure.policy.recipientEmail ? (buyer?.email || '') : '',
         disclosureAuthorizedAt: new Date().toISOString(), disclosureFields: disclosure.fields,
-        disclosureAuditId: String(disclosureAudit._id),
+        disclosureAuditId,
         destinationAddressLine1: disclosure.policy.recipientAddress ? String(address.street) : '', destinationCity: disclosure.policy.recipientAddress ? String(address.city) : '', destinationState: disclosure.policy.recipientAddress ? String(address.state) : '',
         orderDate: new Date(order.createdAt || Date.now()).toISOString(),
         items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
       });
-      await PrivacyDisclosureAuditModel.updateOne({ _id: disclosureAudit._id }, { $set: { jobId: result.jobId || null } });
+      await PrivacyDisclosureAuditModel.updateOne(
+        { _id: disclosureAudit._id },
+        { $set: result.duplicate
+          ? { jobId: result.jobId || null, dispatchStatus: 'NOT_DISPATCHED', dispatchErrorCode: 'DUPLICATE_SHIPMENT_NO_NEW_DISCLOSURE' }
+          : { jobId: result.jobId || null } },
+      );
       res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
-    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
+    } catch (error) {
+      if (disclosureAuditId) {
+        await PrivacyDisclosureAuditModel.updateOne(
+          { _id: disclosureAuditId, dispatchStatus: 'AUTHORIZED' },
+          { $set: { dispatchStatus: 'FAILED', dispatchErrorCode: 'SHIPMENT_QUEUE_FAILED' } },
+        ).catch(() => {});
+      }
+      const e = error as any;
+      res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' });
+    }
   });
 
   app.post('/api/seller/logistics/shipments/:id/retry', async (req, res) => {
