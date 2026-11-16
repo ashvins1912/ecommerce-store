@@ -31,7 +31,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
  }
  private async findExistingOrder(orderId:string,headers:Record<string,string>):Promise<{shipmentId:string;awb?:string;pickupScheduled:boolean}|null>{
   try{
-   const response=await this.http.request<any>(this.baseUrl+'/v1/external/orders?'+new URLSearchParams({search:orderId}),{method:'GET',headers});
+   const response=await this.http.request<any>(this.baseUrl+'/v1/external/orders?'+new URLSearchParams({filter_by:'channel_order_id',filter:orderId}),{method:'GET',headers});
    const rows=Array.isArray(response.data)?response.data:Array.isArray(response.data?.data)?response.data.data:Array.isArray(response.orders)?response.orders:[];
    const order=rows.find((row:any)=>String(row.channel_order_id||row.order_id||row.channel_order_number||'')===orderId);
    if(!order)return null;
@@ -57,7 +57,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
      order_id:orderId,order_date:(r.orderDate||new Date().toISOString()).slice(0,10),pickup_location:o.name,
      billing_customer_name:firstName,billing_last_name:lastName,billing_address:d.addressLine1,billing_address_2:d.addressLine2||'',
      billing_city:d.city,billing_pincode:pin,billing_state:d.state,billing_country:'India',billing_email:d.email,billing_phone:Number(phone),
-     shipping_is_billing:true,order_items:(r.items||[]).map(item=>({name:item.name,sku:item.sku,units:item.quantity,selling_price:Math.round(item.unitPrice)})),
+     shipping_is_billing:true,shipping_customer_name:d.name,shipping_phone:Number(phone),shipping_address:d.addressLine1,shipping_address_2:d.addressLine2||'',shipping_city:d.city,shipping_state:d.state,shipping_country:'India',shipping_pincode:pin,shipping_email:d.email,order_items:(r.items||[]).map(item=>({name:item.name,sku:item.sku,units:item.quantity,selling_price:Math.round(item.unitPrice)})),
      payment_method:r.codAmountMinor>0?'COD':'Prepaid',sub_total:Math.round(r.declaredValueMinor/100),weight:r.weightGrams/1000,
      length:10,breadth:10,height:10,
     }});
@@ -90,7 +90,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
   }catch{/* Manifest can be generated from the Shiprocket panel after pickup is accepted. */}
   let labelUrl:string|undefined;
   try{
-   const label=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/label',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
+   const label=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/label',{method:'POST',headers,body:{shipment_id:[Number(shipmentId)]}});
    labelUrl=label.label_url||label.response?.label_url||label.data?.label_url;
   }catch{/* Label can be generated later from the Shiprocket panel. */}
   return{providerCode:this.code,providerShipmentId:String(shipmentId),awbNumber:String(awb),labelUrl,manifestUrl,pickupScheduled,estimatedDeliveryAt:new Date(Date.now()+r.quote.estimatedTransitHours*3600000).toISOString(),status:'CREATED'};
