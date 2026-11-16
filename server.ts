@@ -321,7 +321,7 @@ async function startServer() {
         path.startsWith('/api/auth/sessions/') && req.method === 'DELETE' ||
         path === '/api/root/password' ||
         path === '/api/root/invites' && req.method === 'POST' ||
-        /^\\/api\\/root\\/invites\\/[^/]+\\/revoke$/.test(path) && req.method === 'POST';
+        /^\/api\/root\/invites\/[^/]+\/revoke$/.test(path) && req.method === 'POST';
       if (!allowed) return res.status(403).json({ error: 'ROOT_READ_ONLY_RESTRICTION', message: 'Root accounts can inspect platform data and manage invitations, but cannot change business records.' });
       return next();
     } catch {
@@ -2570,7 +2570,7 @@ async function startServer() {
     if (!profile) return res.status(409).json({ error: 'PROVIDER_ONBOARDING_REQUIRED' });
     if (!profile.linkedSellerIds?.length) return res.status(409).json({ error: 'LINK_TO_A_SELLER_BEFORE_SUBMITTING_PRODUCTS' });
     const parsed = z.object({
-      title: z.string().trim().min(2).max(180, category: z.string().trim().min(2).max(100),
+      title: z.string().trim().min(2).max(180), category: z.string().trim().min(2).max(100),
       subCategory: z.string().max(100).optional().default(''), description: z.string().trim().min(10).max(5000),
       brand: z.string().max(120).optional().default(''), manufacturerName: z.string().trim().min(2).max(180),
       manufacturingDate: z.string().optional(), sizeVariants: z.array(z.string().max(40)).max(40).optional().default([]),
