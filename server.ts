@@ -433,7 +433,7 @@ async function startServer() {
     const filter = user!.role === 'ADMIN' ? {} : { sellerId: user!._id };
     const disclosures = await PrivacyDisclosureAuditModel.find(filter)
       .sort({ authorizedAt: -1 }).limit(100)
-      .select('sellerId orderId carrierConfigId carrierCode fieldsAuthorized actorId authorizedAt purpose')
+      .select('sellerId orderId carrierConfigId carrierCode fieldsAuthorized actorId authorizedAt jobId dispatchStatus dispatchedAt dispatchErrorCode purpose')
       .lean();
     res.setHeader('Cache-Control', 'private, no-store');
     res.json({ disclosures });
@@ -501,10 +501,10 @@ async function startServer() {
         error: disclosure.emailRequired && disclosure.missing.includes('recipientEmail') ? 'SELLER_MUST_AUTHORIZE_CUSTOMER_EMAIL_FOR_CARRIER' : 'SELLER_CUSTOMER_DATA_DISCLOSURE_NOT_AUTHORIZED',
         requiredFields: disclosure.missing,
       });
-      await PrivacyDisclosureAuditModel.create({
+      const disclosureAudit = await PrivacyDisclosureAuditModel.create({
         sellerId: String(order.sellerId), orderId: String(order._id), carrierConfigId: parsed.data.carrierConfigId,
         carrierCode, fieldsAuthorized: disclosure.fields, actorId: user!._id,
-        authorizedAt: new Date(), purpose: 'SHIPMENT_FULFILLMENT',
+        authorizedAt: new Date(), dispatchStatus: 'AUTHORIZED', purpose: 'SHIPMENT_FULFILLMENT',
       });
       const result = await createShipmentIntent({
         orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId, carrierCode,
@@ -514,10 +514,12 @@ async function startServer() {
         declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
         recipientName: disclosure.policy.recipientName ? String(address.fullName) : '', recipientPhone: disclosure.policy.recipientPhone ? String(address.phone) : '', recipientEmail: disclosure.policy.recipientEmail ? (buyer?.email || '') : '',
         disclosureAuthorizedAt: new Date().toISOString(), disclosureFields: disclosure.fields,
+        disclosureAuditId: String(disclosureAudit._id),
         destinationAddressLine1: disclosure.policy.recipientAddress ? String(address.street) : '', destinationCity: disclosure.policy.recipientAddress ? String(address.city) : '', destinationState: disclosure.policy.recipientAddress ? String(address.state) : '',
         orderDate: new Date(order.createdAt || Date.now()).toISOString(),
         items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
       });
+      await PrivacyDisclosureAuditModel.updateOne({ _id: disclosureAudit._id }, { $set: { jobId: result.jobId || null } });
       res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
   });
