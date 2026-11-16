@@ -1805,24 +1805,51 @@ async function startServer() {
       return res.status(status).json({ error: code, retryable: status === 503 });
     }
 
-    // Notify each seller once; idempotent checkout replays must not resend fulfilment messages.
-    if (!(createdOrders as any).replayed) for (const order of createdOrders) {
-      const seller = await findUserById(order.sellerId);
-      const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
-      const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
-      const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
-      const msg = [
-        'New order ' + order.orderNumber,
-        'Items: ' + itemSummary,
-        'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
-        'Contact: ' + order.shippingAddress.phone,
-        'Payment: ' + order.paymentMode,
-        'Total: INR ' + order.totalAmount,
-        'Confirm after checking stock: ' + confirmationUrl,
-      ].join('\\n');
-      if (sellerPhone) {
-        order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
-        await OrderModel.updateOne({ _id: order._id }, { $set: { whatsappDispatch: order.whatsappDispatch } });
+    // A durable lease lets a retried checkout finish a notification after a process crash.
+    // Delivery is at-least-once across the external WhatsApp call/DB acknowledgement boundary.
+    for (const order of createdOrders) {
+      const leaseUntil = new Date(Date.now() + 60_000);
+      const claim = await OrderModel.findOneAndUpdate(
+        {
+          _id: order._id, sellerNotificationSentAt: null,
+          $or: [{ sellerNotificationLeaseUntil: null }, { sellerNotificationLeaseUntil: { $lte: new Date() } }],
+        },
+        { $set: { sellerNotificationLeaseUntil: leaseUntil } },
+        { new: true }
+      );
+      if (!claim) continue;
+      try {
+        const seller = await findUserById(order.sellerId);
+        const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
+        const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
+        const confirmationUrl = getAppBaseUrl(req) + '/seller-hub?orderId=' + encodeURIComponent(order._id);
+        const msg = [
+          'New order ' + order.orderNumber,
+          'Items: ' + itemSummary,
+          'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
+          'Contact: ' + order.shippingAddress.phone,
+          'Payment: ' + order.paymentMode,
+          'Total: INR ' + order.totalAmount,
+          'Confirm after checking stock: ' + confirmationUrl,
+        ].join('\\n');
+        if (sellerPhone) {
+          order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
+          await OrderModel.updateOne(
+            { _id: order._id, sellerNotificationLeaseUntil: leaseUntil },
+            {
+              $set: {
+                whatsappDispatch: order.whatsappDispatch,
+                ...(order.whatsappDispatch?.delivered ? { sellerNotificationSentAt: new Date() } : {}),
+              },
+              $unset: { sellerNotificationLeaseUntil: 1 },
+            }
+          );
+        } else {
+          await OrderModel.updateOne({ _id: order._id, sellerNotificationLeaseUntil: leaseUntil }, { $unset: { sellerNotificationLeaseUntil: 1 } });
+        }
+      } catch (error) {
+        await OrderModel.updateOne({ _id: order._id, sellerNotificationLeaseUntil: leaseUntil }, { $unset: { sellerNotificationLeaseUntil: 1 } });
+        console.warn('Seller order notification deferred:', (error as Error).message);
       }
     }
 
