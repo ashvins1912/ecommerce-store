@@ -799,7 +799,7 @@ async function queryMongoProductsPage(filters: ProductFilterQuery, page: number,
       { $match: MONGO_PUBLIC_PRODUCT_FILTER },
       { $setWindowFields: { partitionBy: '$category', sortBy: { trendScore: -1 }, output: {
         rank: { $documentNumber: {} },
-        categoryCount: { $count: { window: { documents: ['unbounded', 'unbounded'] } } },
+        categoryCount: { $count: {}, window: { documents: ['unbounded', 'unbounded'] } },
       } } },
       { $match: { $expr: { $lte: ['$rank', { $max: [1, { $ceil: { $multiply: ['$categoryCount', 0.1] } }] }] } } },
       { $group: { _id: '$category', threshold: { $min: { $ifNull: ['$trendScore', 0] } } } },
