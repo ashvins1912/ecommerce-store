@@ -33,6 +33,7 @@ import { ProductCardSkeleton } from './components/ProductCardSkeleton';
 import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { AuthModal } from './components/AuthModal';
+import { RootInviteAcceptance } from './components/RootInviteAcceptance';
 import { OrdersView } from './components/OrdersView';
 import { SellerHubView } from './components/SellerHubView';
 import { WishlistView } from './components/WishlistView';
@@ -205,6 +206,7 @@ export default function App() {
   const [selectedInitialVariantSku, setSelectedInitialVariantSku] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  useEffect(() => { if (new URLSearchParams(window.location.search).has('rootInvite')) setAuthOpen(true); }, []);
   const [compareItems, setCompareItems] = useState<Product[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -1585,6 +1587,12 @@ export default function App() {
             localStorage.setItem('kk_guest_cart', JSON.stringify(payload.cart));
           }
         }}
+      />
+
+      <RootInviteAcceptance
+        user={user}
+        onRequireAuth={() => { setAuthInitialMode('signin'); setAuthOpen(true); }}
+        onAccepted={(acceptedUser) => { setUser(acceptedUser); setActivePage(acceptedUser.role === 'SELLER' || acceptedUser.role === 'ADMIN' ? 'seller' : 'store'); }}
       />
 
       {/* Floating Artificial Jewellery Comparison Bar */}
