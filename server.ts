@@ -395,6 +395,7 @@ async function startServer() {
   app.get('/api/seller/privacy-settings', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
     try {
       const settings = await SellerPrivacySettingsModel.findOne({ sellerId: user!._id }).lean();
       res.setHeader('Cache-Control', 'private, no-store');
@@ -405,6 +406,7 @@ async function startServer() {
   app.put('/api/seller/privacy-settings', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
     const parsed = z.object({
       carrierDisclosure: z.object({
         recipientName: z.boolean(), recipientPhone: z.boolean(),
@@ -478,6 +480,7 @@ async function startServer() {
       const selectedCarrier = sellerCarriers.find((carrier: any) => String(carrier.id) === parsed.data.carrierConfigId);
       if (!selectedCarrier) return res.status(422).json({ error: 'SELLER_CARRIER_CONFIGURATION_NOT_FOUND' });
       const carrierCode = String(selectedCarrier.logistics_providers?.[0]?.code || '').toLowerCase();
+      if (mongoose.connection.readyState !== 1) return res.status(503).json({ error: 'PRIVACY_POLICY_STORE_UNAVAILABLE' });
       const privacySettings = await SellerPrivacySettingsModel.findOne({ sellerId: String(order.sellerId) }).lean();
       const disclosure = authorizeCarrierDisclosure(privacySettings?.carrierDisclosure, carrierCode, buyer?.email);
       if (!disclosure.allowed) return res.status(403).json({
@@ -498,7 +501,7 @@ async function startServer() {
       });
       if (!result.duplicate) await PrivacyDisclosureAuditModel.create({
         sellerId: String(order.sellerId), orderId: String(order._id), carrierConfigId: parsed.data.carrierConfigId,
-        carrierCode, fieldsDisclosed: disclosure.fields, actorId: user!._id,
+        carrierCode, fieldsAuthorized: disclosure.fields, actorId: user!._id,
         authorizedAt: new Date(), purpose: 'SHIPMENT_FULFILLMENT',
       });
       res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
