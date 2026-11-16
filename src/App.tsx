@@ -1168,29 +1168,6 @@ export default function App() {
               <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-end gap-3 sm:gap-4 rounded-lg border border-[#E8E6E1] bg-white p-4 text-xs">
                 <div className="w-full sm:w-auto">
                   <label className="block font-medium text-[#44403C] mb-1">
-                    {t('filter.category')}
-                  </label>
-                  <select
-                    value={category}
-                    onChange={(e) => {
-                      setCategory(e.target.value as ProductCategory | 'All');
-                      setPage(1);
-                    }}
-                    className="w-full sm:w-auto min-h-[44px] rounded border border-[#D6D3CD] bg-white px-3 py-2 text-xs"
-                  >
-                    <option value="All">{t('filter.allCategories')}</option>
-                    {(storeCategories.length > 0
-                      ? storeCategories.map((c) => c.name)
-                      : ['Artificial Jewellery', 'Clothing', 'Accessories']
-                    ).map((catName) => (
-                      <option key={catName} value={catName}>
-                        {tc(catName)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="w-full sm:w-auto">
-                  <label className="block font-medium text-[#44403C] mb-1">
                     {t('search.minPrice')}
                   </label>
                   <input
@@ -1345,47 +1322,35 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
-                  {OCCASIONS.map((occ) => (
-                    <button
-                      key={occ}
-                      type="button"
-                      onClick={() => {
-                        setOccasion(occ);
-                        setPage(1);
-                      }}
-                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        occasion === occ
-                          ? 'bg-white text-[#141413] shadow-xs'
-                          : 'text-[#57534E] hover:text-[#141413]'
-                      }`}
-                    >
-                      {occ === 'All' ? t('filter.allOccasions') : to(occ)}
-                    </button>
-                  ))}
+              <section className="rounded-xl border border-[#E8E6E1] bg-white px-3 py-3 sm:px-4" aria-label="Quick filters">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#78716C]">Quick filters</span>
+                  <button type="button" onClick={() => { setCategory('All'); setOccasion('All'); setSeason('All'); setPage(1); }} className="text-[11px] font-medium text-[#881337] hover:underline">Clear filters</button>
                 </div>
-
-                <div className="flex items-center gap-1 overflow-x-auto rounded-lg bg-[#F0EEE9] p-1 w-fit max-w-full">
-                  {SEASONS.map((ssn) => (
-                    <button
-                      key={ssn}
-                      type="button"
-                      onClick={() => {
-                        setSeason(ssn);
-                        setPage(1);
-                      }}
-                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        season === ssn
-                          ? 'bg-white text-[#881337] font-semibold shadow-xs'
-                          : 'text-[#57534E] hover:text-[#141413]'
-                      }`}
-                    >
-                      {ssn === 'All' ? t('season.all') : tseason(ssn)}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <label className="shrink-0 text-[11px] font-semibold text-[#57534E]">Category</label>
+                    <select aria-label="Category quick filter" value={category} onChange={(e) => { setCategory(e.target.value as ProductCategory | 'All'); setPage(1); }} className="h-8 min-w-[150px] rounded-md border border-[#D6D3CD] bg-[#FAF9F6] px-2.5 text-xs font-medium text-[#292524] focus:border-[#881337] focus:outline-none">
+                      <option value="All">{t('filter.allCategories')}</option>
+                      {(storeCategories.length > 0 ? storeCategories.map((c) => c.name) : ['Artificial Jewellery', 'Clothing', 'Accessories']).map((catName) => <option key={catName} value={catName}>{tc(catName)}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="w-[58px] shrink-0 text-[11px] font-semibold text-[#57534E]">Occasion</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
+                        {OCCASIONS.map((occ) => <button key={occ} type="button" onClick={() => { setOccasion(occ); setPage(1); }} aria-pressed={occasion===occ} className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${occasion===occ?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E] hover:bg-white'}`}>{occ === 'All' ? t('filter.allOccasions') : to(occ)}</button>)}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="w-[58px] shrink-0 text-[11px] font-semibold text-[#57534E]">Season</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
+                        {SEASONS.map((ssn) => <button key={ssn} type="button" onClick={() => { setSeason(ssn); setPage(1); }} aria-pressed={season===ssn} className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${season===ssn?'border-[#881337] bg-[#881337] text-white':'border-[#E7E5E4] bg-[#FAF9F6] text-[#57534E] hover:border-[#A8A29E] hover:bg-white'}`}>{ssn === 'All' ? t('season.all') : tseason(ssn)}</button>)}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </section>
             </div>
 
             {/* Product Grid */}
