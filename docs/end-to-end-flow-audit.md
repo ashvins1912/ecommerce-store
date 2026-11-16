@@ -150,3 +150,11 @@ The following P0 hardening has now been added on this feature branch:
 
 ### Validation state
 The CI workflow now runs the existing logistics tests and the new hybrid-engine unit tests in addition to typecheck/build. No CI run has been observed yet for this branch update. Mongo replica-set concurrency tests and provider sandbox tests have not been executed here.
+
+
+### Adaptive carrier routing integration (P1)
+- Added `src/server/migrations/2026-11-carrier-adaptive-feedback.sql`. It persists terminal delivery/RTO outcomes by seller, carrier, service and destination postal prefix.
+- Shipment creation now stores the selected service code and destination postal prefix in PostgreSQL.
+- The logistics service reads feedback with a short Redis cache, uses TOPSIS + epsilon-greedy ranking, and preserves the existing rate quote response fields for current UI clients.
+- Accepted DELIVERED/RTO_DELIVERED tracking events are fed to a SQL function that verifies the event exists in the append-only tracking log and deduplicates outcome increments by shipment/event hash.
+- Until the new SQL migration is applied, the service logs feedback unavailability and uses a neutral historical RTO prior; apply the migration before enabling the adaptive algorithm in production.
