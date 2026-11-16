@@ -2326,7 +2326,8 @@ export async function createOrder(input: {
       }
     }
     orders.push({
-      _id: `ord_${crypto.randomBytes(8).toString('hex')}`,
+      // Local fallback identifier; Mongo mode replaces it with a real ObjectId before insert.
+      _id: `local_${crypto.randomBytes(8).toString('hex')}`,
       orderNumber: `ORD-${new Date().getUTCFullYear()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
       buyerId: input.buyer._id, buyerName: input.buyer.name, sellerId,
       items: sellerItems.map((item) => ({
