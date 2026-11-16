@@ -15,7 +15,7 @@ export function normalizeCarrierDisclosurePolicy(value: Partial<CarrierDisclosur
     recipientEmail: value?.recipientEmail === true,
   };
 }
-export function authorizeCarrierDisclosure(policyInput: Partial<CarrierDisclosurePolicy> | null | undefined, carrierCode: string, buyerEmail?: string | null) {
+export function authorizeCarrierDisclosure(policyInput: Partial<CarrierDisclosurePolicy> | null | undefined, carrierCode: string, buyerEmail?: string | null): { allowed: false; policy: CarrierDisclosurePolicy; missing: string[]; emailRequired: boolean } | { allowed: true; policy: CarrierDisclosurePolicy; fields: Array<keyof CarrierDisclosurePolicy>; emailRequired: boolean } {
   const policy = normalizeCarrierDisclosurePolicy(policyInput);
   const missing = (['recipientName','recipientPhone','recipientAddress'] as const).filter((field) => !policy[field]);
   const emailRequired = carrierCode.toLowerCase() === 'shiprocket';
