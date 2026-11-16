@@ -432,16 +432,24 @@ async function startServer() {
       if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
       if (String(order.sellerId) !== user!._id) return res.status(403).json({ error: 'ORDER_NOT_OWNED_BY_SELLER' });
       if (['Cancelled', 'CANCELLED'].includes(order.status)) return res.status(409).json({ error: 'CANCELLED_ORDER_CANNOT_SHIP' });
-      const pin = String(order.shippingAddress?.pincode || '').trim();
-      if (!pin) return res.status(422).json({ error: 'ORDER_DESTINATION_PINCODE_MISSING' });
+      if (order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_SHIPMENT' });
+      if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
+      const address = order.shippingAddress || {};
+      const pin = String(address.pincode || '').trim();
+      if (!pin || !address.street || !address.city || !address.state || !address.fullName || !address.phone) return res.status(422).json({ error: 'ORDER_SHIPPING_ADDRESS_INCOMPLETE' });
+      const buyer = await findUserById(String(order.buyerId));
       const result = await createShipmentIntent({
         orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
         warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
         destinationPostalCode: pin, destinationCountryCode: 'IN',
         codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
         declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
+        recipientName: String(address.fullName), recipientPhone: String(address.phone), recipientEmail: buyer?.email || '',
+        destinationAddressLine1: String(address.street), destinationCity: String(address.city), destinationState: String(address.state),
+        orderDate: new Date(order.createdAt || Date.now()).toISOString(),
+        items: (order.items || []).map((item: any) => ({ name: String(item.title), sku: String(item.variantSku || item.productId), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice) })),
       });
-      res.status(202).json({ ...result, status: 'QUEUED', message: 'Shipment creation queued for the logistics worker.' });
+      res.status(result.duplicate ? 200 : 202).json({ ...result, status: result.duplicate ? 'ALREADY_QUEUED_OR_BOOKED' : 'QUEUED', message: result.duplicate ? 'A shipment already exists for this order; no duplicate booking was created.' : 'Shipment creation queued for the logistics worker.' });
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
   });
 
