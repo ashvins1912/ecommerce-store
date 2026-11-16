@@ -101,6 +101,11 @@ import {
 import { processAndStoreImage, getUploadDir } from './src/server/services/storage.js';
 import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerce-defaults.js';
 import {
+  listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
+  listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
+  getCustomerTrackingEvents,
+} from './src/server/services/logistics.js';
+import {
   isValidE164,
   checkWhatsAppNumberExists,
   sendWhatsAppMessage,
@@ -287,6 +292,124 @@ async function startServer() {
   // --- Health ---
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, dbMode: dbStatus.mode });
+  });
+
+  // --- Logistics: separate PostgreSQL persistence boundary ---
+  const requireLogisticsSeller = (user: User | null) => Boolean(user && (user.role === 'SELLER' || user.role === 'ADMIN'));
+
+  app.get('/api/logistics/providers', async (_req, res) => {
+    try { res.json({ providers: await listLogisticsProviders() }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.get('/api/seller/logistics/carriers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    try { res.json({ carriers: await listSellerCarrierConfigs(user!._id) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.post('/api/seller/logistics/carriers', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({
+      providerId: z.string().uuid(),
+      credentials: z.record(z.string(), z.string()),
+      priorityRank: z.coerce.number().int().min(0).max(10000).default(100),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_CARRIER_CONFIG' });
+    try {
+      const saved = await saveSellerCarrierConfig({ sellerId: user!._id, ...parsed.data });
+      res.status(201).json({ carrier: saved, message: 'Credentials encrypted and saved. Verify against the carrier sandbox before using live shipments.' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'CARRIER_CONFIG_SAVE_FAILED' }); }
+  });
+
+  app.patch('/api/seller/logistics/carriers/:id/active', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({ isActive: z.boolean() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_ACTIVE_FLAG' });
+    try {
+      const updated = await setSellerCarrierActive(user!._id, req.params.id, parsed.data.isActive);
+      if (!updated) return res.status(404).json({ error: 'CARRIER_CONFIG_NOT_FOUND' });
+      res.json({ carrier: updated });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'CARRIER_UPDATE_FAILED' }); }
+  });
+
+  app.get('/api/seller/logistics/warehouses', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    try { res.json({ warehouses: await listSellerWarehouses(user!._id) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.post('/api/seller/logistics/warehouses', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({
+      warehouseCode: z.string().trim().min(2).max(64), name: z.string().trim().min(2).max(120),
+      contactName: z.string().trim().min(2).max(120), contactPhone: z.string().trim().min(8).max(24),
+      addressLine1: z.string().trim().min(3).max(180), addressLine2: z.string().max(180).optional(),
+      locality: z.string().max(120).optional(), city: z.string().trim().min(2).max(100),
+      state: z.string().trim().min(2).max(100), postalCode: z.string().trim().min(4).max(12),
+      countryCode: z.string().length(2).default('IN'), isDefault: z.boolean().default(false),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_WAREHOUSE' });
+    try { res.status(201).json({ warehouse: await createSellerWarehouse({ sellerId: user!._id, ...parsed.data }) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'WAREHOUSE_CREATE_FAILED' }); }
+  });
+
+  app.get('/api/seller/logistics/shipments', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    try { res.json({ shipments: await listSellerShipments(user!._id) }); }
+    catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
+  });
+
+  app.post('/api/seller/logistics/shipments', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
+    const parsed = z.object({
+      orderId: z.string().min(1), carrierConfigId: z.string().uuid(), warehouseId: z.string().uuid(),
+      weightGrams: z.coerce.number().int().min(1).max(100000),
+      serviceCode: z.string().trim().min(1).max(100).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_SHIPMENT_REQUEST' });
+    if (!mongoose.isValidObjectId(parsed.data.orderId)) return res.status(400).json({ error: 'INVALID_ORDER_ID' });
+    try {
+      const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
+      if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+      if (String(order.sellerId) !== user!._id && user!.role !== 'ADMIN') return res.status(403).json({ error: 'ORDER_NOT_OWNED_BY_SELLER' });
+      if (['Cancelled', 'CANCELLED'].includes(order.status)) return res.status(409).json({ error: 'CANCELLED_ORDER_CANNOT_SHIP' });
+      const pin = String(order.shippingAddress?.pincode || '').trim();
+      if (!pin) return res.status(422).json({ error: 'ORDER_DESTINATION_PINCODE_MISSING' });
+      const result = await createShipmentIntent({
+        orderId: String(order._id), sellerId: String(order.sellerId), carrierConfigId: parsed.data.carrierConfigId,
+        warehouseId: parsed.data.warehouseId, weightGrams: parsed.data.weightGrams, serviceCode: parsed.data.serviceCode,
+        destinationPostalCode: pin, destinationCountryCode: 'IN',
+        codAmountMinor: order.paymentMode === 'COD' ? Math.round(Number(order.totalAmount || 0) * 100) : 0,
+        declaredValueMinor: Math.round(Number(order.totalAmount || 0) * 100), currency: 'INR',
+      });
+      res.status(202).json({ ...result, status: 'QUEUED', message: 'Shipment creation queued for the logistics worker.' });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'SHIPMENT_QUEUE_FAILED' }); }
+  });
+
+  app.get('/api/logistics/orders/:orderId/tracking', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user) return res.status(401).json({ error: 'AUTH_REQUIRED' });
+    if (!mongoose.isValidObjectId(req.params.orderId)) return res.status(400).json({ error: 'INVALID_ORDER_ID' });
+    try {
+      const order = await OrderModel.findById(req.params.orderId).select('buyerId').lean() as any;
+      if (!order || String(order.buyerId) !== user._id) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+      const tracking = await getCustomerTrackingEvents(req.params.orderId) as any;
+      if (!tracking) return res.status(404).json({ error: 'TRACKING_NOT_AVAILABLE' });
+      const names: Record<number,string> = {10:'CREATED',20:'MANIFESTED',30:'IN_TRANSIT',40:'OUT_FOR_DELIVERY',50:'DELIVERED',60:'NDR',70:'RTO_INITIATED',80:'RTO_DELIVERED',90:'CANCELLED'};
+      const projection = { status: names[tracking.statusCode] || 'CREATED', eta: tracking.eta, latestCheckpoint: tracking.latestCheckpoint ? { status: names[tracking.latestCheckpoint.status_code] || 'UNKNOWN', location: tracking.latestCheckpoint.location_code, timestamp: tracking.latestCheckpoint.event_timestamp } : null };
+      const etag = '"'+crypto.createHash('sha256').update(JSON.stringify(projection)).digest('hex')+'"';
+      res.setHeader('ETag', etag);
+      if (req.headers['if-none-match'] === etag) return res.status(304).end();
+      res.json(projection);
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'TRACKING_LOOKUP_FAILED' }); }
   });
 
   // --- Auth & Guest Session ---
