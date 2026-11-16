@@ -1105,6 +1105,9 @@ export default function App() {
                   src={HERO_IMG}
                   alt={t('hero.imageAlt')}
                   referrerPolicy="no-referrer"
+                  loading="eager"
+                  decoding="async"
+                  fetchPriority="high"
                   className="h-full w-full object-cover"
                 />
               </div>
