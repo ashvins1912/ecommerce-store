@@ -2,6 +2,9 @@ import mongoose, { Schema, type Model } from 'mongoose';
 
 const ShippingAddressSchema = new Schema(
   {
+    // Address IDs are application strings (legacy seeds use values like "addr_s1").
+    // Keep them as strings rather than Mongoose's default ObjectId subdocument IDs.
+    _id: { type: String, default: () => new mongoose.Types.ObjectId().toString() },
     label: { type: String, required: true, default: 'Home' },
     fullName: { type: String, required: true },
     phone: { type: String, required: true },
@@ -11,7 +14,7 @@ const ShippingAddressSchema = new Schema(
     pincode: { type: String, required: true },
     isDefault: { type: Boolean, default: false },
   },
-  { _id: true }
+  { _id: false }
 );
 
 const UserSchema = new Schema(
