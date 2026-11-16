@@ -55,6 +55,8 @@ import {
   CouponModel,
   CategoryControlModel,
   ShareEventModel,
+  SellerPrivacySettingsModel,
+  PrivacyDisclosureAuditModel,
 } from '../models/schemas.js';
 import { ProviderProfileModel, ProviderProductModel } from '../models/providerSchemas.js';
 import { encryptField } from './fieldEncryption.js';
@@ -273,6 +275,8 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
         ReviewModel.syncIndexes(),
         OrderModel.syncIndexes(),
         SellerInviteModel.syncIndexes(),
+        SellerPrivacySettingsModel.syncIndexes(),
+        PrivacyDisclosureAuditModel.syncIndexes(),
       ]);
       // Seed Atlas M0 if empty
       const productCount = await ProductModel.countDocuments();
