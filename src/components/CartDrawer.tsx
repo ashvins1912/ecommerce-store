@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, Minus, Plus, Tag, Trash2, X } from 'lucide-react';
 import type { CartItem, Coupon, CouponValidationResult, Order, User } from '../shared/types';
 import { apiFetch, formatINR } from '../lib/api';
@@ -45,6 +45,7 @@ export function CartDrawer({
   const [rateGroups,setRateGroups]=useState<Array<{sellerId:string;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
   const [rateLoading,setRateLoading]=useState(false);
   const [rateError,setRateError]=useState<string|null>(null);
+  const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const checkDeliveryRates=async()=>{
     const destinationPostalCode=user?.shippingAddresses?.find(address=>address.isDefault)?.pincode||user?.shippingAddresses?.[0]?.pincode;
@@ -133,15 +134,28 @@ export function CartDrawer({
     setError(null);
     setSubmitting(true);
     try {
-      const data = await apiFetch<{ orders: Order[] }>('/api/orders', {
+      const fingerprint = JSON.stringify({
+        items: cart.map((item) => [item.productId, item.variantSku, item.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+        coupon: appliedValidation?.valid ? appliedValidation.coupon?.code || '' : '',
+      });
+      if (!checkoutAttempt.current || checkoutAttempt.current.fingerprint !== fingerprint) {
+        const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        checkoutAttempt.current = { fingerprint, key };
+      }
+      const data = await apiFetch<{ orders: Order[]; replayed?: boolean }>('/api/orders', {
         method: 'POST',
+        headers: { 'Idempotency-Key': checkoutAttempt.current.key },
         body: JSON.stringify({
+          idempotencyKey: checkoutAttempt.current.key,
           items: cart,
           ...(appliedValidation?.valid && appliedValidation.coupon?.code
             ? { couponCode: appliedValidation.coupon.code }
             : {}),
         }),
       });
+      checkoutAttempt.current = null;
       setConfirmedOrders(data.orders);
       setAppliedValidation(null);
       setCouponInput('');
