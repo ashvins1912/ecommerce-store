@@ -160,6 +160,10 @@ ProductSchema.index({
   isDiscontinued: 1,
   isDeleted: 1,
 });
+ProductSchema.index({ category: 1, trendScore: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, createdAt: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, salesCount: -1, _id: -1 });
+ProductSchema.index({ isActive: 1, isPublished: 1, isUnlisted: 1, isDiscontinued: 1, isDeleted: 1, salePrice: 1, _id: 1 });
 
 const LikeSchema = new Schema(
   {
