@@ -108,14 +108,14 @@ export async function completeLogisticsJob(jobId:string,result:unknown) {
 }
 export async function failLogisticsJob(jobId:string,error:string,attempts:number,maxAttempts:number) {
   return unwrap(await db().from('logistics_jobs').update({
-    status:attempts+1>=maxAttempts?'FAILED':'PENDING',attempts:attempts+1,last_error:error.slice(0,1000),locked_at:null,
+    status:attempts>=maxAttempts?'FAILED':'PENDING',attempts,last_error:error.slice(0,1000),locked_at:null,
     available_at:new Date(Date.now()+Math.min(300000,1000*Math.pow(2,attempts))).toISOString(),
   }).eq('id',jobId));
 }
-export async function updateShipmentFromCarrier(input:{shipmentId:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;statusCode:number}) {
+export async function updateShipmentFromCarrier(input:{shipmentId:string;providerShipmentId:string;awbNumber:string;labelUrl?:string;estimatedDeliveryAt?:string;statusCode:number}) {
   return unwrap(await db().from('shipments').update({
     provider_shipment_id:input.providerShipmentId,awb_number:input.awbNumber,label_url:input.labelUrl || null,
-    normalized_status:input.statusCode,updated_at:new Date().toISOString(),
+    estimated_delivery_at:input.estimatedDeliveryAt || null,normalized_status:input.statusCode,updated_at:new Date().toISOString(),
   }).eq('id',input.shipmentId));
 }
 export async function getCustomerTrackingEvents(orderId:string) {
