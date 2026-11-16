@@ -210,7 +210,7 @@ export function SellerHubView({
   >('all');
   const [sellerProducts, setSellerProducts] = useState<Product[]>([]);
   const [discountEdits, setDiscountEdits] = useState<
-    Record<string, { discount: number; stock: number }>
+    Record<string, { discount: number; stock: number; shippingWeightGrams: number }>
   >({});
   const [savingProdId, setSavingProdId] = useState<string | null>(null);
   const [controllingProdId, setControllingProdId] = useState<string | null>(null);
@@ -300,6 +300,7 @@ export function SellerHubView({
   const [newBasePrice, setNewBasePrice] = useState(2499);
   const [newDiscount, setNewDiscount] = useState(15);
   const [newStock, setNewStock] = useState(25);
+  const [newShippingWeightGrams, setNewShippingWeightGrams] = useState(500);
   const [newOccasions, setNewOccasions] = useState<OccasionType[]>(['Festive', 'Wedding']);
   const [newSeasons, setNewSeasons] = useState<SeasonType[]>(['Diwali']);
   const [newColorName, setNewColorName] = useState('Antique Gold');
@@ -397,7 +398,7 @@ export function SellerHubView({
     setSellerProducts(res.products);
     const edits: Record<string, { discount: number; stock: number }> = {};
     for (const p of res.products) {
-      edits[p._id] = { discount: p.discountPercent, stock: p.totalStock };
+      edits[p._id] = { discount: p.discountPercent, stock: p.totalStock, shippingWeightGrams: p.shippingWeightGrams || 500 };
     }
     setDiscountEdits(edits);
   }, [isVerifiedSellerOrAdmin, user, catalogSearch, catalogStatusFilter]);
@@ -1106,6 +1107,7 @@ export function SellerHubView({
         body: JSON.stringify({
           discountPercent: edit.discount,
           totalStock: edit.stock,
+          shippingWeightGrams: edit.shippingWeightGrams,
         }),
       });
       await loadSellerCatalog();
@@ -1263,6 +1265,7 @@ export function SellerHubView({
           basePrice: Number(newBasePrice),
           discountPercent: Number(newDiscount),
           totalStock: Number(newStock),
+          shippingWeightGrams: Number(newShippingWeightGrams),
           visibility: newVisibility,
           assignedCustomerIds: newVisibility === 'ASSIGNED' ? newAssignedCustomers.map((customer) => customer._id) : [],
           onlinePaymentRequired: newOnlineRequired,
@@ -2054,6 +2057,7 @@ export function SellerHubView({
                     const edit = discountEdits[p._id] || {
                       discount: p.discountPercent,
                       stock: p.totalStock,
+                      shippingWeightGrams: p.shippingWeightGrams || 500,
                     };
                     const previewSale = Math.round(p.basePrice * (1 - edit.discount / 100));
                     const isPublished = p.isPublished !== false;
@@ -2152,6 +2156,9 @@ export function SellerHubView({
                             }
                             className="w-16 rounded border border-[#D6D3CD] px-2 py-1 text-xs tabular-nums"
                           />
+                          <label className="mt-2 block text-[10px] text-[#78716C]">Shipping weight (g)
+                            <input type="number" min={1} max={100000} value={edit.shippingWeightGrams} onChange={(e) => setDiscountEdits((prev) => ({ ...prev, [p._id]: { ...edit, shippingWeightGrams: Number(e.target.value) } }))} className="mt-1 w-20 rounded border border-[#D6D3CD] px-2 py-1 text-xs tabular-nums"/>
+                          </label>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
@@ -3585,6 +3592,11 @@ export function SellerHubView({
                     onChange={(e) => setNewStock(Number(e.target.value))}
                     className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs tabular-nums"
                   />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#44403C] mb-1">Shipping weight (grams per item)</label>
+                  <input type="number" min={1} max={100000} value={newShippingWeightGrams} onChange={(e)=>setNewShippingWeightGrams(Number(e.target.value))} className="w-full rounded-md border border-[#D6D3CD] px-2.5 py-2 text-xs tabular-nums"/>
+                  <p className="mt-1 text-[10px] text-[#78716C]">Used to estimate courier rates; include protective packaging.</p>
                 </div>
               </div>
 
