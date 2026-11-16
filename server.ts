@@ -106,7 +106,7 @@ import {
   listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
   listProviderCarrierConfigs, saveProviderCarrierConfig, setProviderCarrierActive, getProviderCarrierSecret,
-  listProviderWarehouses, createProviderWarehouse, getProviderWarehouse, getProviderRateQuotes, createProviderShipmentIntent,
+  listProviderWarehouses, createProviderWarehouse, getProviderRateQuotes, createProviderShipmentIntent,
   retryProviderShipment, listProviderShipments,
   getCustomerTrackingEvents, refreshCarrierTrackingForOrder, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
 } from './src/server/services/logistics.js';
