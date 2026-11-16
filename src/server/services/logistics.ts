@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { encryptField, decryptField } from './fieldEncryption.js';
 import { getLogisticsRateCache, setLogisticsRateCache } from './redis.js';
-import { CircuitBreaker, scoreCarriers, withTimeout } from '../../../packages/logistics-core/src/index.js';
+import { CircuitBreaker, scoreCarriers, withTimeout, STATUS_CODE } from '../../../packages/logistics-core/src/index.js';
 import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
 import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
 
@@ -97,7 +97,7 @@ export async function listSellerShipments(sellerId:string) {
     .in('seller_carrier_config_id',ids).order('created_at',{ascending:false}).limit(100));
 }
 export async function getShipmentForCustomer(orderId:string) {
-  return unwrap(await db().from('shipments').select('id,order_id,normalized_status,estimated_delivery_at,created_at,shipment_tracking_events(status_code,location_code,event_timestamp)')
+  return unwrap(await db().from('shipments').select('id,order_id,awb_number,normalized_status,last_event_at,last_carrier_poll_at,estimated_delivery_at,created_at,seller_carrier_configs!inner(seller_id,encrypted_credentials,logistics_providers!inner(code))')
     .eq('order_id',orderId).order('created_at',{ascending:false}).limit(1).maybeSingle());
 }
 export async function getSellerCarrierSecret(configId:string,sellerId:string) {
@@ -133,6 +133,29 @@ export async function getCustomerTrackingEvents(orderId:string) {
   const events = unwrap(await db().from('shipment_tracking_events').select('status_code,location_code,event_timestamp')
     .eq('shipment_id',shipment.id).order('event_timestamp',{ascending:false}).limit(1)) as any[];
   return { statusCode:shipment.normalized_status,eta:shipment.estimated_delivery_at,latestCheckpoint:events[0] || null };
+}
+
+export async function refreshCarrierTrackingForOrder(orderId:string) {
+ const shipment=await getShipmentForCustomer(orderId) as any;
+ if(!shipment||!shipment.awb_number)return getCustomerTrackingEvents(orderId);
+ const lastPoll=shipment.last_carrier_poll_at?Date.parse(shipment.last_carrier_poll_at):0;
+ if(lastPoll&&Date.now()-lastPoll<60000)return getCustomerTrackingEvents(orderId);
+ await db().from('shipments').update({last_carrier_poll_at:new Date().toISOString()}).eq('id',shipment.id);
+ try{
+  const provider=rateAdapter(shipment.seller_carrier_configs.logistics_providers.code);
+  const credentials=JSON.parse(decryptField(shipment.seller_carrier_configs.encrypted_credentials));
+  const checkpoints=await provider.getTracking(shipment.awb_number,credentials);
+  let currentStatus=Number(shipment.normalized_status);
+  let lastEventAt=shipment.last_event_at||null;
+  const ordered=[...checkpoints].filter(event=>Number.isFinite(Date.parse(event.occurredAt))).sort((a,b)=>Date.parse(a.occurredAt)-Date.parse(b.occurredAt));
+  for(const event of ordered){
+   const statusCode=STATUS_CODE[event.status];
+   if(!statusCode)continue;
+   const applied=await applyLogisticsWebhook({shipmentId:shipment.id,eventHash:event.eventHash,statusCode,locationCode:event.locationCode,eventTimestamp:event.occurredAt,expectedStatusCode:currentStatus,expectedLastEventAt:lastEventAt});
+   if(applied){currentStatus=statusCode;lastEventAt=event.occurredAt;}
+  }
+ }catch(error){console.warn('Carrier tracking refresh failed; returning last webhook checkpoint:',error);}
+ return getCustomerTrackingEvents(orderId);
 }
 
 export async function getSellerWarehouse(sellerId:string,warehouseId:string) {
