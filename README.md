@@ -79,7 +79,7 @@ The website uses modern web technologies to deliver a responsive and interactive
 ---
 
 **E-Commerce Store**  
-A simple, convenient, and modern way to shop online.</Writing
+A simple, convenient, and modern way to shop online.
 
 
 ## Commerce security and payment workflows
