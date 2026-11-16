@@ -278,53 +278,46 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
         SellerPrivacySettingsModel.syncIndexes(),
         PrivacyDisclosureAuditModel.syncIndexes(),
       ]);
-      // Seed Atlas M0 if empty
+      // Idempotently ensure one sample account per configured demo identity. The unique
+      // email index is the database-level guard; $setOnInsert never overwrites a real
+      // account or changes an existing user's role/profile on application restart.
+      const idMap = new Map<string, mongoose.Types.ObjectId>();
+      for (const u of ACTIVE_SEED_USERS) {
+        const email = u.email.trim().toLowerCase();
+        let account: any;
+        try {
+          account = await UserModel.findOneAndUpdate(
+            { email },
+            { $setOnInsert: { ...u, _id: new mongoose.Types.ObjectId(), email } },
+            { upsert: true, new: true, setDefaultsOnInsert: true },
+          ).lean();
+        } catch (error) {
+          // Concurrent application starts can race on the unique email index.
+          // In that case, read the winner rather than failing startup or duplicating it.
+          if ((error as { code?: number }).code !== 11000) throw error;
+          account = await UserModel.findOne({ email }).lean();
+        }
+        if (!account) throw new Error(`Unable to ensure demo account for ${email}`);
+        idMap.set(u._id, new mongoose.Types.ObjectId(String(account._id)));
+      }
+
+      // Seed the sample catalogue only when it is empty. Existing products and users
+      // are never replaced; seller references always point at the ensured DB users.
       const productCount = await ProductModel.countDocuments();
       if (productCount === 0) {
-        const idMap = new Map<string, mongoose.Types.ObjectId>();
-        for (const u of ACTIVE_SEED_USERS) {
-          const oid = new mongoose.Types.ObjectId();
-          idMap.set(u._id, oid);
-          await UserModel.create({ ...u, _id: oid });
-        }
         for (const p of SEED_PRODUCTS) {
           const oid = new mongoose.Types.ObjectId();
           idMap.set(p._id, oid);
+          const sellerId = idMap.get(p.sellerId);
+          if (!sellerId) throw new Error(`Missing seeded seller reference for product ${p._id}`);
           await ProductModel.create({
             ...p,
             _id: oid,
-            sellerId: idMap.get(p.sellerId) || new mongoose.Types.ObjectId(),
+            sellerId,
           });
         }
-      } else {
-        // Ensure dummy test users (Buyer, Seller, Admin) always exist for testing
-        for (const u of ACTIVE_SEED_USERS) {
-          const existing = await UserModel.findOne({ email: u.email.toLowerCase() }).lean();
-          if (!existing) {
-            await UserModel.create({ ...u, _id: new mongoose.Types.ObjectId() });
-          }
-        }
       }
-      // Ensure development provider demo identities exist even when this database was
-      // populated before provider demos were added. Keep synthetic users out of production.
-      if (process.env.NODE_ENV !== 'production') {
-        for (const provider of [
-          { _id: 'usr_provider_1', name: 'Aarav Artisan Supply', email: 'provider.aarav@example.com', mobileNumber: '+919876540001' },
-          { _id: 'usr_provider_2', name: 'Nisha Craft Works', email: 'provider.nisha@example.com', mobileNumber: '+919876540002' },
-        ]) {
-          const existingProvider = await UserModel.findOne({ email: provider.email }).lean();
-          if (!existingProvider) {
-            await UserModel.create({
-              ...provider,
-              role: 'PROVIDER',
-              authProvider: 'demo',
-              oauthAccounts: [],
-              isWhatsappVerified: false,
-              shippingAddresses: [],
-            });
-          }
-        }
-      }
+      console.info(`[seed] Demo identities checked: ${ACTIVE_SEED_USERS.length}; catalogue mode: ${productCount === 0 ? 'initialized' : 'existing'}`);
 
       // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
       if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
