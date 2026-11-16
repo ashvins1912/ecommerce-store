@@ -141,6 +141,34 @@ BEGIN
  RETURN NEXT created;
 END; $;
 
+
+CREATE OR REPLACE FUNCTION create_shipment_intent(
+ p_order_id TEXT,p_seller_id TEXT,p_carrier_config_id UUID,p_warehouse_id UUID,
+ p_cod_amount_minor BIGINT,p_currency CHAR(3),p_payload JSONB
+) RETURNS TABLE(shipment_id UUID,job_id UUID,created BOOLEAN)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+DECLARE v_shipment_id UUID; v_job_id UUID;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM seller_carrier_configs WHERE id=p_carrier_config_id AND seller_id=p_seller_id AND is_active) THEN
+  RAISE EXCEPTION 'CARRIER_CONFIG_NOT_OWNED_OR_INACTIVE';
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM warehouses WHERE id=p_warehouse_id AND seller_id=p_seller_id AND is_active) THEN
+  RAISE EXCEPTION 'WAREHOUSE_NOT_OWNED_OR_INACTIVE';
+ END IF;
+ INSERT INTO shipments(order_id,seller_carrier_config_id,warehouse_id,normalized_status,cod_amount_minor,currency)
+ VALUES(p_order_id,p_carrier_config_id,p_warehouse_id,10,p_cod_amount_minor,p_currency)
+ ON CONFLICT(order_id) DO NOTHING RETURNING id INTO v_shipment_id;
+ IF v_shipment_id IS NULL THEN
+  SELECT id INTO v_shipment_id FROM shipments WHERE order_id=p_order_id;
+  RETURN QUERY SELECT v_shipment_id,NULL::UUID,FALSE;
+  RETURN;
+ END IF;
+ INSERT INTO logistics_jobs(job_type,payload,status,attempts,max_attempts)
+ VALUES('CREATE_SHIPMENT',p_payload||jsonb_build_object('shipmentId',v_shipment_id), 'PENDING',0,5)
+ RETURNING id INTO v_job_id;
+ RETURN QUERY SELECT v_shipment_id,v_job_id,TRUE;
+END; $;
+
 -- Service-role-only access. The application never exposes the service-role key to browsers.
 ALTER TABLE logistics_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE seller_carrier_configs ENABLE ROW LEVEL SECURITY;
@@ -156,9 +184,11 @@ GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
 REVOKE EXECUTE ON FUNCTION claim_logistics_job() FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHAR,TIMESTAMPTZ,SMALLINT,TIMESTAMPTZ) FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION create_shipment_intent(TEXT,TEXT,UUID,UUID,BIGINT,CHAR(3),JSONB) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION claim_logistics_job() TO service_role;
 GRANT EXECUTE ON FUNCTION apply_logistics_webhook(UUID,CHAR(64),SMALLINT,VARCHAR,TIMESTAMPTZ,SMALLINT,TIMESTAMPTZ) TO service_role;
 GRANT EXECUTE ON FUNCTION create_seller_warehouse(TEXT,JSONB) TO service_role;
+GRANT EXECUTE ON FUNCTION create_shipment_intent(TEXT,TEXT,UUID,UUID,BIGINT,CHAR(3),JSONB) TO service_role;
 
 COMMIT;
 -- Compact status codes: 10 CREATED,20 MANIFESTED,30 IN_TRANSIT,40 OUT_FOR_DELIVERY,
