@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import i18nextInstance, { syncHtmlLangDir } from '../i18n/config';
 import type {
   BuiltinProductCategory,
   OccasionType,
@@ -1928,34 +1929,22 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('kk_lang', next);
       localStorage.setItem('i18nextLng', next);
     }
-    import('../i18n/config').then(({ default: i18nextInstance, syncHtmlLangDir }) => {
-      if (i18nextInstance.language !== next) {
-        void i18nextInstance.changeLanguage(next);
-      }
-      syncHtmlLangDir(next);
-    }).catch(() => {});
+    if (i18nextInstance.language !== next) void i18nextInstance.changeLanguage(next);
+    syncHtmlLangDir(next);
   };
 
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    import('../i18n/config').then(({ default: i18nextInstance, syncHtmlLangDir }) => {
-      if (i18nextInstance.language !== lang) {
-        void i18nextInstance.changeLanguage(lang);
+    if (i18nextInstance.language !== lang) void i18nextInstance.changeLanguage(lang);
+    syncHtmlLangDir(lang);
+    const onChanged = (lng: string) => {
+      const short = (lng || 'en').split('-')[0];
+      if (short === 'en' || short === 'hi' || short === 'bn') {
+        setLangState((prev) => (prev === short ? prev : short));
       }
-      syncHtmlLangDir(lang);
-      const onChanged = (lng: string) => {
-        const short = (lng || 'en').split('-')[0];
-        if (short === 'en' || short === 'hi' || short === 'bn') {
-          setLangState((prev) => (prev === short ? prev : short));
-        }
-        syncHtmlLangDir(short);
-      };
-      i18nextInstance.on('languageChanged', onChanged);
-      cleanup = () => i18nextInstance.off('languageChanged', onChanged);
-    }).catch(() => {});
-    return () => {
-      cleanup?.();
+      syncHtmlLangDir(short);
     };
+    i18nextInstance.on('languageChanged', onChanged);
+    return () => i18nextInstance.off('languageChanged', onChanged);
   }, [lang]);
 
   const t = (key: TranslationKey, vars?: Record<string, string | number>): string => {

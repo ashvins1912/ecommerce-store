@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
-import { getSupabaseBrowserClient } from '../lib/supabase';
 import {
   apiFetch,
   clearClientSessionTokens,
@@ -48,6 +47,7 @@ export function AuthModal({
     setError(null);
     setLoading(true);
     try {
+      const { getSupabaseBrowserClient } = await import('../lib/supabase');
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
         throw new Error('Social sign-in is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowUp,
@@ -28,21 +28,25 @@ import { useI18n } from './lib/i18n';
 import { TopBar, type ActivePage } from './components/TopBar';
 import { ProductCard } from './components/ProductCard';
 import { ProductCardSkeleton } from './components/ProductCardSkeleton';
-import { ProductDetailModal } from './components/ProductDetailModal';
-import { CartDrawer } from './components/CartDrawer';
-import { AuthModal } from './components/AuthModal';
-import { RootInviteAcceptance } from './components/RootInviteAcceptance';
-import { OrdersView } from './components/OrdersView';
-import { SellerHubView } from './components/SellerHubView';
-import { WishlistView } from './components/WishlistView';
-import { AccountSignUpView } from './components/CustomerSignUpView';
-import { JewelleryCompareModal } from './components/JewelleryCompareModal';
-import { RecentlyViewedCarousel } from './components/RecentlyViewedCarousel';
+const ProductDetailModal = lazy(() => import('./components/ProductDetailModal').then((m) => ({ default: m.ProductDetailModal })));
+const CartDrawer = lazy(() => import('./components/CartDrawer').then((m) => ({ default: m.CartDrawer })));
+const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })));
+const RootInviteAcceptance = lazy(() => import('./components/RootInviteAcceptance').then((m) => ({ default: m.RootInviteAcceptance })));
+const OrdersView = lazy(() => import('./components/OrdersView').then((m) => ({ default: m.OrdersView })));
+const SellerHubView = lazy(() => import('./components/SellerHubView').then((m) => ({ default: m.SellerHubView })));
+const WishlistView = lazy(() => import('./components/WishlistView').then((m) => ({ default: m.WishlistView })));
+const AccountSignUpView = lazy(() => import('./components/CustomerSignUpView').then((m) => ({ default: m.AccountSignUpView })));
+const JewelleryCompareModal = lazy(() => import('./components/JewelleryCompareModal').then((m) => ({ default: m.JewelleryCompareModal })));
+const RecentlyViewedCarousel = lazy(() => import('./components/RecentlyViewedCarousel').then((m) => ({ default: m.RecentlyViewedCarousel })));
 import { FlashSaleSection } from './components/FlashSaleSection';
 import { CatalogFilterBar } from './components/CatalogFilterBar';
 import { ActionButton } from './components/ActionButton';
 import { useI18nTutorial } from './hooks/useI18nTutorial.js';
-import ProviderPortal from '../apps/provider-portal/src/ProviderPortal';
+const ProviderPortal = lazy(() => import('../apps/provider-portal/src/ProviderPortal'));
+
+function FeatureLoadingFallback() {
+  return <div className="flex min-h-[160px] items-center justify-center text-sm text-[#6B6A65]" role="status">Loading…</div>;
+}
 
 const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
 const RECENT_STORAGE_KEY = 'kk_recently_viewed';
@@ -216,6 +220,14 @@ export default function App() {
   useEffect(() => { if (new URLSearchParams(window.location.search).has('rootInvite')) setAuthOpen(true); }, []);
   const [compareItems, setCompareItems] = useState<Product[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [hasOpenedProductDetail, setHasOpenedProductDetail] = useState(false);
+  const [hasOpenedCart, setHasOpenedCart] = useState(false);
+  const [hasOpenedAuth, setHasOpenedAuth] = useState(false);
+  const [hasOpenedCompare, setHasOpenedCompare] = useState(false);
+  useEffect(() => { if (selectedProductKey) setHasOpenedProductDetail(true); }, [selectedProductKey]);
+  useEffect(() => { if (cartOpen) setHasOpenedCart(true); }, [cartOpen]);
+  useEffect(() => { if (authOpen) setHasOpenedAuth(true); }, [authOpen]);
+  useEffect(() => { if (compareOpen) setHasOpenedCompare(true); }, [compareOpen]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [shareNotice, setShareNotice] = useState<{
     title: string;
@@ -936,11 +948,12 @@ export default function App() {
 
   const compareIds = new Set(compareItems.map((i) => i._id));
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
-  if (user?.role === 'PROVIDER' || window.location.pathname.startsWith('/provider')) return <ProviderPortal />;
+  if (user?.role === 'PROVIDER' || window.location.pathname.startsWith('/provider')) return <Suspense fallback={<FeatureLoadingFallback />}><ProviderPortal /></Suspense>;
   const isSellerWorkspace = user?.role === 'SELLER' || user?.role === 'ADMIN';
   const isSellerDashboard = isSellerWorkspace && activePage === 'seller';
 
   return (
+    <Suspense fallback={<FeatureLoadingFallback />}>
     <div className="min-h-dvh w-full flex flex-col bg-[#FAF9F6] text-[#141413] overflow-x-clip">
       {!isSellerDashboard && <TopBar
         activePage={activePage}
@@ -966,6 +979,7 @@ export default function App() {
 
       {activePage === 'signup' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <AccountSignUpView
             user={user}
             onAuthChanged={(payload) => {
@@ -982,11 +996,13 @@ export default function App() {
             }}
             onNavigateStore={() => navigateToStore()}
           />
+          </Suspense>
         </div>
       )}
 
       {activePage === 'wishlist' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <WishlistView
             likedIds={likedIds}
             onRemoveFromWishlist={handleToggleLike}
@@ -996,20 +1012,24 @@ export default function App() {
             onToggleCompare={handleToggleCompare}
             onBrowseCatalog={() => navigateToStore()}
           />
+          </Suspense>
         </div>
       )}
 
       {activePage === 'orders' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <OrdersView user={user} onOpenAuth={() => {
             setAuthInitialMode('signin');
             setAuthOpen(true);
           }} />
+          </Suspense>
         </div>
       )}
 
       {activePage === 'seller' && (
         <div className="flex-1">
+          <Suspense fallback={<FeatureLoadingFallback />}>
           <SellerHubView
             user={user}
             onUserUpdated={(u) => setUser(u)}
@@ -1034,6 +1054,7 @@ export default function App() {
             onReturnToStore={() => navigateToStore()}
             onLogout={handleLogout}
           />
+          </Suspense>
         </div>
       )}
 
@@ -1100,6 +1121,9 @@ export default function App() {
                   src={HERO_IMG}
                   alt={t('hero.imageAlt')}
                   referrerPolicy="no-referrer"
+                  loading="eager"
+                  decoding="async"
+                  fetchPriority="high"
                   className="h-full w-full object-cover"
                 />
               </div>
@@ -1335,7 +1359,7 @@ export default function App() {
           </section>
 
           {/* Recently Viewed Horizontal Carousel (persisted in sessionStorage, last 5 clicked) */}
-          <RecentlyViewedCarousel
+          {recentlyViewed.length > 0 && <Suspense fallback={null}><RecentlyViewedCarousel
             items={recentlyViewed}
             likedIds={likedIds}
             onToggleLike={handleToggleLike}
@@ -1347,7 +1371,7 @@ export default function App() {
             onToggleCompare={handleToggleCompare}
             categoryTop10Thresholds={catalog.categoryTop10Thresholds}
             onClearHistory={clearRecentlyViewed}
-          />
+          /></Suspense>}
         </main>
       )}
 
@@ -1386,7 +1410,7 @@ export default function App() {
       </footer>}
 
       {/* Overlays */}
-      <ProductDetailModal
+      {hasOpenedProductDetail && <Suspense fallback={null}><ProductDetailModal
         productIdOrSlug={selectedProductKey}
         initialVariantSku={selectedInitialVariantSku}
         onClose={() => {
@@ -1412,9 +1436,9 @@ export default function App() {
           setActiveProductMeta(null);
           setCartOpen(true);
         }}
-      />
+      /></Suspense>}
 
-      <JewelleryCompareModal
+      {hasOpenedCompare && <Suspense fallback={null}><JewelleryCompareModal
         isOpen={compareOpen}
         onClose={() => setCompareOpen(false)}
         items={compareItems}
@@ -1427,9 +1451,9 @@ export default function App() {
         }}
         onAddToCart={handleAddToCart}
         onSelectProduct={handleSelectProduct}
-      />
+      /></Suspense>}
 
-      <CartDrawer
+      {hasOpenedCart && <Suspense fallback={null}><CartDrawer
         isOpen={cartOpen}
         onClose={() => setCartOpen(false)}
         cart={cart}
@@ -1448,9 +1472,9 @@ export default function App() {
         }}
         pendingCouponCode={pendingCouponCode}
         onClearPendingCoupon={() => setPendingCouponCode(null)}
-      />
+      /></Suspense>}
 
-      <AuthModal
+      {hasOpenedAuth && <Suspense fallback={null}><AuthModal
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
         onLogout={handleLogout}
@@ -1467,13 +1491,13 @@ export default function App() {
             localStorage.setItem('kk_guest_cart', JSON.stringify(payload.cart));
           }
         }}
-      />
+      /></Suspense>}
 
-      <RootInviteAcceptance
+      {new URLSearchParams(window.location.search).has('rootInvite') && <Suspense fallback={null}><RootInviteAcceptance
         user={user}
         onRequireAuth={() => { setAuthInitialMode('signin'); setAuthOpen(true); }}
         onAccepted={(acceptedUser) => { setUser(acceptedUser); setActivePage(acceptedUser.role === 'SELLER' || acceptedUser.role === 'ADMIN' ? 'seller' : 'store'); }}
-      />
+      /></Suspense>}
 
       {/* Floating Artificial Jewellery Comparison Bar */}
       {compareItems.length > 0 && !compareOpen && (
@@ -1572,5 +1596,6 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </Suspense>
   );
 }

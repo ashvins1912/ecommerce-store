@@ -325,6 +325,8 @@ export function ProductDetailModal({
                               alt={img.altText || product.title}
                               referrerPolicy="no-referrer"
                               draggable={false}
+                              loading={idx === 0 ? 'eager' : 'lazy'}
+                              decoding="async"
                               className="h-full w-full object-cover select-none"
                             />
 
@@ -435,6 +437,8 @@ export function ProductDetailModal({
                           src={img.thumbUrl || img.url}
                           alt={`Thumbnail ${idx + 1}`}
                           referrerPolicy="no-referrer"
+                          loading="lazy"
+                          decoding="async"
                           className="h-full w-full object-cover"
                         />
                       </button>
