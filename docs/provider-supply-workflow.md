@@ -94,22 +94,19 @@ MongoDB must be configured for production persistence. The current provider sett
 - Live deployment, Supabase role-transition testing, multi-seller invite testing, Mongo replica-set migration rehearsal and end-to-end sandbox tests are required before production launch.
 
 
-## Provider demo test accounts
+## Non-production demo test accounts
 
-The local / non-production seed includes two synthetic provider accounts for exercising the Provider Portal:
+On every MongoDB application startup, the server checks demo users by normalized email and inserts only missing records using an insert-only upsert backed by the unique email index. This is safe across restarts and concurrent app instances: existing users are not overwritten and their role/profile is not changed. The sample catalogue is seeded only when the products collection is empty, and its seller references use the actual MongoDB user IDs returned by the upserts. The local JSON development store also ensures the same role fixtures.
 
-| Demo account | Email | Demo user ID | Linked seller |
+| Role | Demo account | Email | Demo user ID |
 |---|---|---|---|
-| Aarav Artisan Supply | `provider.aarav@example.com` | `usr_provider_1` | Meera Zaveri |
-| Nisha Craft Works | `provider.nisha@example.com` | `usr_provider_2` | Raghavendra Rathore |
+| Admin | Kala & Karat Ops | `ops@kalaandkarat.in` | `usr_admin_1` |
+| Customer (BUYER) | Ananya Mehta | `ananya.mehta@example.com` | `usr_buyer_1` |
+| Seller | Meera Zaveri | `meera@zaveriatelier.in` | `usr_seller_1` |
+| Provider | Aarav Artisan Supply | `provider.aarav@example.com` | `usr_provider_1` |
+| Provider | Nisha Craft Works | `provider.nisha@example.com` | `usr_provider_2` |
 
-These are role-switch demo accounts, not email/password credentials. Sign in through the app's demo-account switcher, or call `POST /api/auth/signin` with a JSON body such as:
-
-```json
-{ "quickDemoUserId": "usr_provider_1", "email": "provider.aarav@example.com" }
-```
-
-Use `usr_provider_2` and `provider.nisha@example.com` for the second account. The email fallback also supports MongoDB-seeded records whose database IDs are generated at startup. Provider profiles and image-backed sample products are seeded only in non-production MongoDB environments when `ENCRYPTION_MASTER_KEY` is configured; they use synthetic tax / settlement values and remain in `PENDING` KYC state. The sample product images reuse checked-in files under `src/assets/images`. The Provider Portal and seller review queue render image URLs returned by the provider APIs. In local development, the Provider Vite server proxies `/src/assets` to the Express backend; deployments on separate frontend domains must also reverse-proxy `/src/assets` to the backend (alongside `/api` and `/uploads`). Demo role switching and provider demo identities are disabled/excluded when `NODE_ENV=production`. Real provider accounts load profile, catalog and settlement records from the authenticated API; no demo catalog fallback is applied. Never use these accounts or fixture values for real transactions or KYC.
+These are quick role-switch demo accounts, not email/password credentials. Use the app's demo-account selector or call `POST /api/auth/signin` with the matching `quickDemoUserId` and `email`. The email fallback resolves MongoDB records even though MongoDB generates their ObjectIds at startup. Provider identities and provider profile/catalog fixtures are excluded in production; role-switch demo sign-in is also disabled in production. Provider fixtures require `ENCRYPTION_MASTER_KEY`, use synthetic tax/settlement values and remain in `PENDING` KYC state. Never use these accounts or fixture values for real transactions, shipping, tax, settlement or KYC.
 
 
 ## Role landing and responsive UI contract
