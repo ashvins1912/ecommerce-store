@@ -2408,7 +2408,7 @@ async function startServer() {
       contactName: z.string().trim().min(2).max(120), contactPhone: z.string().trim().min(8).max(24),
       addressLine1: z.string().trim().min(3).max(180), addressLine2: z.string().max(180).optional(),
       city: z.string().trim().min(2).max(100), state: z.string().trim().min(2).max(100),
-      postalCode: z.string().trim().regex(/^\\d{5,6}$/), countryCode: z.string().length(2).default('IN'),
+      postalCode: z.string().trim().regex(/^\d{5,6}$/), countryCode: z.string().length(2).default('IN'),
       isDefault: z.boolean().default(false),
     }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_WAREHOUSE' });
@@ -2714,7 +2714,9 @@ async function startServer() {
     if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
     const order = await OrderModel.findById(parsed.data.orderId);
     if (order) {
-      const activeAppShipment = (await listProviderShipments(user._id) as any[]).find(row => String(row.order_id) === String(order._id));
+      const activeAppShipment = process.env.LOGISTICS_SUPABASE_URL && process.env.LOGISTICS_SUPABASE_SERVICE_ROLE_KEY
+        ? (await listProviderShipments(user._id) as any[]).find(row => String(row.order_id) === String(order._id))
+        : null;
       if (activeAppShipment && (activeAppShipment.booking_status !== 'FAILED' || activeAppShipment.awb_number)) return res.status(409).json({ error: 'APP_SHIPMENT_ALREADY_ACTIVE_OR_BOOKED' });
     }
     if (order) {
