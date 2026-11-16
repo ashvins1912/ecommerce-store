@@ -27,7 +27,7 @@ import {
   syncSupabaseCustomerUser,
   registerCustomerAccount,
   authenticateCustomerAccount,
-  updateUserCheckoutProfile,
+  updateUserCheckoutProfile,\n  ensureRootSuperuser, updateRootSuperuserPassword,
   createSellerInvite,
   listSellerInvites,
   revokeSellerInvite,
@@ -263,7 +263,7 @@ async function saveCartForActor(
 }
 
 async function startServer() {
-  const dbStatus = await initDatabase();
+  const dbStatus = await initDatabase();\n  await ensureRootSuperuser();
   if (dbStatus.mode === 'mongodb') await migrateCommerceDefaults();
   await recalculateTrendingAndBadges();
 
@@ -821,7 +821,13 @@ async function startServer() {
         }
         sessionProvider = 'demo';
       } else {
-        if (isSupabaseAuthConfigured()) {
+        const rootCandidate = await findUserByEmail(parsed.data.email);
+        if (rootCandidate?.isRootSuperuser) {
+          const rootLoginLimit = await checkRateLimit('root-signin:' + req.ip + ':' + rootCandidate._id, 5, 300);
+          if (!rootLoginLimit.allowed) return res.status(429).json({ error: 'Root sign-in temporarily rate limited. Try again later.' });
+          user = await authenticateCustomerAccount({ email: parsed.data.email, password: parsed.data.password });
+          if (!user.isRootSuperuser || user.role !== 'ADMIN') return res.status(403).json({ error: 'ROOT_ACCOUNT_NOT_PROVISIONED' });
+        } else if (isSupabaseAuthConfigured()) {
           const supa = await supabaseSignInWithPassword({
             email: parsed.data.email,
             password: parsed.data.password,
