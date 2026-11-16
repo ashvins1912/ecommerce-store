@@ -2224,8 +2224,9 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const profile = await ProviderProfileModel.findOne({ userId: user._id });
     if (!profile) return res.status(409).json({ error: 'PROVIDER_ONBOARDING_REQUIRED' });
+    if (!profile.linkedSellerIds?.length) return res.status(409).json({ error: 'LINK_TO_A_SELLER_BEFORE_SUBMITTING_PRODUCTS' });
     const parsed = z.object({
-      title: z.string().trim().min(2).max(180), category: z.string().trim().min(2).max(100),
+      title: z.string().trim().min(2).max(180, category: z.string().trim().min(2).max(100),
       subCategory: z.string().max(100).optional().default(''), description: z.string().trim().min(10).max(5000),
       brand: z.string().max(120).optional().default(''), manufacturerName: z.string().trim().min(2).max(180),
       manufacturingDate: z.string().optional(), sizeVariants: z.array(z.string().max(40)).max(40).optional().default([]),
@@ -2271,6 +2272,8 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const product = await ProviderProductModel.findOne({ _id: req.params.id, providerId: user._id });
     if (!product) return res.status(404).json({ error: 'PROVIDER_PRODUCT_NOT_FOUND' });
+    const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean() as any;
+    if (!profile?.linkedSellerIds?.length || !product.linkedSellerIds?.length) return res.status(409).json({ error: 'LINK_TO_A_SELLER_BEFORE_SUBMITTING_PRODUCTS' });
     if (!['DRAFT', 'NEGOTIATION_REQUESTED', 'RESUBMITTED'].includes(product.status)) return res.status(409).json({ error: 'PRODUCT_CANNOT_BE_SUBMITTED' });
     product.status = 'PENDING_REVIEW';
     await product.save();
@@ -3253,7 +3256,7 @@ async function startServer() {
     const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
     if (!order || order.status !== 'CANCELLATION_REQUESTED') return res.status(404).json({ error: 'CANCELLATION_REQUEST_NOT_FOUND' });
     const providerReviewStatus = order.providerCancellationReview?.status || 'NOT_FORWARDED';
-    if (providerReviewStatus === 'PENDING') return res.status(409).json({ error: 'PROVIDER_CANCELLATION_REVIEW_PENDING' });
+    if (providerReviewStatus === 'PENDING' && parsed.data.action === 'approve') return res.status(409).json({ error: 'PROVIDER_CANCELLATION_REVIEW_PENDING' });
     if (providerReviewStatus === 'REJECTED' && parsed.data.action === 'approve') return res.status(409).json({ error: 'PROVIDER_REJECTED_CANCELLATION' });
     if (parsed.data.action === 'reject') {
       order.status = order.cancellationPreviousStatus || 'Confirmed';
