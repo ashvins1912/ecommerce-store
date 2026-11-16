@@ -1251,6 +1251,7 @@ async function startServer() {
       salePrice: z.number().positive().optional(),
       basePrice: z.number().positive().optional(),
       totalStock: z.number().int().min(0).optional(),
+      shippingWeightGrams: z.number().int().min(1).max(100000).optional(),
       title: z.string().min(3).optional(),
       seasons: z
         .array(z.enum(['Diwali', 'Christmas', 'New Year', 'Winter', 'Summer']))
