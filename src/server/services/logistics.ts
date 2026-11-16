@@ -285,7 +285,8 @@ export async function getSellerRateQuotes(input:{sellerId:string;destinationPost
   };
  });
  const earliestExpiry=result.reduce((min,x)=>Math.min(min,Date.parse(x.quote?.expiresAt||new Date(Date.now()+60000).toISOString())),Date.now()+86400000);
- await setLogisticsRateCache(cacheKey,result,Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))));
+ const cacheTtl=result.length?Math.max(1,Math.min(86400,Math.floor((earliestExpiry-Date.now())/1000))):15;
+ await setLogisticsRateCache(cacheKey,result,cacheTtl);
  return result;
  });
 }
