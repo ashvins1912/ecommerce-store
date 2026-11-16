@@ -19,7 +19,7 @@ const ShippingAddressSchema = new Schema(
 
 const UserSchema = new Schema(
   {
-    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], default: 'BUYER', index: true },
+    role: { type: String, enum: ['BUYER', 'SELLER', 'PROVIDER', 'ADMIN'], default: 'BUYER', index: true },\n    isRootSuperuser: { type: Boolean, default: false, index: true, immutable: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     avatarUrl: { type: String },
