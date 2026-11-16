@@ -122,7 +122,7 @@ sequenceDiagram
 
 ## Algorithms and correctness
 
-Carrier utility uses min-max normalization: lower freight cost, transit hours and historical RTO rate score higher; higher seller priority scores higher. Weights are normalized by their sum. Sorting is O(N log N). Rate fan-out is concurrent with an 800ms deadline; use a breaker per seller-carrier-config, not a shared global breaker.
+Carrier utility uses min-max normalization: lower freight cost, transit hours and historical RTO rate score higher; lower seller priority rank scores higher. Weights are normalized by their sum. Sorting is O(N log N). Rate fan-out is concurrent with an 800ms deadline; use a breaker per seller-carrier-config, not a shared global breaker.
 
 The status graph is intentionally acyclic: NDR is terminal except for RTO_INITIATED. If delivery re-attempts are required, model an explicit attempt number or a new forward-only retry state rather than adding a backward edge. The webhook store port must atomically compare expected current status and timestamp, enforce the DAG edge, insert the unique event and update the shipment in one database transaction. Use Redis keys webhook:{provider}:{awb}:{event_hash} as a fast duplicate filter/cache, but keep the PostgreSQL unique event constraint and row-locked transaction authoritative so a Redis/DB crash cannot silently lose an event.
 
