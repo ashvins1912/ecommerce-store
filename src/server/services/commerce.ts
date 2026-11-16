@@ -195,13 +195,47 @@ export async function verifyPaymentWebhook(input: {
 }
 
 export async function claimPaymentEvent(provider: GatewayProvider, eventId: string, orderId: string, payloadHash: string) {
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + 60_000);
   try {
-    await PaymentEventModel.create({ provider, eventId, orderId, payloadHash, processedAt: new Date() });
+    await PaymentEventModel.create({
+      provider, eventId, orderId, payloadHash, status: 'PROCESSING',
+      processingLeaseUntil: leaseUntil, attempts: 1, processedAt: null,
+    });
     return true;
   } catch (err) {
-    if ((err as { code?: number }).code === 11000) return false;
-    throw err;
+    if ((err as { code?: number }).code !== 11000) throw err;
   }
+  // A committed event is never reclaimed. An abandoned processing lease can be reclaimed
+  // when the gateway retries after a worker/process crash.
+  const reclaimed = await PaymentEventModel.findOneAndUpdate(
+    {
+      provider, eventId, processedAt: null, status: { $ne: 'PROCESSED' },
+      $or: [{ processingLeaseUntil: null }, { processingLeaseUntil: { $lte: now } }, { status: 'FAILED' }],
+    },
+    {
+      $set: { status: 'PROCESSING', processingLeaseUntil: leaseUntil, payloadHash, lastError: null },
+      $inc: { attempts: 1 },
+    },
+    { new: true }
+  ).lean();
+  return Boolean(reclaimed);
+}
+
+export async function markPaymentEventProcessed(provider: GatewayProvider, eventId: string) {
+  const result = await PaymentEventModel.updateOne(
+    { provider, eventId, status: 'PROCESSING', processedAt: null },
+    { $set: { status: 'PROCESSED', processedAt: new Date() }, $unset: { processingLeaseUntil: 1, lastError: 1 } }
+  );
+  if (result.modifiedCount !== 1) throw new Error('PAYMENT_EVENT_PROCESSING_LEASE_LOST');
+  return true;
+}
+
+export async function releasePaymentEvent(provider: GatewayProvider, eventId: string, error: string) {
+  await PaymentEventModel.updateOne(
+    { provider, eventId, status: 'PROCESSING', processedAt: null },
+    { $set: { status: 'FAILED', lastError: error.slice(0, 1000) }, $unset: { processingLeaseUntil: 1 } }
+  );
 }
 
 export async function refundGatewayPayment(input: {
