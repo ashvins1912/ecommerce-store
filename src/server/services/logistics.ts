@@ -80,11 +80,10 @@ export async function createShipmentIntent(input: {
   p_cod_amount_minor:input.codAmountMinor,p_currency:input.currency,
   p_payload:{
    orderId:input.orderId,sellerId:input.sellerId,carrierConfigId:input.carrierConfigId,carrierCode:input.carrierCode,warehouseId:input.warehouseId,
-   weightGrams:input.weightGrams,destinationPostalCode:input.destinationPostalCode,destinationCountryCode:input.destinationCountryCode,
+   weightGrams:input.weightGrams,destinationCountryCode:input.destinationCountryCode,
    declaredValueMinor:input.declaredValueMinor,serviceCode:input.serviceCode,codAmountMinor:input.codAmountMinor,currency:input.currency,
-   recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,
-   destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',
-   destinationCity:input.destinationCity,destinationState:input.destinationState,orderDate:input.orderDate,items:input.items,
+   customerDisclosureCiphertext:encryptField(JSON.stringify({recipientName:input.recipientName,recipientPhone:input.recipientPhone,recipientEmail:input.recipientEmail||'',destinationPostalCode:input.destinationPostalCode,destinationAddressLine1:input.destinationAddressLine1,destinationAddressLine2:input.destinationAddressLine2||'',destinationCity:input.destinationCity,destinationState:input.destinationState})),
+   disclosureAuthorizedAt:input.disclosureAuthorizedAt,disclosureFields:input.disclosureFields,orderDate:input.orderDate,items:input.items,
   },
  })) as any[];
  const row=result[0];
