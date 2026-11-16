@@ -321,6 +321,7 @@ async function startServer() {
   // The original URL is retained, so existing product records and image references remain valid.
   const sourceAssetRoot = path.resolve(process.cwd(), 'src/assets');
   app.get(/^\/src\/assets\/(.+\.(?:jpe?g|png))$/i, async (req, res, next) => {
+    res.vary('Accept');
     if (!req.accepts('image/webp')) return next();
 
     try {
