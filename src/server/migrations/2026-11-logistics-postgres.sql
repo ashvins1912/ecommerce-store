@@ -36,6 +36,7 @@ CREATE TABLE shipments (
  provider_shipment_id VARCHAR(120), awb_number VARCHAR(120),
  booking_status VARCHAR(16) NOT NULL DEFAULT 'PENDING' CHECK(booking_status IN ('PENDING','PROCESSING','BOOKED','FAILED')),
  last_carrier_poll_at TIMESTAMPTZ,
+ pickup_scheduled BOOLEAN NOT NULL DEFAULT FALSE, manifest_url TEXT,
  normalized_status SMALLINT NOT NULL DEFAULT 10 CHECK(normalized_status IN(10,20,30,40,50,60,70,80,90)),
  label_url TEXT, cod_amount_minor BIGINT NOT NULL DEFAULT 0 CHECK(cod_amount_minor>=0),
  currency CHAR(3) NOT NULL DEFAULT 'INR', estimated_delivery_at TIMESTAMPTZ, last_event_at TIMESTAMPTZ,
