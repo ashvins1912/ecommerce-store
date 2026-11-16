@@ -68,9 +68,20 @@ bun run build:workspace
 | Seller / Admin | `GET /api/seller/providers/:providerId/dashboard` | Read-only, audited oversight |
 | Seller / Admin | `GET /api/seller/provider-settlements` | Payable ledger |
 | Seller / Admin | `POST /api/seller/provider-settlements/settle` | Mark single / batch UTR payout |
-| Provider | `GET /api/provider/settlements` | Receivable ledger |
+| Provider | `GET /api/provider/settlements` | Searchable, sortable, paginated receivable ledger |
+| Provider | `GET /api/provider/shipments` | Safe fulfilment queue for linked sellers and provider-owned published products |
+| Provider | `POST /api/provider/shipments/manual` | Record provider-managed courier and tracking details; atomically move Packed to Shipped |
 | Provider / Seller | `GET .../settlements/:id/receipt` | Encrypted receipt retrieval |
 | Admin | `PATCH /api/admin/providers/:providerId/kyc` | KYC decision |
+
+
+## Provider fulfilment boundary
+
+- The provider dashboard has an explicit logout action using the existing /api/auth/logout session-revocation endpoint. Catalogue / negotiation and receivable lists support server-side search, status filters, allowlisted sorting and pagination.
+- The provider shipment queue returns only order number, provider-owned product titles / quantities, order status and existing tracking metadata. It never returns recipient name, phone, email or delivery address.
+- Manual dispatch is permitted only when every line in the seller order belongs to that provider, the order is Packed, the payment is confirmed or the order is COD, and the seller is linked to the provider. A conditional Packed update prevents two dispatch requests from both winning. Mixed-provider / seller-product orders remain seller-managed.
+- Manual shipment records the courier name, tracking reference and optional tracking URL; it does not call a carrier API or transmit customer data.
+- Provider-owned carrier credential onboarding and direct in-app carrier booking are not yet enabled. The current booking worker and carrier configurations are seller-scoped and require the seller's carrier-disclosure authorization. To enable provider-managed app booking safely, add an explicit seller delegation / approval flow and provider-scoped encrypted carrier configurations, then have the worker validate the seller, order, provider, carrier and current customer-data disclosure policy before dispatch. Do not reuse a provider's credentials under a seller identity without explicit authorization.
 
 ## Required configuration
 
