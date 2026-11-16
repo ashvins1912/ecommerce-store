@@ -8,7 +8,7 @@ test('Shiprocket order flow creates order, assigns AWB, schedules pickup and pro
  const http={async request<T>(url:string,init:any):Promise<T>{
   calls.push(url);
   if(url.endsWith('/v1/external/auth/login'))return {token:'access-token'} as T;
-  if(url.includes('/v1/external/orders?search='))return {data:[]} as T;
+  if(url.includes('/v1/external/orders?'))return {data:[]} as T;
   if(url.endsWith('/orders/create/adhoc'))return {shipment_id:456} as T;
   if(url.endsWith('/courier/assign/awb'))return {response:{data:{awb_code:'SR123'}}} as T;
   if(url.endsWith('/courier/generate/pickup'))return {pickup_status:1} as T;
