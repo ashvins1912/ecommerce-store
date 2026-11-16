@@ -323,7 +323,11 @@ async function startServer() {
           weightGrams: parsed.data.weightGrams, codAmountMinor: parsed.data.codAmountMinor,
           declaredValueMinor: parsed.data.declaredValueMinor, currency: 'INR' }),
       })));
-      res.json({ groups, partial: groups.some(group => group.quotes.length === 0) });
+      const projection = { groups, partial: groups.some(group => group.quotes.length === 0) };
+      const etag = '"' + crypto.createHash('sha256').update(JSON.stringify(projection)).digest('hex') + '"';
+      res.setHeader('ETag', etag);
+      if (req.headers['if-none-match'] === etag) return res.status(304).end();
+      res.json(projection);
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'RATE_LOOKUP_FAILED' }); }
   });
 
