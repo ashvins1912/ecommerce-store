@@ -3,7 +3,6 @@ import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index
 import type { HttpTransport } from '../../../packages/adapters/shadowfax/src/index.js';
 import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, getProviderCarrierSecret, getProviderWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret } from '../../../src/server/services/logistics.js';
 import type { ICarrierProvider, RateQuote, ShipmentRequest } from '../../../packages/logistics-core/src/index.js';
-import { initDatabase } from '../../../src/server/services/store.js';
 import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from '../../../src/server/models/schemas.js';
 import { ProviderFulfillmentDelegationModel } from '../../../src/server/models/providerSchemas.js';
 import { authorizeCarrierDisclosure } from '../../../src/server/services/privacy.js';
@@ -131,11 +130,4 @@ export async function runLogisticsWorker(){
    }
   }catch(error){console.error('Logistics queue poll failed:',error);await delay(Math.max(pollMs,5000));}
  }
-}
-if (process.env.RUN_LOGISTICS_WORKER === '1') {
- void (async () => {
-  const db=await initDatabase();
-  if(db.mode!=='mongodb' && process.env.NODE_ENV==='production') throw new Error('PRODUCTION_PRIVACY_POLICY_DATABASE_REQUIRED');
-  await runLogisticsWorker();
- })();
 }

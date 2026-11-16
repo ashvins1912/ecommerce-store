@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, feat/seller-route-auth-redesign, feat/commerce-complete-workflows]
   push:
-    branches: [feat/end-to-end-hybrid-optimization, feat/commerce-complete-workflows, feat/provider-supply-settlement-workflows, feat/unified-role-dashboards-tailwind]
+    branches: [feat/end-to-end-hybrid-optimization, feat/commerce-complete-workflows, feat/provider-supply-settlement-workflows, feat/unified-role-dashboards-tailwind, deployment-free-tier-blueprint]
 
 jobs:
   typecheck-and-build:
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.3
       - run: bun install --no-save
       - run: bun run lint
       - run: bun run test:logistics

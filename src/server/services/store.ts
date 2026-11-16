@@ -68,10 +68,9 @@ import { aggregateInventoryLines } from '../../../packages/hybrid-engine/src/ind
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 
-// Provider demo identities are excluded from every production seed path.
-const ACTIVE_SEED_USERS = process.env.NODE_ENV === 'production'
-  ? SEED_USERS.filter((user) => user.role !== 'PROVIDER')
-  : SEED_USERS;
+// Production must never receive demo identities. Real accounts are created through
+// the verified invitation/sign-up flows; seed users exist only for local development.
+const ACTIVE_SEED_USERS = process.env.NODE_ENV === 'production' ? [] : SEED_USERS;
 
 interface StoreState {
   users: User[];
@@ -263,7 +262,10 @@ function saveLocalStore(state: StoreState) {
 const localState: StoreState = loadLocalStore();
 
 export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI?.trim();
+  if (process.env.NODE_ENV === 'production' && !uri) {
+    throw new Error('MONGODB_URI_REQUIRED_IN_PRODUCTION: configure a persistent MongoDB database before starting.');
+  }
   if (uri) {
     try {
       await mongoose.connect(uri);
@@ -309,7 +311,7 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
       // Seed the sample catalogue only when it is empty. Existing products and users
       // are never replaced; seller references always point at the ensured DB users.
       const productCount = await ProductModel.countDocuments();
-      if (productCount === 0) {
+      if (productCount === 0 && process.env.NODE_ENV !== 'production') {
         for (const p of SEED_PRODUCTS) {
           const oid = new mongoose.Types.ObjectId();
           idMap.set(p._id, oid);
@@ -322,7 +324,7 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
           });
         }
       }
-      console.info(`[seed] Demo identities checked: ${ACTIVE_SEED_USERS.length}; catalogue mode: ${productCount === 0 ? 'initialized' : 'existing'}`);
+      console.info(`[seed] Development demo identities checked: ${ACTIVE_SEED_USERS.length}; catalogue mode: ${productCount === 0 ? (process.env.NODE_ENV === 'production' ? 'empty-production-catalogue' : 'initialized') : 'existing'}`);
 
       // Demo-only provider fixtures: never create synthetic identities or catalog data in production.
       if (process.env.NODE_ENV !== 'production' && process.env.ENCRYPTION_MASTER_KEY) {
@@ -427,8 +429,12 @@ export async function initDatabase(): Promise<{ mode: 'mongodb' | 'local' }> {
       }
       return { mode: 'mongodb' };
     } catch (err) {
-      console.warn('MongoDB Atlas connection failed, running persistent local store:', err);
       mongoConnected = false;
+      if (process.env.NODE_ENV === 'production') {
+        console.error('Production MongoDB connection failed; refusing to start with local JSON storage.', err);
+        throw new Error('PRODUCTION_DATABASE_CONNECTION_FAILED');
+      }
+      console.warn('MongoDB connection failed, using the local development store:', err);
     }
   }
   return { mode: 'local' };
