@@ -2609,40 +2609,56 @@ async function startServer() {
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
     if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
+    const activeDelegations = await ProviderFulfillmentDelegationModel.find({ providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).select('sellerId').lean();
+    const activeSellerIds = activeDelegations.map((row: any) => row.sellerId);
     const providerProducts = await ProductModel.find({ providerId: user._id }).select('_id title').lean();
     const productIds = providerProducts.map((product: any) => String(product._id));
-    if (!productIds.length) return res.json({ shipments: [], total: 0, page: 1, limit: 10, totalPages: 0 });
+    if (!productIds.length || !activeSellerIds.length) return res.json({ shipments: [], total: 0, page: 1, limit: 10, totalPages: 0 });
     const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
     const limit = Math.min(50, Math.max(5, Number.parseInt(String(req.query.limit || '10'), 10) || 10));
     const query = String(req.query.q || '').trim().slice(0, 100);
     const status = String(req.query.status || '').trim();
     const filter: Record<string, any> = {
-      sellerId: { $in: profile.linkedSellerIds || [] },
+      sellerId: { $in: activeSellerIds },
       'items.productId': { $in: productIds },
       status: { $in: ['Packed', 'Shipped', 'Out for Delivery', 'Delivered'] },
     };
     if (status && status !== 'ALL') filter.status = status;
-    const escapedQuery = query.replaceAll('\\', '\\\\').replaceAll('.', '\\.').replaceAll('*', '\\*').replaceAll('+', '\\+').replaceAll('?', '\\?').replaceAll('^', '\\^').replaceAll('$', '\\$').replaceAll('{', '\\{').replaceAll('}', '\\}').replaceAll('(', '\\(').replaceAll(')', '\\)').replaceAll('|', '\\|').replaceAll('[', '\\[').replaceAll(']', '\\]');
-    filter.$or = [{ orderId: { $regex: escapedQuery, $options: 'i' } }, { utrReference: { $regex: escapedQuery, $options: 'i' } }, { status: { $regex: escapedQuery, $options: 'i' } }];
-    const [total, orders] = await Promise.all([
+    if (query) {
+      const escapedQuery = query.replaceAll('\\\\', '\\\\\\\\').replaceAll('.', '\\\\.').replaceAll('*', '\\\\*').replaceAll('+', '\\\\+').replaceAll('?', '\\\\?').replaceAll('^', '\\\\^').replaceAll('$', '\\\\$').replaceAll('{', '\\\\{').replaceAll('}', '\\\\}').replaceAll('(', '\\\\(').replaceAll(')', '\\\\)').replaceAll('|', '\\\\|').replaceAll('[', '\\\\[').replaceAll(']', '\\\\]');
+      filter.$or = [{ orderNumber: { $regex: escapedQuery, $options: 'i' } }, { _id: { $regex: escapedQuery, $options: 'i' } }];
+    }
+    const [total, orders, logisticsRows] = await Promise.all([
       OrderModel.countDocuments(filter),
       OrderModel.find(filter).select('_id orderNumber sellerId items status courierTracking createdAt updatedAt paymentMode paymentStatus').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+      listProviderShipments(user._id),
     ]);
     const owned = new Set(productIds);
-    const shipments = orders.map((order: any) => ({
-      id: String(order._id),
-      orderNumber: String(order.orderNumber || order._id),
-      status: order.status,
-      createdAt: order.createdAt,
-      updatedAt: order.updatedAt,
-      paymentMode: order.paymentMode,
-      paymentStatus: order.paymentStatus,
-      items: (order.items || []).filter((item: any) => owned.has(String(item.productId))).map((item: any) => ({
-        productId: String(item.productId), title: String(item.title), quantity: Number(item.quantity),
-      })),
-      courierTracking: order.courierTracking || null,
-      manualDispatchAllowed: (order.items || []).every((item: any) => owned.has(String(item.productId))) && order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID'),
-    }));
+    const logisticsByOrder = new Map((logisticsRows as any[]).map(row => [String(row.order_id), row]));
+    const shipments = orders.map((order: any) => {
+      const logistics = logisticsByOrder.get(String(order._id)) as any;
+      return {
+        id: String(order._id),
+        orderNumber: String(order.orderNumber || order._id),
+        status: order.status,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        paymentMode: order.paymentMode,
+        paymentStatus: order.paymentStatus,
+        items: (order.items || []).filter((item: any) => owned.has(String(item.productId))).map((item: any) => ({
+          productId: String(item.productId), title: String(item.title), quantity: Number(item.quantity),
+        })),
+        courierTracking: order.courierTracking || null,
+        appShipment: logistics ? {
+          shipmentId: logistics.id, bookingStatus: logistics.booking_status, awbNumber: logistics.awb_number,
+          labelUrl: logistics.label_url, manifestUrl: logistics.manifest_url, pickupScheduled: logistics.pickup_scheduled,
+          statusCode: logistics.normalized_status, estimatedDeliveryAt: logistics.estimated_delivery_at,
+          carrierName: logistics.provider_carrier_configs?.logistics_providers?.name || '',
+          trackingEvents: [],
+        } : null,
+        manualDispatchAllowed: (order.items || []).length > 0 && (order.items || []).every((item: any) => owned.has(String(item.productId))) && order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID'),
+      };
+    });
     res.setHeader('Cache-Control', 'private, no-store');
     res.json({ shipments, total, page, limit, totalPages: Math.ceil(total / limit) });
   });
@@ -2661,6 +2677,10 @@ async function startServer() {
     const profile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
     if (!profile) return res.status(404).json({ error: 'PROVIDER_PROFILE_NOT_FOUND' });
     const order = await OrderModel.findById(parsed.data.orderId);
+    if (order) {
+      const delegation = await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean();
+      if (!delegation) return res.status(403).json({ error: 'SELLER_FULFILLMENT_AUTHORIZATION_REQUIRED' });
+    }
     if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
     if (!(profile.linkedSellerIds || []).some((sellerId: any) => String(sellerId) === String(order.sellerId))) return res.status(403).json({ error: 'ORDER_NOT_LINKED_TO_PROVIDER_SELLER' });
     const orderProductIds = [...new Set((order.items || []).map((item: any) => String(item.productId)))];
