@@ -103,7 +103,7 @@ import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerc
 import {
   listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
-  getCustomerTrackingEvents, findShipmentForWebhook, applyLogisticsWebhook,
+  getCustomerTrackingEvents, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes,
 } from './src/server/services/logistics.js';
 import { STATUS_CODE, verifyHmacSha256 } from './packages/logistics-core/src/index.js';
 import { ShadowfaxAdapter } from './packages/adapters/shadowfax/src/index.js';
@@ -305,6 +305,28 @@ async function startServer() {
     catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
   });
 
+  app.post('/api/logistics/rates', async (req, res) => {
+    const parsed = z.object({
+      productIds: z.array(z.string().min(1)).min(1).max(50),
+      destinationPostalCode: z.string().trim().min(4).max(12),
+      weightGrams: z.coerce.number().int().min(1).max(100000),
+      codAmountMinor: z.coerce.number().int().min(0).default(0),
+      declaredValueMinor: z.coerce.number().int().min(0).default(0),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_RATE_REQUEST' });
+    try {
+      const products = await ProductModel.find({ _id: { $in: parsed.data.productIds }, isDeleted: { $ne: true }, isDiscontinued: { $ne: true } }).select('sellerId').lean() as any[];
+      const sellerIds = [...new Set(products.map(product => String(product.sellerId)))];
+      const groups = await Promise.all(sellerIds.map(async sellerId => ({
+        sellerId,
+        quotes: await getSellerRateQuotes({ sellerId, destinationPostalCode: parsed.data.destinationPostalCode,
+          weightGrams: parsed.data.weightGrams, codAmountMinor: parsed.data.codAmountMinor,
+          declaredValueMinor: parsed.data.declaredValueMinor, currency: 'INR' }),
+      })));
+      res.json({ groups, partial: groups.some(group => group.quotes.length === 0) });
+    } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'RATE_LOOKUP_FAILED' }); }
+  });
+
   app.get('/api/seller/logistics/carriers', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!requireLogisticsSeller(user)) return res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
@@ -382,7 +404,7 @@ async function startServer() {
     try {
       const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
       if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
-      if (String(order.sellerId) !== user!._id && user!.role !== 'ADMIN') return res.status(403).json({ error: 'ORDER_NOT_OWNED_BY_SELLER' });
+      if (String(order.sellerId) !== user!._id) return res.status(403).json({ error: 'ORDER_NOT_OWNED_BY_SELLER' });
       if (['Cancelled', 'CANCELLED'].includes(order.status)) return res.status(409).json({ error: 'CANCELLED_ORDER_CANNOT_SHIP' });
       const pin = String(order.shippingAddress?.pincode || '').trim();
       if (!pin) return res.status(422).json({ error: 'ORDER_DESTINATION_PINCODE_MISSING' });
