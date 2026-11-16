@@ -2104,18 +2104,34 @@ async function startServer() {
   app.post('/api/seller/providers/invites', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
-    const parsed = z.object({ email: z.string().email().optional().or(z.literal('')), note: z.string().max(500).optional() }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'INVALID_PROVIDER_INVITE' });
+    const parsed = z.object({ email: z.string().trim().email().max(254), note: z.string().max(500).optional() }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'PROVIDER_EMAIL_REQUIRED_AND_MUST_BE_VALID' });
+    const normalizedEmail = parsed.data.email.toLowerCase();
+    const existingUser = await UserModel.findOne({ email: normalizedEmail }).select('_id email role name').lean() as any;
+    if (existingUser) {
+      if (existingUser.role !== 'PROVIDER') return res.status(409).json({ error: 'EMAIL_ALREADY_REGISTERED_NOT_A_PROVIDER' });
+      const profile = await ProviderProfileModel.findOneAndUpdate(
+        { userId: String(existingUser._id) },
+        { $addToSet: { linkedSellerIds: user._id } },
+        { returnDocument: 'after' },
+      ).select('-encryptedTaxId -encryptedSettlementDetails').lean() as any;
+      if (!profile) return res.status(409).json({ error: 'PROVIDER_PROFILE_NOT_FOUND_FOR_EMAIL' });
+      await ProviderProductModel.updateMany({ providerId: String(existingUser._id) }, { $addToSet: { linkedSellerIds: user._id } });
+      await providerAudit(user, 'EXISTING_PROVIDER_LINKED_BY_EMAIL', String(existingUser._id), String(profile._id), { email: normalizedEmail });
+      return res.status(200).json({ linked: true, provider: { userId: String(existingUser._id), email: normalizedEmail, businessName: profile.businessName, contactPerson: profile.contactPerson, kycStatus: profile.kycStatus } });
+    }
+    const pendingInvite = await ProviderInviteModel.findOne({ sellerId: user._id, email: normalizedEmail, status: 'PENDING', expiresAt: { $gt: new Date() } }).lean();
+    if (pendingInvite) return res.status(409).json({ error: 'PROVIDER_INVITE_ALREADY_PENDING' });
     const rawToken = crypto.randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
     const invite = await ProviderInviteModel.create({
       tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'),
-      sellerId: user._id, email: (parsed.data.email || '').toLowerCase(),
+      sellerId: user._id, email: normalizedEmail,
       expiresAt, status: 'PENDING',
     });
     const inviteUrl = getAppBaseUrl(req) + '/provider/onboard?token=' + encodeURIComponent(rawToken);
-    await providerAudit(user, 'PROVIDER_INVITE_CREATED', '', String(invite._id), { email: parsed.data.email || '', expiresAt });
-    res.status(201).json({ invite: { id: String(invite._id), email: invite.email, status: invite.status, expiresAt }, inviteUrl });
+    await providerAudit(user, 'PROVIDER_INVITE_CREATED', '', String(invite._id), { email: normalizedEmail, expiresAt });
+    res.status(201).json({ linked: false, invite: { id: String(invite._id), email: invite.email, status: invite.status, expiresAt }, inviteUrl });
   });
 
   app.get('/api/provider/invites/:token', async (req, res) => {
@@ -2293,9 +2309,28 @@ async function startServer() {
   app.get('/api/seller/providers/products/review-queue', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
-    const filter = user.role === 'ADMIN' ? { status: { $in: ['PENDING_REVIEW', 'RESUBMITTED', 'APPROVED'] } } : { linkedSellerIds: user._id, status: { $in: ['PENDING_REVIEW', 'RESUBMITTED', 'NEGOTIATION_REQUESTED', 'APPROVED'] } };
-    const products = await ProviderProductModel.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
-    res.json({ products });
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(50, Math.max(5, Number.parseInt(String(req.query.limit || '10'), 10) || 10));
+    const query = String(req.query.q || '').trim().slice(0, 100);
+    const status = String(req.query.status || 'ALL').trim().toUpperCase();
+    const sortKey = String(req.query.sort || 'updatedAt');
+    const sortField = ({ title: 'title', category: 'category', status: 'status', basePricePaise: 'basePricePaise', createdAt: 'createdAt', updatedAt: 'updatedAt' } as Record<string, string>)[sortKey] || 'updatedAt';
+    const direction = String(req.query.direction || 'desc') === 'asc' ? 1 : -1;
+    const filter: Record<string, any> = {
+      ...(user.role === 'ADMIN' ? {} : { linkedSellerIds: user._id }),
+      status: { $in: ['PENDING_REVIEW', 'RESUBMITTED', 'NEGOTIATION_REQUESTED', 'APPROVED'] },
+    };
+    if (status !== 'ALL' && ['PENDING_REVIEW', 'RESUBMITTED', 'NEGOTIATION_REQUESTED', 'APPROVED'].includes(status)) filter.status = status;
+    if (query) {
+      const safeQuery = escapeRegex(query);
+      filter.$or = [{ title: { $regex: safeQuery, $options: 'i' } }, { category: { $regex: safeQuery, $options: 'i' } }, { brand: { $regex: safeQuery, $options: 'i' } }, { manufacturerName: { $regex: safeQuery, $options: 'i' } }];
+    }
+    const [total, products] = await Promise.all([
+      ProviderProductModel.countDocuments(filter),
+      ProviderProductModel.find(filter).sort({ [sortField]: direction, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    ]);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ products, total, page, limit, totalPages: Math.ceil(total / limit) });
   });
 
   app.post('/api/seller/providers/products/:id/negotiate', async (req, res) => {
