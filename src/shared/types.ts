@@ -102,7 +102,7 @@ export interface OAuthAccount {
 
 export interface User {
   _id: string;
-  role: Exclude<UserRole, 'GUEST'>;
+  role: Exclude<UserRole, 'GUEST'>;\n  isRootSuperuser?: boolean;
   name: string;
   email: string;
   avatarUrl?: string;
