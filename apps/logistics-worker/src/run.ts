@@ -30,7 +30,7 @@ async function processJob(job:any){
   weightGrams:p.weightGrams,codAmountMinor:p.codAmountMinor,declaredValueMinor:p.declaredValueMinor,currency:p.currency||'INR',
  };
  let quotes:RateQuote[]=await provider.getRates(rateRequest,config.credentials);
- let quote=quotes.filter(q=>q.serviceable&&q.expiresAt>Date.now().toString()&&(!p.serviceCode||q.serviceCode===p.serviceCode))
+ let quote=quotes.filter(q=>q.serviceable&&Date.parse(q.expiresAt)>Date.now()&&(!p.serviceCode||q.serviceCode===p.serviceCode))
   .sort((a,b)=>a.amountMinor-b.amountMinor||a.estimatedTransitHours-b.estimatedTransitHours)[0];
  if(!quote&&p.codAmountMinor>0&&provider.code==='shadowfax'){
   const serviceable=await provider.checkServiceability(rateRequest,config.credentials);
