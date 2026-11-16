@@ -19,7 +19,6 @@ export function LogisticsManagementPanel(){
  const [loading,setLoading]=useState(false),[saving,setSaving]=useState(false),[notice,setNotice]=useState(''),[error,setError]=useState(''),[webhookSecret,setWebhookSecret]=useState(''),[webhookProvider,setWebhookProvider]=useState('');
  const [shippingMarkupPercent,setShippingMarkupPercent]=useState('0');
  const [disclosure,setDisclosure]=useState<DisclosurePolicy>({recipientName:true,recipientPhone:true,recipientAddress:true,recipientEmail:false});
- const [disclosure,setDisclosure]=useState<DisclosurePolicy>({recipientName:true,recipientPhone:true,recipientAddress:true,recipientEmail:false});
  const [bookingModalOpen,setBookingModalOpen]=useState(false);
  const [bookingOrderId,setBookingOrderId]=useState('');
  const [bookingCarrierId,setBookingCarrierId]=useState('');
