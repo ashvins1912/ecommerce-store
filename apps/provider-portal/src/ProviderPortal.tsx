@@ -615,16 +615,34 @@ export default function ProviderPortal() {
                 <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600">{shipments.length} active / recent</span>
               </div>
               {shipments.length ? <div className="divide-y divide-stone-100">
-                {shipments.map((shipment) => <article key={shipment.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{shipment.orderNumber}</h3><StatusBadge status={shipment.status} /></div>
-                    <p className="mt-1 text-xs text-stone-500">{shipment.items.map((item) => item.title + ' × ' + item.quantity).join(' · ')}</p>
-                    {shipment.courierTracking && <p className="mt-2 break-all text-xs text-stone-600">{shipment.courierTracking.companyName} · {shipment.courierTracking.trackingId} {shipment.courierTracking.trackingUrl && <a className="font-semibold text-rose-900 underline" href={shipment.courierTracking.trackingUrl} target="_blank" rel="noreferrer">Track</a>}</p>}
+                {shipments.map((shipment) => <article key={shipment.id} className="space-y-3 py-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{shipment.orderNumber}</h3><StatusBadge status={shipment.status} /></div>
+                      <p className="mt-1 text-xs text-stone-500">{shipment.items.map((item) => item.title + ' × ' + item.quantity).join(' · ')}</p>
+                      {shipment.courierTracking && <p className="mt-2 break-all text-xs text-stone-600">Manual: {shipment.courierTracking.companyName} · {shipment.courierTracking.trackingId} {shipment.courierTracking.trackingUrl && <a className="font-semibold text-rose-900 underline" href={shipment.courierTracking.trackingUrl} target="_blank" rel="noreferrer">Track</a>}</p>}
+                      {shipment.appShipment && <div className="mt-2 space-y-1 rounded-lg bg-sky-50 p-3 text-xs text-sky-950">
+                        <p className="font-semibold">{shipment.appShipment.carrierName || 'App-booked carrier'} · {shipment.appShipment.bookingStatus} · AWB {shipment.appShipment.awbNumber || 'Pending'}</p>
+                        <p>Tracking status: {({10:'Created',20:'Manifested',30:'In transit',40:'Out for delivery',50:'Delivered',60:'NDR',70:'RTO initiated',80:'RTO delivered',90:'Cancelled'} as Record<number,string>)[shipment.appShipment.statusCode] || 'Pending'}{shipment.appShipment.pickupScheduled ? ' · Pickup scheduled' : ''}{shipment.appShipment.estimatedDeliveryAt ? ' · ETA ' + new Date(shipment.appShipment.estimatedDeliveryAt).toLocaleDateString() : ''}</p>
+                        <div className="flex flex-wrap gap-3">{shipment.appShipment.labelUrl && <a className="font-semibold underline" href={shipment.appShipment.labelUrl} target="_blank" rel="noreferrer">Download label</a>}{shipment.appShipment.manifestUrl && <a className="font-semibold underline" href={shipment.appShipment.manifestUrl} target="_blank" rel="noreferrer">Manifest</a>}</div>
+                        {shipment.appShipment.bookingStatus === 'FAILED' && !shipment.appShipment.awbNumber && <button type="button" onClick={() => void retryProviderShipment(shipment)} className="mt-1 rounded-md border border-sky-300 px-3 py-1.5 font-semibold">Retry booking</button>}
+                      </div>}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {shipment.status === 'Packed' && !shipment.appShipment && <button type="button" disabled={shippingSaving} onClick={() => void getShipmentRates(shipment)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-sky-800 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50">Get rates & book in app</button>}
+                      {shipment.manualDispatchAllowed && <button type="button" onClick={() => void recordManualShipment(shipment)} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 hover:border-rose-800">Manual courier fallback</button>}
+                    </div>
                   </div>
-                  {shipment.manualDispatchAllowed && <button type="button" onClick={() => void recordManualShipment(shipment)} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-rose-900 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-800">Record manual shipment</button>}
+                  {bookingOrderId === shipment.id && bookingRates.length > 0 && <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                    <p className="mb-2 text-xs font-semibold text-sky-950">Available carrier services</p>
+                    <div className="grid gap-2 sm:grid-cols-2">{bookingRates.map((quote) => <div key={quote.providerCode + quote.serviceCode} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-100 bg-white p-3 text-xs">
+                      <div><p className="font-semibold">{quote.providerCode.toUpperCase()} · {quote.serviceCode}</p><p className="mt-1 text-stone-600">{money(quote.amountMinor)} · {Math.ceil(quote.estimatedTransitHours / 24)} day estimate · {quote.codSupported ? 'COD supported' : 'Prepaid only'}</p></div>
+                      <button type="button" disabled={shippingSaving || !quote.serviceable || Date.parse(quote.expiresAt) <= Date.now()} onClick={() => void bookProviderShipment(shipment, quote)} className="rounded-lg bg-rose-900 px-3 py-2 font-semibold text-white disabled:opacity-40">Book shipment</button>
+                    </div>)}</div>
+                  </div>}
                 </article>)}
-              </div> : <p className="rounded-xl bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">No provider-fulfilment orders are ready yet.</p>}
-              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">Manual dispatch is available after the seller marks the order Packed and payment is confirmed (or the order is COD). In-app carrier booking requires a carrier configuration and dispatch authorization from the linked seller.</p>
+              </div> : <p className="rounded-xl bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">No provider-fulfilment orders are ready yet. A linked seller must approve your fulfilment request before eligible orders appear.</p>}
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">App booking creates a carrier shipment and queues label generation. AWB, pickup and tracking status update asynchronously from carrier webhooks or tracking polls. Manual dispatch remains available as a fallback for eligible Packed orders.</p>
             </section>
 
             <section className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-6">
