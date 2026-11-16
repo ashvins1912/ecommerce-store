@@ -105,6 +105,9 @@ import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerc
 import {
   listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
+  listProviderCarrierConfigs, saveProviderCarrierConfig, setProviderCarrierActive, getProviderCarrierSecret,
+  listProviderWarehouses, createProviderWarehouse, getProviderWarehouse, getProviderRateQuotes, createProviderShipmentIntent,
+  retryProviderShipment, listProviderShipments,
   getCustomerTrackingEvents, refreshCarrierTrackingForOrder, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
 } from './src/server/services/logistics.js';
 import { STATUS_CODE, verifyHmacSha256 } from './packages/logistics-core/src/index.js';
