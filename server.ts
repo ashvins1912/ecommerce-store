@@ -9,6 +9,7 @@ import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from './src/s
 import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normalizeCarrierDisclosurePolicy, toProviderSafeProfileDto, toSellerSafeProviderProfileDto, toProviderSafeProductDto, toProviderSafeSettlementDto } from './src/server/services/privacy.js';
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel, ProviderFulfillmentDelegationModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
+import { canInviteRole } from './src/server/services/roles.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
 import path from 'node:path';
 import multer from 'multer';
@@ -1170,6 +1171,7 @@ async function startServer() {
     if (!root) return;
     const parsed = z.object({ email: z.string().trim().email().max(254), role: z.enum(['ADMIN', 'SELLER', 'PROVIDER']), expiresInDays: z.number().int().min(1).max(30).default(7), note: z.string().trim().max(300).optional().default('') }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'VALID_EMAIL_ROLE_AND_EXPIRY_REQUIRED' });
+    if (!canInviteRole(root, parsed.data.role)) return res.status(403).json({ error: 'ROLE_INVITATION_NOT_PERMITTED' });
     const email = parsed.data.email.toLowerCase();
     const existingUser = await UserModel.findOne({ email }).select('_id role isRootSuperuser').lean() as any;
     if (existingUser?.isRootSuperuser) return res.status(409).json({ error: 'ROOT_ACCOUNT_CANNOT_BE_INVITED_OR_REASSIGNED' });
@@ -1272,8 +1274,8 @@ async function startServer() {
 
   app.post('/api/admin/seller-invites', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || user.role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Only platform Administrators can issue seller invitations.' });
+    if (!user || !canInviteRole(user, 'SELLER') || user.isRootSuperuser === true) {
+      return res.status(403).json({ error: 'Only Level 1 Administrators can issue seller invitations.' });
     }
     const schema = z.object({
       email: z.string().email('Valid seller email is required').optional().or(z.literal('')),
@@ -2447,7 +2449,7 @@ async function startServer() {
 
   app.post('/api/seller/providers/invites', async (req, res) => {
     const { user } = await resolveActor(req, res);
-    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
+    if (!user || !canInviteRole(user, 'PROVIDER') || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'VERIFIED_SELLER_REQUIRED' });
     const parsed = z.object({ email: z.string().trim().email().max(254), note: z.string().max(500).optional() }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'PROVIDER_EMAIL_REQUIRED_AND_MUST_BE_VALID' });
     const normalizedEmail = parsed.data.email.toLowerCase();
