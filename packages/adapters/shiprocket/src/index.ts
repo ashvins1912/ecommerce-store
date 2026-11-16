@@ -17,7 +17,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
  async validateCredentials(c:CarrierCredentials){await this.headers(c);}
  async checkServiceability(r:RateRequest,c:CarrierCredentials){
   const query=new URLSearchParams({pickup_postcode:r.origin.postalCode,delivery_postcode:r.destination.postalCode,weight:String(r.weightGrams/1000),cod:String((r.codAmountMinor||0)>0?1:0),declared_value:String((r.declaredValueMinor||0)/100)});
-  const x=await this.http.request<any>(this.baseUrl+'/v1/external/courier/serviceability?'+query,{method:'GET',headers:await this.headers(c)});
+  const x=await this.http.request<any>(this.baseUrl+'/v1/external/courier/courierListWithCounts?'+query,{method:'GET',headers:await this.headers(c)});
   return Boolean(x.data?.available_courier_companies?.length);
  }
  async getRates(r:RateRequest,c:CarrierCredentials):Promise<RateQuote[]>{
@@ -74,18 +74,18 @@ export class ShiprocketAdapter implements ICarrierProvider {
   }
   if(!shipmentId)throw new Error('SHIPROCKET_ORDER_CREATE_FAILED:shipment id missing');
   if(!awb){
-   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:shipmentId,courier_id:Number(r.quote.serviceCode)}});
+   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:Number(shipmentId),courier_id:Number(r.quote.serviceCode)}});
    awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
    if(!awb)throw new Error('SHIPROCKET_AWB_ASSIGN_FAILED:'+String(assigned.message||assigned.response?.message||'AWB missing'));
   }
   if(!pickupScheduled){
-   const pickup=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/pickup',{method:'POST',headers,body:{shipment_id:shipmentId}});
+   const pickup=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/pickup',{method:'POST',headers,body:{shipment_id:Number(shipmentId)}});
    if(pickup.status===false||String(pickup.status).toLowerCase()==='false'||pickup.pickup_status===0||Number(pickup.status_code)>=400)throw new Error('SHIPROCKET_PICKUP_SCHEDULE_FAILED:'+String(pickup.message||pickup.response||'pickup rejected'));
    pickupScheduled=true;
   }
   let manifestUrl:string|undefined;
   try{
-   const manifest=await this.http.request<any>(this.baseUrl+'/v1/external/manifests/generate',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
+   const manifest=await this.http.request<any>(this.baseUrl+'/v1/external/manifests/generate',{method:'POST',headers,body:{shipment_id:[Number(shipmentId)]}});
    manifestUrl=manifest.manifest_url||manifest.url||manifest.response?.manifest_url||manifest.data?.manifest_url;
   }catch{/* Manifest can be generated from the Shiprocket panel after pickup is accepted. */}
   let labelUrl:string|undefined;
