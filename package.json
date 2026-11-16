@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "start:app": "bash scripts/start-app.sh"
+    "start:app": "bash scripts/start-app.sh",
     "dev:customer": "vite --config apps/customer-web/vite.config.ts",
     "build:customer": "vite build --config apps/customer-web/vite.config.ts",
     "dev:provider": "vite --config apps/provider-portal/vite.config.ts",
