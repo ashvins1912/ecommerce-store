@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, feat/seller-route-auth-redesign, feat/commerce-complete-workflows]
   push:
-    branches: [feat/commerce-complete-workflows, feat/provider-supply-settlement-workflows]
+    branches: [feat/end-to-end-hybrid-optimization, feat/commerce-complete-workflows, feat/provider-supply-settlement-workflows]
 
 jobs:
   typecheck-and-build:
@@ -16,5 +16,7 @@ jobs:
           bun-version: latest
       - run: bun install --no-save
       - run: bun run lint
+      - run: bun run test:logistics
+      - run: bun run test:hybrid
       - run: bun run build
       - run: bun run build:workspace
