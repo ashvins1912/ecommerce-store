@@ -29,6 +29,18 @@ export class ShiprocketAdapter implements ICarrierProvider {
    fetchedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60*1000).toISOString(),
   }));
  }
+ private async findExistingOrder(orderId:string,headers:Record<string,string>):Promise<{shipmentId:string;awb?:string}|null>{
+  try{
+   const response=await this.http.request<any>(this.baseUrl+'/v1/external/orders?'+new URLSearchParams({search:orderId}),{method:'GET',headers});
+   const rows=Array.isArray(response.data)?response.data:Array.isArray(response.data?.data)?response.data.data:Array.isArray(response.orders)?response.orders:[];
+   const order=rows.find((row:any)=>String(row.channel_order_id||row.order_id||row.channel_order_number||'')===orderId);
+   if(!order)return null;
+   const shipment=Array.isArray(order.shipments)?order.shipments[0]:order.shipment||{};
+   const shipmentId=shipment.id||shipment.shipment_id||order.shipment_id;
+   if(!shipmentId)return null;
+   return{shipmentId:String(shipmentId),awb:shipment.awb||shipment.awb_code||shipment.awb_number||order.awb_code};
+  }catch{return null;}
+ }
  async createShipment(r:ShipmentRequest,c:CarrierCredentials):Promise<ShipmentResult>{
   const o=r.origin,d=r.destination;
   if(!o?.name||!o.postalCode)throw new Error('SHIPROCKET_PICKUP_LOCATION_REQUIRED');
@@ -36,21 +48,36 @@ export class ShiprocketAdapter implements ICarrierProvider {
   const [firstName,...lastParts]=d.name.trim().split(/\\s+/);const lastName=lastParts.join(' ')||'Customer';
   const phone=d.contact.replace(/\\D/g,'');const pin=Number(d.postalCode);
   if(!/^\\d{10}$/.test(phone)||!/^\\d{6}$/.test(String(pin)))throw new Error('SHIPROCKET_PHONE_OR_PINCODE_INVALID');
-  const orderId=r.orderId.slice(0,50);
-  const headers=await this.headers(c);
-  const created=await this.http.request<any>(this.baseUrl+'/v1/external/orders/create/adhoc',{method:'POST',headers,body:{
-   order_id:orderId,order_date:(r.orderDate||new Date().toISOString()).slice(0,10),pickup_location:o.name,
-   billing_customer_name:firstName,billing_last_name:lastName,billing_address:d.addressLine1,billing_address_2:d.addressLine2||'',
-   billing_city:d.city,billing_pincode:pin,billing_state:d.state,billing_country:'India',billing_email:d.email,billing_phone:Number(phone),
-   shipping_is_billing:true,order_items:(r.items||[]).map(item=>({name:item.name,sku:item.sku,units:item.quantity,selling_price:Math.round(item.unitPrice)})),
-   payment_method:r.codAmountMinor>0?'COD':'Prepaid',sub_total:Math.round(r.declaredValueMinor/100),weight:r.weightGrams/1000,
-   length:10,breadth:10,height:10,
-  }});
-  const shipmentId=created.shipment_id||created.data?.shipment_id;
-  if(!shipmentId)throw new Error('SHIPROCKET_ORDER_CREATE_FAILED:'+String(created.message||created.errors||'shipment id missing'));
-  const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:shipmentId,courier_id:Number(r.quote.serviceCode)}});
-  const awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
-  if(!awb)throw new Error('SHIPROCKET_AWB_ASSIGN_FAILED:'+String(assigned.message||assigned.response?.message||'AWB missing'));
+  const orderId=r.orderId.slice(0,50);const headers=await this.headers(c);
+  let existing=await this.findExistingOrder(orderId,headers);
+  let shipmentId=existing?.shipmentId;let awb=existing?.awb;
+  if(!shipmentId){
+   try{
+    const created=await this.http.request<any>(this.baseUrl+'/v1/external/orders/create/adhoc',{method:'POST',headers,body:{
+     order_id:orderId,order_date:(r.orderDate||new Date().toISOString()).slice(0,10),pickup_location:o.name,
+     billing_customer_name:firstName,billing_last_name:lastName,billing_address:d.addressLine1,billing_address_2:d.addressLine2||'',
+     billing_city:d.city,billing_pincode:pin,billing_state:d.state,billing_country:'India',billing_email:d.email,billing_phone:Number(phone),
+     shipping_is_billing:true,order_items:(r.items||[]).map(item=>({name:item.name,sku:item.sku,units:item.quantity,selling_price:Math.round(item.unitPrice)})),
+     payment_method:r.codAmountMinor>0?'COD':'Prepaid',sub_total:Math.round(r.declaredValueMinor/100),weight:r.weightGrams/1000,
+     length:10,breadth:10,height:10,
+    }});
+    shipmentId=created.shipment_id||created.data?.shipment_id;
+    awb=created.awb_code||created.data?.awb_code;
+   }catch(error){
+    // Shiprocket order creation is keyed by external order_id. Reconcile after timeouts/duplicate responses before retrying creation.
+    existing=await this.findExistingOrder(orderId,headers);shipmentId=existing?.shipmentId;awb=existing?.awb;
+    if(!shipmentId)throw new Error('SHIPROCKET_CREATE_RECONCILIATION_REQUIRED:'+String(error instanceof Error?error.message:error));
+   }
+  }
+  if(!shipmentId){
+   existing=await this.findExistingOrder(orderId,headers);shipmentId=existing?.shipmentId;awb=existing?.awb;
+  }
+  if(!shipmentId)throw new Error('SHIPROCKET_ORDER_CREATE_FAILED:shipment id missing');
+  if(!awb){
+   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:shipmentId,courier_id:Number(r.quote.serviceCode)}});
+   awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
+   if(!awb)throw new Error('SHIPROCKET_AWB_ASSIGN_FAILED:'+String(assigned.message||assigned.response?.message||'AWB missing'));
+  }
   let labelUrl:string|undefined;
   try{
    const label=await this.http.request<any>(this.baseUrl+'/v1/external/courier/generate/label',{method:'POST',headers,body:{shipment_id:[shipmentId]}});
