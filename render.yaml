@@ -3,7 +3,7 @@ services:
     name: ecommerce-store
     runtime: node
     plan: free
-    buildCommand: npm install --global bun && bun install --no-save && bun run lint && bun run test:logistics && bun run test:hybrid && bun run test:privacy && bun run test:roles && bun run build && bun run build:workspace
+    buildCommand: bun install --no-save && bun run lint && bun run test:logistics && bun run test:hybrid && bun run test:privacy && bun run test:roles && bun run build && bun run build:workspace
     startCommand: bun run start
     healthCheckPath: /api/health
     autoDeploy: true
