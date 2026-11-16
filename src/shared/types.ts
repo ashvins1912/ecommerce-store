@@ -285,6 +285,11 @@ export interface Order {
   sellerId: string;
   items: OrderItem[];
   totalAmount: number;
+  shipping?: {
+    actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number;
+    carrierCode?: string | null; serviceCode?: string | null; estimatedTransitHours?: number | null;
+    quoteExpiresAt?: string | null; policy: 'SEPARATE';
+  };
   paymentMode?: 'COD' | 'RAZORPAY' | 'STRIPE' | 'WALLET' | 'MIXED';
   paymentStatus?: 'NOT_REQUIRED' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUNDED';
   paymentProvider?: 'razorpay' | 'stripe';
