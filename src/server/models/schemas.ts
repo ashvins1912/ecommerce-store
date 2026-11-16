@@ -478,6 +478,32 @@ const PaymentEventSchema = new Schema({
 PaymentEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
 PaymentEventSchema.index({ status: 1, processingLeaseUntil: 1 });
 
+const SellerPrivacySettingsSchema = new Schema({
+  sellerId: { type: String, required: true, unique: true, index: true },
+  carrierDisclosure: {
+    recipientName: { type: Boolean, default: false },
+    recipientPhone: { type: Boolean, default: false },
+    recipientAddress: { type: Boolean, default: false },
+    recipientEmail: { type: Boolean, default: false },
+  },
+}, { timestamps: true });
+const PrivacyDisclosureAuditSchema = new Schema({
+  sellerId: { type: String, required: true, index: true },
+  orderId: { type: String, required: true, index: true },
+  carrierConfigId: { type: String, required: true },
+  carrierCode: { type: String, required: true },
+  fieldsDisclosed: { type: [String], required: true },
+  actorId: { type: String, required: true },
+  authorizedAt: { type: Date, required: true },
+  purpose: { type: String, enum: ['SHIPMENT_FULFILLMENT'], required: true },
+}, { timestamps: true });
+PrivacyDisclosureAuditSchema.index({ sellerId: 1, orderId: 1, authorizedAt: -1 });
+
+export const SellerPrivacySettingsModel: Model<any> =
+  mongoose.models.SellerPrivacySettings || mongoose.model('SellerPrivacySettings', SellerPrivacySettingsSchema);
+export const PrivacyDisclosureAuditModel: Model<any> =
+  mongoose.models.PrivacyDisclosureAudit || mongoose.model('PrivacyDisclosureAudit', PrivacyDisclosureAuditSchema);
+
 export const UserModel: Model<any> =
   mongoose.models.User || mongoose.model('User', UserSchema);
 export const ProductModel: Model<any> =
