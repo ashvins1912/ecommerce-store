@@ -89,8 +89,6 @@ stateDiagram-v2
  OUT_FOR_DELIVERY --> DELIVERED
  OUT_FOR_DELIVERY --> NDR
  OUT_FOR_DELIVERY --> RTO_INITIATED
- NDR --> IN_TRANSIT
- NDR --> OUT_FOR_DELIVERY
  NDR --> RTO_INITIATED
  RTO_INITIATED --> RTO_DELIVERED
  DELIVERED --> [*]
@@ -126,7 +124,7 @@ sequenceDiagram
 
 Carrier utility uses min-max normalization: lower freight cost, transit hours and historical RTO rate score higher; higher seller priority scores higher. Weights are normalized by their sum. Sorting is O(N log N). Rate fan-out is concurrent with an 800ms deadline; use a breaker per seller-carrier-config, not a shared global breaker.
 
-The webhook store port must implement the idempotency claim, monotonic timestamp check, current-state DAG validation, shipment update and append-only event insert atomically (Redis Lua or a database transaction). The pre-check in core is an optimization only; never implement claim/check/write as independent non-atomic operations.
+The status graph is intentionally acyclic: NDR is terminal except for RTO_INITIATED. If delivery re-attempts are required, model an explicit attempt number or a new forward-only retry state rather than adding a backward edge. The webhook store port must atomically compare expected current status and timestamp, enforce the DAG edge, insert the unique event and update the shipment in one database transaction. Use Redis keys webhook:{provider}:{awb}:{event_hash} as a fast duplicate filter/cache, but keep the PostgreSQL unique event constraint and row-locked transaction authoritative so a Redis/DB crash cannot silently lose an event.
 
 Cache key base is `svc:{origin_pin}:{dest_pin}:{weight_slab}`; add COD, dimensions, currency and service class to the key whenever they affect rates. TTL is at most 24h and must not exceed provider quote expiry. ETag hashes the canonical response projection.
 
