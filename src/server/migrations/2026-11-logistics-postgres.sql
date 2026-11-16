@@ -125,8 +125,8 @@ BEGIN
  valid_edge := p_status_code=current_row.normalized_status OR CASE current_row.normalized_status
   WHEN 10 THEN p_status_code IN (20,30,40,50,60,70,90)
   WHEN 20 THEN p_status_code IN (30,40,50,60,70,90)
-  WHEN 30 THEN p_status_code IN (40,50,60,70)
-  WHEN 40 THEN p_status_code IN (50,60,70)
+  WHEN 30 THEN p_status_code IN (40,50,60,70,90)
+  WHEN 40 THEN p_status_code IN (50,60,70,90)
   WHEN 60 THEN p_status_code IN (30,40,70)
   WHEN 70 THEN p_status_code IN (80)
   ELSE FALSE END;
