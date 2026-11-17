@@ -4,7 +4,7 @@ import { ShiprocketAdapter } from './index.js';
 import type { ShipmentRequest } from '../../../logistics-core/src/index.js';
 
 test('Shiprocket order flow creates order, assigns AWB, schedules pickup and produces artifacts',async()=>{
- const calls:string[]=[];
+ const calls:string[]=[];let assignedCourierId:number|undefined;
  const http={async request<T>(url:string,init:any):Promise<T>{
   calls.push(url);
   if(url.endsWith('/v1/external/auth/login'))return {token:'access-token'} as T;
@@ -23,10 +23,13 @@ test('Shiprocket order flow creates order, assigns AWB, schedules pickup and pro
   origin:{warehouseId:'warehouse-1',postalCode:'560001',countryCode:'IN',name:'Registered Pickup'},
   destination:{warehouseId:'d',postalCode:'110001',countryCode:'IN',name:'Buyer Name',contact:'+919999999999',email:'buyer@example.com',addressLine1:'House 1',city:'Delhi',state:'Delhi'},
   weightGrams:600,codAmountMinor:0,declaredValueMinor:100000,currency:'INR',idempotencyKey:'job-1',
+  courierId:77,
   items:[{name:'Kurta',sku:'K1',quantity:1,unitPrice:1000}],
  };
  const result=await adapter.createShipment(request,{email:'seller@example.com',password:'password'});
  assert.equal(result.awbNumber,'SR123');assert.equal(result.pickupScheduled,true);
+ assert.equal(assignedCourierId,77);
+ assert.equal(calls.filter(url=>url.endsWith('/v1/external/auth/login')).length,1);
  assert.equal(result.manifestUrl,'https://carrier.test/manifest.pdf');
  assert.ok(calls.some(url=>url.endsWith('/courier/generate/pickup')));
  assert.ok(calls.some(url=>url.endsWith('/manifests/generate')));
