@@ -1,0 +1,12 @@
+{
+  "name": "@commerce/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/entry.ts",
+    "build": "esbuild src/entry.ts --bundle --platform=node --format=esm --packages=external --target=node22 --outfile=dist/entry.js",
+    "start": "node dist/entry.js",
+    "lint": "tsc --noEmit"
+  }
+}
