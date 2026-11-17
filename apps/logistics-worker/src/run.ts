@@ -107,11 +107,11 @@ async function processJob(job:any){
 }
 const TRACKING_POLL_INTERVAL_MS=3*60*60*1000;
 let trackingPollInFlight=false;
-async function syncShipmentStatuses(){
+export async function syncShipmentStatuses(){
  if(trackingPollInFlight)return;
  trackingPollInFlight=true;
  try{
-  const orderIds=await listActiveShipmentOrderIdsForPolling(1000);
+  const orderIds=await listActiveShipmentOrderIdsForPolling(5000);
   console.log('Carrier status poll started; active AWBs:',orderIds.length);
   for(let index=0;index<orderIds.length;index++){
    const orderId=orderIds[index];
