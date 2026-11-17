@@ -547,3 +547,38 @@ export interface SellerAnalyticsResponse {
     salesCount: number;
   }>;
 }
+
+export type IntegrationServiceMode = 'external_http' | 'local_fallback';
+
+export interface IntegrationServiceCheckItem {
+  key: string;
+  label: string;
+  configured: boolean;
+}
+
+export interface IntegrationServiceDiagnostic {
+  serviceKey: 'payment' | 'shipping';
+  serviceName: string;
+  templateServiceName: string;
+  defaultLocalPort: number;
+  startCommand: string;
+  mode: IntegrationServiceMode;
+  urlConfigured: boolean;
+  targetOrigin: string | null;
+  featureFlagEnabled: boolean;
+  reachable: boolean | null;
+  ready: boolean;
+  latencyMs: number | null;
+  checkedAt: string;
+  detail: string;
+  capabilities: string[];
+  checks: IntegrationServiceCheckItem[];
+}
+
+export interface IntegrationServicesStatusResponse {
+  internalSecretConfigured: boolean;
+  checkedAt: string;
+  payment: IntegrationServiceDiagnostic;
+  shipping: IntegrationServiceDiagnostic;
+}
+

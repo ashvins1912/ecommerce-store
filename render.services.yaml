@@ -1,0 +1,64 @@
+# Ready-to-deploy Render service templates for Standalone Payment Gateway Service
+# and Standalone Shipping Services Integration.
+#
+# Keep `render.yaml` as the active free-tier Blueprint (`ecommerce-api` + `ecommerce-ui`)
+# while traffic is low. When ready to split payment gateways and carrier shipping off
+# `ecommerce-api`, deploy these services from this file and configure:
+#   - PAYMENT_SERVICE_URL=https://ecommerce-payment-service.onrender.com
+#   - SHIPPING_SERVICE_URL=https://ecommerce-shipping-service.onrender.com
+#   - SERVICE_INTERNAL_SECRET=<shared random secret across API and both services>
+
+services:
+  - type: web
+    name: ecommerce-payment-service
+    runtime: node
+    plan: free
+    buildCommand: bun install --no-save && bun run lint
+    startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start:payment
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVICE_INTERNAL_SECRET
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: ENCRYPTION_MASTER_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+
+  - type: web
+    name: ecommerce-shipping-service
+    runtime: node
+    plan: free
+    buildCommand: bun install --no-save && bun run lint && bun run test:logistics
+    startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start:shipping
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_QUEUE_WORKER
+        value: "0"
+      - key: LOGISTICS_WORKER_POLL_MS
+        value: "2000"
+      - key: SHIPROCKET_API_BASE_URL
+        value: https://apiv2.shiprocket.in
+      - key: SHADOWFAX_API_BASE_URL
+        value: https://dale.shadowfax.in/api
+      - key: SERVICE_INTERNAL_SECRET
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: ENCRYPTION_MASTER_KEY
+        sync: false
+      - key: LOGISTICS_SUPABASE_URL
+        sync: false
+      - key: LOGISTICS_SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false

@@ -11,6 +11,7 @@ To eliminate 512 MB OOM 502s and stay 100% free-tier compatible:
   - `shippingQuotesEnabled` defaults to `false` (free delivery ₹0 without calling external carrier rate APIs at checkout).
   - `onlinePaymentEnabled` defaults to `false` (orders complete smoothly via COD, Seller Direct Collection, or POS Machine on Delivery without gateway blockers).
   - `posMachineEnabled` + `posDemandCartThresholdInr` highlights **POS Machine on Delivery** once cart net value meets the threshold or exceeds `codMaxOrderValueInr`, while sellers confirm received payments/POS slip RRNs directly on the order card via `POST /api/seller/orders/:id/confirm-payment`.
+  - **Standalone Service Cutover (`render.services.yaml`)**: `apps/payment-service` (port `4010`, `npm run dev:payment` / `start:payment`) and `apps/shipping-service` (port `4020`, `npm run dev:shipping` / `start:shipping`) are pre-built inside the repository with signed HMAC-SHA256 internal endpoints (`/internal/v1/*`) and ready-to-deploy Render templates (`render.services.yaml`). Keep `PAYMENT_SERVICE_URL` and `SHIPPING_SERVICE_URL` blank under low traffic for in-process fallback; set both URLs + `SERVICE_INTERNAL_SECRET` later with zero code changes, and verify live connectivity from **Admin → Service flags**.
 
 ## Recommended topology
 

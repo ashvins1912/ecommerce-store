@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  Activity,
   AlertTriangle,
   Ban,
   Calendar,
@@ -16,6 +17,7 @@ import {
   CheckCircle2,
   Compass,
   Copy,
+  CreditCard,
   ExternalLink,
   Eye,
   EyeOff,
@@ -51,6 +53,7 @@ import type {
   Coupon,
   CouponDiscountType,
   CouponScope,
+  IntegrationServicesStatusResponse,
   OccasionType,
   Order,
   OrderListResponse,
@@ -336,6 +339,8 @@ export function SellerHubView({
   });
   const [platformBusy, setPlatformBusy] = useState(false);
   const [platformNotice, setPlatformNotice] = useState<string | null>(null);
+  const [servicesStatus, setServicesStatus] = useState<IntegrationServicesStatusResponse | null>(null);
+  const [servicesCheckBusy, setServicesCheckBusy] = useState(false);
 
   // Manual Payment & POS confirmation state on Seller Orders
   const [paymentConfirmOrderId, setPaymentConfirmOrderId] = useState<string | null>(null);
@@ -648,15 +653,41 @@ export function SellerHubView({
   const loadPlatformFlags = useCallback(async () => {
     if (!isAdmin) return;
     try {
-      const data = await apiFetch<{ flags: PlatformServiceFlags }>('/api/admin/platform-flags');
-      if (data.flags) {
-        setPlatformDraft(data.flags);
-        onPlatformFlagsUpdated?.(data.flags);
+      const [flagsRes, servicesRes] = await Promise.allSettled([
+        apiFetch<{ flags: PlatformServiceFlags }>('/api/admin/platform-flags'),
+        apiFetch<{ services: IntegrationServicesStatusResponse }>('/api/admin/services/status'),
+      ]);
+      if (flagsRes.status === 'fulfilled' && flagsRes.value.flags) {
+        setPlatformDraft(flagsRes.value.flags);
+        onPlatformFlagsUpdated?.(flagsRes.value.flags);
+      } else if (flagsRes.status === 'rejected') {
+        setPlatformNotice('Unable to load service flags.');
+      }
+      if (servicesRes.status === 'fulfilled' && servicesRes.value.services) {
+        setServicesStatus(servicesRes.value.services);
       }
     } catch {
       setPlatformNotice('Unable to load service flags.');
     }
   }, [isAdmin, onPlatformFlagsUpdated]);
+
+  const runServicesHealthCheck = async () => {
+    if (!isAdmin) return;
+    setServicesCheckBusy(true);
+    try {
+      const data = await apiFetch<{ services: IntegrationServicesStatusResponse }>('/api/admin/services/check', {
+        method: 'POST',
+      });
+      if (data.services) {
+        setServicesStatus(data.services);
+        setPlatformNotice('Standalone payment and shipping service diagnostics updated.');
+      }
+    } catch (err) {
+      setPlatformNotice((err as Error).message || 'Could not probe integration services.');
+    } finally {
+      setServicesCheckBusy(false);
+    }
+  };
 
   const savePlatformFlags = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3512,6 +3543,125 @@ ${inv.note ? `Admin note: ${inv.note}
               {platformNotice}
             </div>
           )}
+
+          <div className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[#141413] flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-[#881337]" />
+                  Standalone Payment &amp; Shipping Service Readiness
+                </h3>
+                <p className="mt-0.5 text-[11px] text-[#78716C] max-w-prose">
+                  Both integration services run standalone or fall back seamlessly inside the Lean API until PAYMENT_SERVICE_URL and SHIPPING_SERVICE_URL are set.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={runServicesHealthCheck}
+                disabled={servicesCheckBusy}
+                className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-2 rounded-md border border-[#D6D3CD] bg-[#FAF9F6] px-3.5 py-2 text-xs font-semibold text-[#141413] hover:border-[#141413] disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${servicesCheckBusy ? 'animate-spin' : ''}`} />
+                {servicesCheckBusy ? 'Checking services…' : 'Run live health check'}
+              </button>
+            </div>
+
+            {servicesStatus ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {[servicesStatus.payment, servicesStatus.shipping].map((svc) => (
+                  <div
+                    key={svc.serviceKey}
+                    className="rounded-lg border border-[#E8E6E1] bg-[#FAF9F6]/60 p-4 space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {svc.serviceKey === 'payment' ? (
+                          <CreditCard className="h-4 w-4 text-[#881337] shrink-0" />
+                        ) : (
+                          <Truck className="h-4 w-4 text-[#881337] shrink-0" />
+                        )}
+                        <div>
+                          <div className="text-xs font-semibold text-[#141413]">{svc.serviceName}</div>
+                          <div className="text-[11px] text-[#6B6A65]">{svc.templateServiceName}</div>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[11px] font-semibold ${
+                          svc.mode === 'external_http'
+                            ? svc.reachable === false
+                              ? 'text-red-700'
+                              : 'text-emerald-800'
+                            : 'text-[#44403C]'
+                        }`}
+                      >
+                        {svc.mode === 'external_http'
+                          ? svc.reachable === true
+                            ? 'External HTTP Connected'
+                            : svc.reachable === false
+                              ? 'External HTTP Unreachable'
+                              : 'External HTTP Configured'
+                          : 'Local Fallback Standby'}
+                      </span>
+                    </div>
+
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-y border-[#E8E6E1] py-2.5 text-[11px]">
+                      <div>
+                        <dt className="text-[#78716C]">Endpoint / Mode</dt>
+                        <dd className="font-medium text-[#141413] truncate">
+                          {svc.targetOrigin || 'In-process Lean API'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[#78716C]">Default Local Port</dt>
+                        <dd className="font-medium text-[#141413] tabular-nums">{svc.defaultLocalPort}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[#78716C]">Checkout Flag</dt>
+                        <dd className="font-medium text-[#141413]">
+                          {svc.featureFlagEnabled ? 'Active' : 'Paused'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[#78716C]">Probe Latency</dt>
+                        <dd className="font-medium text-[#141413] tabular-nums">
+                          {svc.latencyMs !== null ? `${svc.latencyMs} ms` : 'Not probed'}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="space-y-1.5">
+                      {svc.checks.map((item) => (
+                        <div key={item.key} className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="text-[#44403C]">{item.label}</span>
+                          <span
+                            className={`inline-flex items-center gap-1 font-medium shrink-0 ${
+                              item.configured ? 'text-emerald-800' : 'text-amber-800'
+                            }`}
+                          >
+                            {item.configured ? (
+                              <CheckCircle2 className="h-3 w-3" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3" />
+                            )}
+                            {item.configured ? 'Ready' : 'Pending env'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="pt-1 text-[11px] text-[#6B6A65] space-y-1">
+                      <p>{svc.detail}</p>
+                      <p className="font-mono text-[10px] text-[#44403C]">
+                        Start locally: {svc.startCommand}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-[#6B6A65]">Loading service diagnostics…</div>
+            )}
+          </div>
 
           <form onSubmit={savePlatformFlags} className="space-y-5">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

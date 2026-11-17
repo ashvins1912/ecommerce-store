@@ -12,7 +12,16 @@ import { DEFAULT_CARRIER_DISCLOSURE_POLICY, authorizeCarrierDisclosure, normaliz
 import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, ProviderSettlementModel, ProviderAuditModel, ProviderFulfillmentDelegationModel } from './src/server/models/providerSchemas.js';
 import { encryptField } from './src/server/services/fieldEncryption.js';
 import { canInviteRole } from './src/server/services/roles.js';
-import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import {
+  createCheckoutViaPaymentService,
+  getSellerRateQuotesViaShippingService,
+  inspectIntegrationServices,
+  listLogisticsProvidersViaShippingService,
+  refreshTrackingViaShippingService,
+  refundViaPaymentService,
+  verifyWebhookViaPaymentService,
+} from './src/server/services/serviceGateway.js';
 import { getPlatformFlags, platformFlagsPatchSchema, resolveCheckoutPlan, updatePlatformFlags } from './src/server/services/platformConfig.js';
 import { buildDynamicStorefrontSitemap, generateRobotsTxt } from './src/server/services/sitemap.js';
 import path from 'node:path';
@@ -109,12 +118,12 @@ import {
 import { processAndStoreImage, getUploadDir } from './src/server/services/storage.js';
 import { migrateCommerceDefaults } from './src/server/migrations/2026-11-commerce-defaults.js';
 import {
-  listLogisticsProviders, listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
+  listSellerCarrierConfigs, saveSellerCarrierConfig, setSellerCarrierActive,
   listSellerWarehouses, createSellerWarehouse, createShipmentIntent, listSellerShipments,
   listProviderCarrierConfigs, saveProviderCarrierConfig, setProviderCarrierActive, getProviderCarrierSecret,
   listProviderWarehouses, createProviderWarehouse, getProviderWarehouse, getProviderRateQuotes, createProviderShipmentIntent,
   retryProviderShipment, listProviderShipments,
-  getCustomerTrackingEvents, refreshCarrierTrackingForOrder, findShipmentForWebhook, applyLogisticsWebhook, getSellerRateQuotes, retrySellerShipment,
+  getCustomerTrackingEvents, findShipmentForWebhook, applyLogisticsWebhook, retrySellerShipment,
 } from './src/server/services/logistics.js';
 import { STATUS_CODE, verifyHmacSha256 } from './packages/logistics-core/src/index.js';
 import { ShadowfaxAdapter } from './packages/adapters/shadowfax/src/index.js';
@@ -442,6 +451,29 @@ async function startServer() {
     res.json({ flags: updated });
   });
 
+  app.get('/api/admin/services/status', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED' });
+    }
+    const flags = await getPlatformFlags();
+    const services = await inspectIntegrationServices({ liveProbe: false, flags });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ services });
+  });
+
+  app.post('/api/admin/services/check', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED' });
+    }
+    const flags = await getPlatformFlags();
+    const services = await inspectIntegrationServices({ liveProbe: true, flags });
+    await auditRootAccess(user, req, 'SERVICE_READINESS_PROBED', 'integration_services', 'default', 'liveProbe');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ services });
+  });
+
   // --- SEO: Dynamic Sitemap & Robots ---
   app.get('/sitemap.xml', async (req, res, next) => {
     try {
@@ -465,7 +497,7 @@ async function startServer() {
   const requireVerifiedLogisticsSeller = (user: User | null) => Boolean(user && (user.role === 'ADMIN' || (user.role === 'SELLER' && user.isWhatsappVerified)));
 
   app.get('/api/logistics/providers', async (_req, res) => {
-    try { res.json({ providers: await listLogisticsProviders() }); }
+    try { res.json({ providers: await listLogisticsProvidersViaShippingService() }); }
     catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'LOGISTICS_UNAVAILABLE' }); }
   });
 
@@ -527,7 +559,7 @@ async function startServer() {
       const groups = await Promise.all([...bySeller.entries()].map(async ([sellerId, parcel]) => {
         if (parcel.prepaidRequired) parcel.codAmountMinor = 0;
         const [quotes, seller] = await Promise.all([
-          getSellerRateQuotes({ sellerId, destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
+          getSellerRateQuotesViaShippingService({ sellerId, destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
             weightGrams: parcel.weightGrams, codAmountMinor: parcel.codAmountMinor,
             declaredValueMinor: parcel.declaredValueMinor, currency: 'INR' }),
           UserModel.findById(sellerId).select('sellerProfile.shippingMarkupPercent').lean(),
@@ -789,7 +821,7 @@ async function startServer() {
       if (!order || String(order.buyerId) !== user._id) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
       const trackingLimit = await checkRateLimit('logistics-tracking:' + user._id, 12, 60);
       if (!trackingLimit.allowed) return res.status(429).json({ error: 'TRACKING_RATE_LIMITED' });
-      const tracking = await refreshCarrierTrackingForOrder(req.params.orderId) as any;
+      const tracking = await refreshTrackingViaShippingService(req.params.orderId) as any;
       if (!tracking) return res.status(404).json({ error: 'TRACKING_NOT_AVAILABLE' });
       const names: Record<number,string> = {10:'CREATED',20:'MANIFESTED',30:'IN_TRANSIT',40:'OUT_FOR_DELIVERY',50:'DELIVERED',60:'NDR',70:'RTO_INITIATED',80:'RTO_DELIVERED',90:'CANCELLED'};
       const projection = { status: names[tracking.statusCode] || 'CREATED', eta: tracking.eta, latestCheckpoint: tracking.latestCheckpoint ? { status: names[tracking.latestCheckpoint.status_code] || 'UNKNOWN', location: tracking.latestCheckpoint.location_code, timestamp: tracking.latestCheckpoint.event_timestamp } : null };
@@ -2341,7 +2373,7 @@ async function startServer() {
           const declaredValueMinor = lines.reduce((sum, line) => sum + Math.round(line.unitPrice * line.quantity * 100), 0);
           const seller = await UserModel.findById(sellerId).select('sellerProfile.shippingMarkupPercent').lean() as any;
           const markupPercent = Math.min(100, Math.max(0, Number(seller?.sellerProfile?.shippingMarkupPercent || 0)));
-          const quotes = await getSellerRateQuotes({
+          const quotes = await getSellerRateQuotesViaShippingService({
             sellerId,
             destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
             weightGrams, codAmountMinor: ['RAZORPAY', 'STRIPE'].includes(checkoutPlan.effectivePaymentMode) ? 0 : declaredValueMinor, declaredValueMinor, currency: 'INR',
@@ -2936,7 +2968,7 @@ async function startServer() {
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'PROVIDER') return res.status(403).json({ error: 'PROVIDER_ACCESS_REQUIRED' });
     try {
-      const [providers, carriers] = await Promise.all([listLogisticsProviders(), listProviderCarrierConfigs(user._id)]);
+      const [providers, carriers] = await Promise.all([listLogisticsProvidersViaShippingService(), listProviderCarrierConfigs(user._id)]);
       res.setHeader('Cache-Control', 'private, no-store');
       res.json({ providers, carriers });
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_CARRIER_LIST_FAILED' }); }
@@ -3207,7 +3239,7 @@ async function startServer() {
       const order = await OrderModel.findById(String(shipment.order_id)).select('sellerId').lean() as any;
       const delegation = order ? await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean() : null;
       if (!delegation) return res.status(403).json({ error: 'SELLER_FULFILLMENT_AUTHORIZATION_REQUIRED' });
-      const tracking = await refreshCarrierTrackingForOrder(String(shipment.order_id)) as any;
+      const tracking = await refreshTrackingViaShippingService(String(shipment.order_id)) as any;
       res.setHeader('Cache-Control', 'private, no-store');
       res.json({ tracking: tracking ? { statusCode: tracking.statusCode, eta: tracking.eta, latestCheckpoint: tracking.latestCheckpoint ? { statusCode: tracking.latestCheckpoint.status_code, location: tracking.latestCheckpoint.location_code, occurredAt: tracking.latestCheckpoint.event_timestamp } : null } : null });
     } catch (error) { const e = error as any; res.status(e.statusCode || 503).json({ error: e.message || 'PROVIDER_TRACKING_REFRESH_FAILED' }); }
@@ -3553,7 +3585,7 @@ async function startServer() {
       return res.status(409).json({ error: 'PAYMENT_INTENT_IN_PROGRESS', retryable: true });
     }
     try {
-      const checkout = await createGatewayCheckout({
+      const checkout = await createCheckoutViaPaymentService({
         sellerId: String(claimedOrder.sellerId), provider: parsed.data.provider,
         orderId: String(claimedOrder._id), orderNumber: claimedOrder.orderNumber,
         amountPaise: Math.max(0, Math.round(Number(claimedOrder.totalAmount) * 100) - Number(claimedOrder.walletAppliedPaise || 0)),
@@ -3585,7 +3617,7 @@ async function startServer() {
   app.post('/api/webhooks/razorpay/:sellerId', async (req, res) => {
     const rawBody = (req as any).rawBody as Buffer | undefined;
     const signature = String(req.headers['x-razorpay-signature'] || '');
-    if (!rawBody || !await verifyPaymentWebhook({ sellerId: req.params.sellerId, provider: 'razorpay', signature, rawBody })) {
+    if (!rawBody || !await verifyWebhookViaPaymentService({ sellerId: req.params.sellerId, provider: 'razorpay', signature, rawBody })) {
       return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
     }
     const event = req.body as any;
@@ -3639,7 +3671,7 @@ async function startServer() {
   app.post('/api/webhooks/stripe/:sellerId', async (req, res) => {
     const rawBody = (req as any).rawBody as Buffer | undefined;
     const signature = String(req.headers['stripe-signature'] || '');
-    if (!rawBody || !await verifyPaymentWebhook({ sellerId: req.params.sellerId, provider: 'stripe', signature, rawBody })) {
+    if (!rawBody || !await verifyWebhookViaPaymentService({ sellerId: req.params.sellerId, provider: 'stripe', signature, rawBody })) {
       return res.status(400).json({ error: 'INVALID_WEBHOOK_SIGNATURE' });
     }
     const event = req.body as any;
@@ -3869,7 +3901,7 @@ async function startServer() {
         }
         if (externalPart > 0) {
           if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
-          await refundGatewayPayment({ sellerId: String(order.sellerId), provider: order.paymentProvider, paymentReference: String(order.paymentTransactionId), amountPaise: externalPart, idempotencyKey: 'cancel-refund:' + String(order._id) });
+          await refundViaPaymentService({ sellerId: String(order.sellerId), provider: order.paymentProvider, paymentReference: String(order.paymentTransactionId), amountPaise: externalPart, idempotencyKey: 'cancel-refund:' + String(order._id) });
           order.paymentStatus = 'REFUND_PENDING';
           order.refundStatus = 'PROCESSING';
         } else {
@@ -4088,7 +4120,7 @@ async function startServer() {
         let refund: any = null;
         if (externalPart > 0) {
           if (!order.paymentProvider || !order.paymentTransactionId) return res.status(409).json({ error: 'ORIGINAL_PAYMENT_REFUND_UNAVAILABLE' });
-          refund = await refundGatewayPayment({
+          refund = await refundViaPaymentService({
             sellerId: String(order.sellerId), provider: order.paymentProvider,
             paymentReference: String(order.paymentTransactionId), amountPaise: externalPart,
             idempotencyKey: 'return-refund:' + String(request._id),
