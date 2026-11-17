@@ -3592,7 +3592,8 @@
     }
   ],
   "carts": {
-    "user:usr_buyer_1": []
+    "user:usr_buyer_1": [],
+    "user:6af9fca35e200eee0afe991b": []
   },
   "sellerInvites": [
     {

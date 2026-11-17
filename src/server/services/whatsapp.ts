@@ -10,6 +10,18 @@ export function isValidE164(phone: string): boolean {
   return /^\+[1-9]\d{7,14}$/.test(phone.trim());
 }
 
+export function getSellerOrderNotificationNumber(seller: {
+  orderNotificationWhatsAppNumber?: string;
+  whatsappNumber?: string;
+  mobileNumber?: string;
+}): string {
+  return [
+    seller.orderNotificationWhatsAppNumber,
+    seller.whatsappNumber,
+    seller.mobileNumber,
+  ].map((phone) => phone?.trim() || '').find(Boolean) || '';
+}
+
 export function buildWaMeLink(phone: string, text: string): string {
   const digits = phone.replace(/[^\d]/g, '');
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;

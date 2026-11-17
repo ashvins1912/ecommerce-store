@@ -112,6 +112,7 @@ export interface User {
   oauthAccounts: OAuthAccount[];
   mobileNumber?: string;
   whatsappNumber?: string;
+  orderNotificationWhatsAppNumber?: string;
   isWhatsappVerified: boolean;
   shippingAddresses: ShippingAddress[];
   sellerProfile?: SellerProfile;
@@ -581,4 +582,3 @@ export interface IntegrationServicesStatusResponse {
   payment: IntegrationServiceDiagnostic;
   shipping: IntegrationServiceDiagnostic;
 }
-

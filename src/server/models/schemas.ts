@@ -35,6 +35,7 @@ const UserSchema = new Schema(
     ],
     mobileNumber: { type: String, index: true },
     whatsappNumber: { type: String },
+    orderNotificationWhatsAppNumber: { type: String, default: '' },
     isWhatsappVerified: { type: Boolean, default: false },
     shippingAddresses: [ShippingAddressSchema],
     sellerProfile: {
@@ -250,6 +251,19 @@ const OrderSchema = new Schema(
     paymentIntentLeaseUntil: { type: Date, default: null, index: true },
     sellerNotificationSentAt: { type: Date, default: null },
     sellerNotificationLeaseUntil: { type: Date, default: null, index: true },
+    whatsappDispatch: {
+      type: new Schema(
+        {
+          delivered: { type: Boolean, required: true },
+          channel: { type: String, enum: ['meta_cloud', 'evolution_api', 'wa_me_fallback'], required: true },
+          waLink: { type: String, required: true },
+          messagePreview: { type: String, required: true },
+          sentAt: { type: String, required: true },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     paymentCheckoutUrl: { type: String, default: null },
     paymentTransactionId: { type: String, default: null, index: true },
     manualPaymentCollection: {
