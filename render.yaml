@@ -3,7 +3,7 @@ services:
     name: ecommerce-api
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && cd api && bun run build
+    buildCommand: bun install --no-save && bun run lint && bun run test && cd api && bun run build
     startCommand: cd api && NODE_OPTIONS="--max-old-space-size=384" bun run start
     healthCheckPath: /api/health
     autoDeploy: true
