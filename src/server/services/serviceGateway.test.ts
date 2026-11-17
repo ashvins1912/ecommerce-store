@@ -12,8 +12,8 @@ import {
   verifyWebhookViaPaymentService,
 } from './serviceGateway.js';
 import { DEFAULT_PLATFORM_FLAGS } from './platformConfig.js';
-import { createPaymentServiceApp } from '../../../apps/payment-service/src/app.js';
-import { createShippingServiceApp } from '../../../apps/shipping-service/src/app.js';
+import { createPaymentServiceApp } from '../../../payment-service/src/app.js';
+import { createShippingServiceApp } from '../../../shipping-service/src/app.js';
 
 const TEST_SECRET = 'test_internal_service_secret_32_bytes_ok';
 

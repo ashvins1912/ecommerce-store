@@ -34,22 +34,19 @@ The application has two persistence systems: MongoDB for core commerce and Supab
 
 ## Capacity and free-tier expectations
 
-Splitting Static UI off Node removes static asset I/O and bundling pressure from the 512 MB API container. Keep `RUN_LOGISTICS_WORKER=0` and `shippingQuotesEnabled=false` under low traffic so Node idle RSS stays comfortably below 512 MB. Free instances sleep after 15 minutes without inbound traffic and wake in ~30–60s.
+Splitting Static UI off Node removes static asset I/O and bundling pressure from the 512 MB API container. Keep `ENABLE_QUEUE_POLLING=0` on Shipping Service and `shippingQuotesEnabled=false` under low traffic so Node idle RSS stays comfortably below 512 MB. Free instances sleep after 15 minutes without inbound traffic and wake in ~30–60s.
 
 Supabase Free projects can pause after a week of low activity and have small database/storage/egress quotas. Upstash Free currently has finite storage, bandwidth and command quotas. Cloudflare R2 Standard currently includes 10 GB-month storage, 1M Class A and 10M Class B operations per month, with no egress fee. Check each provider's live usage dashboard; quotas and pricing change.
 
-## Optional Stage 1: dedicated paid logistics worker
+## Optional logistics queue processing
 
-The default `render.yaml` intentionally remains the free-only API + static UI Blueprint. It keeps `RUN_LOGISTICS_WORKER=0` and does not provision a background worker.
+The default `render.yaml` intentionally remains the free-only API + customer UI Blueprint. It does not provision a queue worker or enable queue polling.
 
-When you explicitly approve the additional hosting cost, create a **separate Render Blueprint** using the repository's `render.worker.yaml` file path. This keeps the existing free-only Blueprint unchanged and prevents a routine sync of `render.yaml` from adding a paid service.
+There are two mutually exclusive ways to process queued shipments:
+- Run the poller inside the independent Shipping Service by setting `ENABLE_QUEUE_POLLING=1` on that service. Keep it `0` by default on a small/free instance and enable only after checking memory headroom.
+- Run a dedicated private worker using the optional `render.worker.yaml` Blueprint after explicitly approving its paid `starter` plan. Its command is `NODE_OPTIONS="--max-old-space-size=384" bun run logistics:worker`.
 
-The optional worker Blueprint defines one private Render Background Worker:
-- Plan: `starter` (paid; confirm current pricing in Render before applying).
-- Start command: `NODE_OPTIONS="--max-old-space-size=384" bun run logistics:worker`.
-- One instance, sequential job processing, 2-second queue polling.
-- Auto-deploy is disabled in the worker Blueprint; deploy it manually from the same commit as the API after reviewing changes.
-- The worker logs RSS, V8 heap, external memory and ArrayBuffer usage every 60 seconds to help diagnose memory pressure.
+Do not enable both modes at the same time: both would consume the same queue and create unnecessary duplicate pollers. The standalone worker entrypoint remains available for compatibility with existing Render worker services. The optional worker Blueprint has auto-deploy disabled and must be applied manually after reviewing current Render pricing. It does not affect the default free-only Blueprint.
 
 Configure these worker-only environment values in Render, copying the exact existing values from the API:
 - `MONGODB_URI`
@@ -115,9 +112,9 @@ Never commit `.env.production.local` or any secret file.
    - `SUPABASE_SERVICE_ROLE_KEY` on `ecommerce-api` only if a server-side feature requires it
    - `LOGISTICS_SUPABASE_URL` and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY` on `ecommerce-api`
 4. Open the Supabase SQL Editor and run these repository migrations in this exact order:
-   1. `src/server/migrations/2026-11-logistics-postgres.sql`
-   2. `src/server/migrations/2026-11-carrier-adaptive-feedback.sql`
-   3. `src/server/migrations/2026-11-provider-logistics.sql`
+   1. `supabase/migrations/2026-11-logistics-postgres.sql`
+   2. `supabase/migrations/2026-11-carrier-adaptive-feedback.sql`
+   3. `supabase/migrations/2026-11-provider-logistics.sql`
 5. Confirm the logistics provider registry and required RPC functions/tables exist before enabling carrier onboarding. Keep the service-role key server-side only; never put it in a `VITE_*` variable.
 
 For Supabase Auth, configure the site URL to `https://ecommerce-ui.onrender.com` and add exact callback/redirect URLs.
@@ -214,7 +211,7 @@ Run the test from a separate machine, not from the Render instance:
 Move beyond this free pilot before relying on it for revenue-critical operations. Minimum upgrade path:
 
 1. Always-on API service with at least 1 CPU / 1–2 GB RAM.
-2. Separate private logistics background worker (`bun run logistics:worker` on a paid `starter` plan, with `RUN_LOGISTICS_WORKER=0` on the API service).
+2. Dedicated private logistics worker (`bun run logistics:worker`) or a separately sized Shipping Service with `ENABLE_QUEUE_POLLING=1`; use only one queue-polling process.
 3. MongoDB paid tier with automated backups and point-in-time recovery.
 4. Supabase paid plan to avoid inactivity pausing and obtain daily backups.
 5. Centralized logs, uptime checks, error alerting and a tested backup/restore process.

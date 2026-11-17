@@ -1,3 +1,5 @@
+# Optional paid worker process. Never apply this Blueprint without explicit cost approval.
+# The default render.yaml remains free-only and does not create this service.
 services:
   - type: worker
     name: ecommerce-logistics-worker

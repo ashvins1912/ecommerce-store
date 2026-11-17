@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/* Explicitly scan this app, customer app, and shared packages for Tailwind v4 utilities. */
+@source "../";
+@source "../../customer-web";
+@source "../../packages";
+
+@theme {
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    min-height: 100%;
+    width: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    width: 100%;
+    margin: 0;
+    overflow-x: clip;
+    font-family: var(--font-sans);
+    background-color: #FAF9F6;
+    color: #141413;
+  }
+
+  #root {
+    min-height: 100dvh;
+    width: 100%;
+    overflow-x: clip;
+  }
+
+  h1, h2, .font-display {
+    font-family: var(--font-display);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessible & responsive driver.js tutorial popover overrides (safe down to 320px viewports) */
+.driver-popover.kk-driver-popover {
+  max-width: calc(100vw - 2rem) !important;
+  max-height: calc(100dvh - 2rem) !important;
+  width: min(360px, calc(100vw - 2rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  background-color: #FFFFFF;
+  color: #141413;
+  border: 1px solid #D6D3CD;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 45px -12px rgba(20, 20, 19, 0.28);
+  padding: 1rem 1.125rem;
+  font-family: var(--font-sans);
+}
+
+.driver-popover.kk-driver-popover .driver-popover-title {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #141413;
+  padding-inline-end: 2.25rem;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-description {
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #44403C;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-close-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #57534E;
+  border-radius: 0.375rem;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-close-btn:hover {
+  background-color: #F5F3EE;
+  color: #141413;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-footer {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-navigation-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-prev-btn,
+.driver-popover.kk-driver-popover .driver-popover-next-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-next-btn {
+  background-color: #881337;
+  color: #FFFFFF;
+  border: 1px solid #881337;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-next-btn:hover {
+  background-color: #9F1239;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-prev-btn {
+  background-color: #FFFFFF;
+  color: #141413;
+  border: 1px solid #D6D3CD;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-prev-btn:hover {
+  border-color: #141413;
+}
+
+.driver-popover.kk-driver-popover button:focus-visible {
+  outline: 2px solid #881337;
+  outline-offset: 2px;
+}
+
+.driver-popover.kk-driver-popover .driver-popover-progress-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6B6A65;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .driver-overlay,
+  .driver-popover.kk-driver-popover {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+
+/* Keep the page behind any full-screen dialog stationary while allowing the
+   dialog surface itself to own vertical scrolling. This also covers nested dialogs. */
+body:has(.fixed.inset-0) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.fixed.inset-0 {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@supports (height: 100dvh) {
+  .fixed.inset-0 {
+    max-height: 100dvh;
+  }
+}
+
+@media (max-width: 640px) {
+  .fixed.inset-0 {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+}
+
+@media (max-height: 700px) {
+  .fixed.inset-0.items-center {
+    align-items: flex-start;
+  }
+}

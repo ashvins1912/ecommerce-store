@@ -21,4 +21,3 @@ jobs:
       - run: bun run test:privacy
       - run: bun run test:roles
       - run: bun run build
-      - run: bun run build:workspace

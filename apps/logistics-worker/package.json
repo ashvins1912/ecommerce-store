@@ -1,9 +1,0 @@
-{
-  "name": "@org/logistics-worker",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./src/webhookProcessor.ts"
-  }
-}

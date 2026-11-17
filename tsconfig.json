@@ -29,13 +29,19 @@
   "exclude": [
     "dist",
     "node_modules",
-    "apps/*/node_modules"
+    "**/node_modules"
   ],
   "include": [
-    "src",
+    "src/server/**/*.ts",
+    "src/shared/**/*.ts",
     "server.ts",
-    "apps/**/*.ts",
-    "apps/**/*.tsx",
+    "api/**/*.ts",
+    "payment-service/**/*.ts",
+    "shipping-service/**/*.ts",
+    "provider-portal/**/*.ts",
+    "provider-portal/**/*.tsx",
+    "customer-web/**/*.ts",
+    "customer-web/**/*.tsx",
     "packages/**/*.ts"
   ]
 }

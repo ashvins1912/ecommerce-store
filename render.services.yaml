@@ -13,8 +13,8 @@ services:
     name: ecommerce-payment-service
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint
-    startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start:payment
+    buildCommand: bun install --no-save && cd payment-service && bun run build
+    startCommand: cd payment-service && NODE_OPTIONS="--max-old-space-size=384" bun run start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -33,14 +33,14 @@ services:
     name: ecommerce-shipping-service
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint && bun run test:logistics
-    startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start:shipping
+    buildCommand: bun install --no-save && cd shipping-service && bun run build && cd .. && bun run test:logistics
+    startCommand: cd shipping-service && NODE_OPTIONS="--max-old-space-size=384" bun run start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: ENABLE_QUEUE_WORKER
+      - key: ENABLE_QUEUE_POLLING
         value: "0"
       - key: LOGISTICS_WORKER_POLL_MS
         value: "2000"
