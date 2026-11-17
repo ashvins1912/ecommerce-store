@@ -51,5 +51,9 @@ export default defineConfig(() => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
+    preview: {
+      // Render's production preview server validates hosts separately from the dev server.
+      allowedHosts: ['ecommerce-store-bg2l.onrender.com'],
+    },
   };
 });
