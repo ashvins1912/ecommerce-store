@@ -377,7 +377,7 @@ async function startServer() {
 
   // Serve source raster assets as cached WebP to browsers that support it.
   // The original URL is retained, so existing product records and image references remain valid.
-  const sourceAssetRoot = path.resolve(process.cwd(), 'src/assets');
+  const sourceAssetRoot = path.resolve(process.cwd(), 'customer-web/src/assets');
   app.get(/^\/src\/assets\/(.+\.(?:jpe?g|png))$/i, async (req, res, next) => {
     res.vary('Accept');
     if (!req.accepts('image/webp')) return next();
@@ -4351,7 +4351,7 @@ async function startServer() {
       res.json({ service: 'kala-and-karat-api', ok: true, mode: 'lean-api' });
     });
   } else if (process.env.NODE_ENV === 'production') {
-    const distDir = path.resolve(process.cwd(), 'dist');
+    const distDir = path.resolve(process.cwd(), 'dist/customer-web');
     app.use(express.static(distDir, {
       maxAge: '1y',
       immutable: true,
