@@ -1,7 +1,7 @@
 import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
 import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
 import type { HttpTransport } from '../../../packages/adapters/shadowfax/src/index.js';
-import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, getProviderCarrierSecret, getProviderWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret, listActiveShipmentOrderIdsForPolling } from '../../../src/server/services/logistics.js';
+import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, getProviderCarrierSecret, getProviderWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret, listActiveShipmentOrderIdsForPolling, refreshCarrierTrackingForOrder } from '../../../src/server/services/logistics.js';
 import type { ICarrierProvider, RateQuote, ShipmentRequest } from '../../../packages/logistics-core/src/index.js';
 import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from '../../../src/server/models/schemas.js';
 import { ProviderFulfillmentDelegationModel } from '../../../src/server/models/providerSchemas.js';
@@ -116,8 +116,7 @@ async function syncShipmentStatuses(){
   for(let index=0;index<orderIds.length;index++){
    const orderId=orderIds[index];
    try{
-    const shipment=await import('../../../src/server/services/logistics.js');
-    await shipment.refreshCarrierTrackingForOrder(orderId);
+    await refreshCarrierTrackingForOrder(orderId);
    }catch(error){
     console.warn('Carrier status poll failed for order:',orderId,error instanceof Error?error.message:String(error));
    }
