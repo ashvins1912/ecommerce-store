@@ -3,8 +3,8 @@ services:
     name: ecommerce-api
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint && bun run test && npm run build --workspace=@commerce/api
-    startCommand: NODE_OPTIONS="--max-old-space-size=384" npm run start --workspace=@commerce/api
+    buildCommand: bun install --no-save && cd api && bun run build
+    startCommand: cd api && NODE_OPTIONS="--max-old-space-size=384" bun run start
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -67,7 +67,7 @@ services:
     name: ecommerce-ui
     runtime: static
     plan: free
-    buildCommand: bun install --no-save && bun run build:customer
+    buildCommand: bun install --no-save && cd customer-web && bun run build
     staticPublishPath: ./dist/customer-web
     autoDeploy: true
     routes:
@@ -88,7 +88,7 @@ services:
     name: ecommerce-provider-portal
     runtime: static
     plan: free
-    buildCommand: bun install --no-save && npm run build --workspace=@commerce/provider-portal
+    buildCommand: bun install --no-save && cd provider-portal && bun run build
     staticPublishPath: ./dist/provider-portal
     autoDeploy: true
     routes:
