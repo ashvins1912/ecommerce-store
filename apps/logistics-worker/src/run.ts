@@ -21,6 +21,14 @@ function adapter(code:string):ICarrierProvider{
  throw new Error('UNSUPPORTED_CARRIER:'+code);
 }
 const delay=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+
+function logWorkerMemory(reason: string) {
+ const memory = process.memoryUsage();
+ const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+ console.info(
+  `[logistics-worker] memory reason=${reason} rss=${mb(memory.rss)}MB heapUsed=${mb(memory.heapUsed)}MB heapTotal=${mb(memory.heapTotal)}MB external=${mb(memory.external)}MB arrayBuffers=${mb(memory.arrayBuffers)}MB`,
+ );
+}
 async function processJob(job:any){
  const p=job.payload;
  if(job.job_type!=='CREATE_SHIPMENT')throw new Error('UNSUPPORTED_LOGISTICS_JOB:'+job.job_type);
@@ -115,7 +123,7 @@ export async function runLogisticsWorker(){
  };
  process.once('SIGTERM',()=>requestShutdown('SIGTERM'));
  process.once('SIGINT',()=>requestShutdown('SIGINT'));
- console.log('Logistics worker started; polling PostgreSQL job queue.');
+ const memoryTimer=setInterval(()=>logWorkerMemory('periodic'),60000);\n memoryTimer.unref();\n logWorkerMemory('startup');\n console.log('Logistics worker started; polling PostgreSQL job queue.');
  for(;!shutdownRequested;){
   try{
    const claimed=await claimLogisticsJob();
@@ -138,5 +146,5 @@ export async function runLogisticsWorker(){
    }
   }catch(error){console.error('Logistics queue poll failed:',error);await delay(Math.max(pollMs,5000));}
  }
- console.log('Logistics worker stopped cleanly.');
+ clearInterval(memoryTimer);\n logWorkerMemory('shutdown');\n console.log('Logistics worker stopped cleanly.');
 }
