@@ -271,19 +271,25 @@ export async function listActiveShipmentOrderIdsForPolling(limit=1000) {
 }
 
 export async function getLiveTrackingForOrder(orderId:string) {
-  const cacheKey='shipment-live-tracking:'+orderId;
-  const cached=await getLogisticsRateCache<any>(cacheKey);
-  if(cached)return cached;
-  const current=await refreshCarrierTrackingForOrder(orderId);
-  if(current)await setLogisticsRateCache(cacheKey,current,20*60);
-  return current;
+  return refreshCarrierTrackingForOrder(orderId);
 }
 
 export async function refreshCarrierTrackingForOrder(orderId:string) {
+ const cacheKey='shipment-live-tracking:'+orderId;
+ const cached=await getLogisticsRateCache<any>(cacheKey);
+ if(cached)return cached;
  const shipment=await getShipmentForCustomer(orderId) as any;
- if(!shipment||!shipment.awb_number)return getCustomerTrackingEvents(orderId);
+ if(!shipment||!shipment.awb_number){
+  const current=await getCustomerTrackingEvents(orderId);
+  if(current)await setLogisticsRateCache(cacheKey,current,20*60);
+  return current;
+ }
  const claimed=unwrap(await db().rpc('claim_carrier_tracking_poll',{p_shipment_id:shipment.id})) as boolean;
- if(!claimed)return getCustomerTrackingEvents(orderId);
+ if(!claimed){
+  const current=await getCustomerTrackingEvents(orderId);
+  if(current)await setLogisticsRateCache(cacheKey,current,20*60);
+  return current;
+ }
  try{
   const provider=rateAdapter(shipment.carrierCode);
   const credentials=shipment.credentials;
@@ -298,7 +304,9 @@ export async function refreshCarrierTrackingForOrder(orderId:string) {
    if(applied){currentStatus=statusCode;lastEventAt=event.occurredAt;}
   }
  }catch(error){console.warn('Carrier tracking refresh failed; returning last persisted checkpoint:',error);}
- return getCustomerTrackingEvents(orderId);
+ const current=await getCustomerTrackingEvents(orderId);
+ if(current)await setLogisticsRateCache(cacheKey,current,20*60);
+ return current;
 }
 
 export async function getSellerWarehouse(sellerId:string,warehouseId:string) {
