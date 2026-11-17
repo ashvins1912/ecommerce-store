@@ -28,18 +28,6 @@ if [[ "${REQUIRE_OBJECT_STORAGE:-1}" == "1" ]]; then
   fi
 fi
 
-if ! command -v bun >/dev/null 2>&1; then
-  echo "Bun is required. Install it before running this check." >&2
-  exit 1
-fi
-
-bun install --no-save
-bun run lint
-bun run test:logistics
-bun run test:hybrid
-bun run test:privacy
-bun run test:roles
-bun run build
-bun run build:workspace
-
+if command -v bun >/dev/null 2>&1; then bun install --no-save; else npm install --ignore-scripts; fi
+npm run verify
 echo "Production pre-deploy checks passed."

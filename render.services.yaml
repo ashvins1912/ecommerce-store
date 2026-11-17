@@ -13,7 +13,7 @@ services:
     name: ecommerce-payment-service
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint
+    buildCommand: bun install --no-save && npm run build --workspace=@commerce/payment-service
     startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start:payment
     healthCheckPath: /health
     autoDeploy: true
@@ -33,15 +33,15 @@ services:
     name: ecommerce-shipping-service
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint && bun run test:logistics
+    buildCommand: bun install --no-save && npm run build --workspace=@commerce/shipping-service && bun run test:logistics
     startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start:shipping
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: ENABLE_QUEUE_WORKER
-        value: "0"
+      - key: ENABLE_QUEUE_POLLING
+        value: "1"
       - key: LOGISTICS_WORKER_POLL_MS
         value: "2000"
       - key: SHIPROCKET_API_BASE_URL
