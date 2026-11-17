@@ -1575,6 +1575,61 @@ export async function findUserById(id: string): Promise<User | null> {
   return found ? sanitizeUser(found) : null;
 }
 
+export async function updateSellerOrderNotificationNumber(userId: string, phone: string): Promise<User | null> {
+  if (mongoConnected && mongoose.isValidObjectId(userId)) {
+    const update = phone
+      ? { $set: { orderNotificationWhatsAppNumber: phone } }
+      : { $unset: { orderNotificationWhatsAppNumber: 1 } };
+    const result = await UserModel.updateOne({ _id: new mongoose.Types.ObjectId(userId) }, update);
+    if (result.matchedCount !== 1) return null;
+    return findUserById(userId);
+  }
+
+  const found = localState.users.find((user) => user._id === userId);
+  if (!found) return null;
+  if (phone) found.orderNotificationWhatsAppNumber = phone;
+  else delete found.orderNotificationWhatsAppNumber;
+  saveLocalStore(localState);
+  return sanitizeUser(found);
+}
+
+export async function updateSellerVerifiedWhatsAppNumber(userId: string, phone: string): Promise<User | null> {
+  if (mongoConnected && mongoose.isValidObjectId(userId)) {
+    const doc = await UserModel.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          mobileNumber: phone,
+          whatsappNumber: phone,
+          isWhatsappVerified: true,
+        },
+      },
+      { returnDocument: 'after' },
+    ).lean();
+    return doc ? sanitizeUser(doc) : null;
+  }
+
+  const found = localState.users.find((user) => user._id === userId);
+  if (!found) return null;
+  found.mobileNumber = phone;
+  found.whatsappNumber = phone;
+  found.isWhatsappVerified = true;
+  found.updatedAt = new Date().toISOString();
+  saveLocalStore(localState);
+  return sanitizeUser(found);
+}
+
+export async function saveLocalOrderWhatsAppDispatch(
+  orderId: string,
+  dispatch: NonNullable<Order['whatsappDispatch']>,
+): Promise<void> {
+  if (mongoConnected) return;
+  const order = localState.orders.find((candidate) => candidate._id === orderId);
+  if (!order) return;
+  order.whatsappDispatch = dispatch;
+  saveLocalStore(localState);
+}
+
 export async function ensureRootSuperuser(): Promise<void> {
   const email = (process.env.ROOT_SUPERUSER_EMAIL || 'ashvinsingh25@gmail.com').trim().toLowerCase();
   const initialPassword = process.env.ROOT_SUPERUSER_INITIAL_PASSWORD || '';

@@ -38,6 +38,9 @@ import {
   updateProductDiscountOrStock,
   findUserById,
   findUserByEmail,
+  updateSellerOrderNotificationNumber,
+  updateSellerVerifiedWhatsAppNumber,
+  saveLocalOrderWhatsAppDispatch,
   syncSupabaseCustomerUser,
   registerCustomerAccount,
   authenticateCustomerAccount,
@@ -130,6 +133,7 @@ import { ShadowfaxAdapter } from './packages/adapters/shadowfax/src/index.js';
 import { ShiprocketAdapter } from './packages/adapters/shiprocket/src/index.js';
 import {
   isValidE164,
+  getSellerOrderNotificationNumber,
   checkWhatsAppNumberExists,
   sendWhatsAppMessage,
 } from './src/server/services/whatsapp.js';
@@ -144,6 +148,7 @@ import type {
   SeasonType,
   ReviewClass,
   ProductControlAction,
+  Order,
   User,
 } from './src/shared/types.js';
 
@@ -1537,6 +1542,27 @@ async function startServer() {
     });
   });
 
+  app.post('/api/seller/whatsapp/verify-number', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) {
+      return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    }
+    const parsed = z.object({
+      whatsappNumber: z.string().refine(isValidE164, 'Enter a valid WhatsApp number in E.164 format (e.g. +919820112233)'),
+      otpCode: z.string().regex(/^\d{6}$/, 'Enter the 6-digit verification code'),
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_VERIFICATION_DETAILS' });
+    }
+    if (!(await verifyOtpCode(parsed.data.whatsappNumber, parsed.data.otpCode))) {
+      return res.status(400).json({ error: 'Invalid or expired 6-digit OTP code.' });
+    }
+    const updated = await updateSellerVerifiedWhatsAppNumber(user._id, parsed.data.whatsappNumber);
+    if (!updated) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ user: updated });
+  });
+
   app.post('/api/seller/invites/accept', async (req, res) => {
     const { guestToken, user } = await resolveActor(req, res);
     const schema = z.object({
@@ -2461,8 +2487,28 @@ async function startServer() {
       return res.status(status).json({ error: code, retryable: status === 503 });
     }
 
-    // A durable lease lets a retried checkout finish a notification after a process crash.
-    // Delivery is at-least-once across the external WhatsApp call/DB acknowledgement boundary.
+    const buildSellerOrderAlert = (order: Order) => {
+      const itemSummary = order.items.map((item) => `${item.title} (x${item.quantity})`).join(', ');
+      const confirmationUrl = getAppBaseUrl(req) + '/?orderId=' + encodeURIComponent(order._id);
+      const paymentLabel =
+        order.paymentMode === 'POS_ON_DELIVERY'
+          ? 'POS Machine on Delivery (Bring portable terminal)'
+          : order.paymentMode === 'SELLER_COLLECT'
+            ? 'Seller Direct Collection (Confirm UPI/Cash)'
+            : String(order.paymentMode || 'COD');
+      return [
+        'New order ' + order.orderNumber,
+        'Items: ' + itemSummary,
+        'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
+        'Contact: ' + order.shippingAddress.phone,
+        'Payment: ' + paymentLabel,
+        'Total: INR ' + order.totalAmount,
+        'Confirm stock & payment collection: ' + confirmationUrl,
+      ].join('\n');
+    };
+
+    // The durable lease prevents concurrent checkout retries from dispatching twice.
+    // Persisting a fallback link also completes the attempt so a replay does not repeat it.
     if (dbStatus.mode === 'mongodb') for (const order of createdOrders) {
       const leaseUntil = new Date(Date.now() + 60_000);
       const claim = await OrderModel.findOneAndUpdate(
@@ -2476,32 +2522,15 @@ async function startServer() {
       if (!claim) continue;
       try {
         const seller = await findUserById(order.sellerId);
-        const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
-        const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
-        const confirmationUrl = getAppBaseUrl(req) + '/?orderId=' + encodeURIComponent(order._id);
-        const paymentLabel =
-          order.paymentMode === 'POS_ON_DELIVERY'
-            ? 'POS Machine on Delivery (Bring portable terminal)'
-            : order.paymentMode === 'SELLER_COLLECT'
-              ? 'Seller Direct Collection (Confirm UPI/Cash)'
-              : String(order.paymentMode || 'COD');
-        const msg = [
-          'New order ' + order.orderNumber,
-          'Items: ' + itemSummary,
-          'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
-          'Contact: ' + order.shippingAddress.phone,
-          'Payment: ' + paymentLabel,
-          'Total: INR ' + order.totalAmount,
-          'Confirm stock & payment collection: ' + confirmationUrl,
-        ].join('\\n');
+        const sellerPhone = seller ? getSellerOrderNotificationNumber(seller) : '';
         if (sellerPhone) {
-          order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
+          order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, buildSellerOrderAlert(order));
           await OrderModel.updateOne(
             { _id: order._id, sellerNotificationLeaseUntil: leaseUntil },
             {
               $set: {
                 whatsappDispatch: order.whatsappDispatch,
-                ...(order.whatsappDispatch?.delivered ? { sellerNotificationSentAt: new Date() } : {}),
+                sellerNotificationSentAt: new Date(),
               },
               $unset: { sellerNotificationLeaseUntil: 1 },
             }
@@ -2512,6 +2541,19 @@ async function startServer() {
       } catch (error) {
         await OrderModel.updateOne({ _id: order._id, sellerNotificationLeaseUntil: leaseUntil }, { $unset: { sellerNotificationLeaseUntil: 1 } });
         console.warn('Seller order notification deferred:', (error as Error).message);
+      }
+    }
+    else {
+      for (const order of createdOrders) {
+        try {
+          const seller = await findUserById(order.sellerId);
+          const sellerPhone = seller ? getSellerOrderNotificationNumber(seller) : '';
+          if (!sellerPhone) continue;
+          order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, buildSellerOrderAlert(order));
+          await saveLocalOrderWhatsAppDispatch(order._id, order.whatsappDispatch);
+        } catch (error) {
+          console.warn('Seller order notification deferred:', (error as Error).message);
+        }
       }
     }
 
@@ -3474,6 +3516,33 @@ async function startServer() {
     const settings = await listGatewayConfigurations(user._id);
     res.setHeader('Cache-Control', 'no-store');
     res.json({ gateways: settings });
+  });
+  app.get('/api/seller/notification-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      notificationNumber: user.orderNotificationWhatsAppNumber || '',
+      fallbackNumber: user.whatsappNumber || user.mobileNumber || '',
+    });
+  });
+  app.put('/api/seller/notification-settings', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const parsed = z.object({
+      notificationNumber: z.string().trim().max(24).refine(
+        (phone) => !phone || isValidE164(phone),
+        'Enter a valid WhatsApp number in E.164 format (e.g. +919876543210)',
+      ),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_NOTIFICATION_NUMBER' });
+    const updated = await updateSellerOrderNotificationNumber(user._id, parsed.data.notificationNumber);
+    if (!updated) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      notificationNumber: updated.orderNotificationWhatsAppNumber || '',
+      fallbackNumber: updated.whatsappNumber || updated.mobileNumber || '',
+    });
   });
   app.put('/api/seller/payment-settings/:provider', async (req, res) => {
     const { user } = await resolveActor(req, res);

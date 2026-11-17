@@ -323,6 +323,15 @@ export function SellerHubView({
   });
   const [gatewayNotice, setGatewayNotice] = useState('');
   const [gatewayBusy, setGatewayBusy] = useState(false);
+  const [orderNotificationNumber, setOrderNotificationNumber] = useState('');
+  const [orderNotificationFallbackNumber, setOrderNotificationFallbackNumber] = useState('');
+  const [orderNotificationNotice, setOrderNotificationNotice] = useState('');
+  const [orderNotificationBusy, setOrderNotificationBusy] = useState(false);
+  const [sellerWhatsAppNumber, setSellerWhatsAppNumber] = useState(user?.whatsappNumber || user?.mobileNumber || '');
+  const [sellerWhatsAppOtp, setSellerWhatsAppOtp] = useState('');
+  const [sellerWhatsAppNotice, setSellerWhatsAppNotice] = useState('');
+  const [sellerWhatsAppFallbackLink, setSellerWhatsAppFallbackLink] = useState('');
+  const [sellerWhatsAppBusy, setSellerWhatsAppBusy] = useState(false);
 
   // Admin Platform Service Flags state
   const [platformDraft, setPlatformDraft] = useState<PlatformServiceFlags>({
@@ -631,6 +640,83 @@ export function SellerHubView({
     }
   }, [isVerifiedSellerOrAdmin]);
 
+  const loadOrderNotificationSettings = useCallback(async () => {
+    if (!isVerifiedSellerOrAdmin) return;
+    try {
+      const settings = await apiFetch<{ notificationNumber: string; fallbackNumber: string }>('/api/seller/notification-settings');
+      setOrderNotificationNumber(settings.notificationNumber || '');
+      setOrderNotificationFallbackNumber(settings.fallbackNumber || '');
+    } catch {
+      setOrderNotificationNotice('Unable to load order alert settings.');
+    }
+  }, [isVerifiedSellerOrAdmin]);
+
+  const saveOrderNotificationSettings = async () => {
+    setOrderNotificationBusy(true);
+    setOrderNotificationNotice('');
+    try {
+      const settings = await apiFetch<{ notificationNumber: string; fallbackNumber: string }>('/api/seller/notification-settings', {
+        method: 'PUT',
+        body: JSON.stringify({ notificationNumber: orderNotificationNumber }),
+      });
+      setOrderNotificationNumber(settings.notificationNumber || '');
+      setOrderNotificationFallbackNumber(settings.fallbackNumber || '');
+      setOrderNotificationNotice('Order WhatsApp alert destination saved.');
+    } catch (err) {
+      setOrderNotificationNotice((err as Error).message);
+    } finally {
+      setOrderNotificationBusy(false);
+    }
+  };
+
+  const requestSellerWhatsAppOtp = async () => {
+    setSellerWhatsAppBusy(true);
+    setSellerWhatsAppNotice('');
+    setSellerWhatsAppFallbackLink('');
+    try {
+      const result = await apiFetch<{
+        dispatch: { delivered: boolean; waLink: string; channel: string };
+        sandboxOtpPreview?: string;
+      }>('/api/seller/whatsapp/request-otp', {
+        method: 'POST',
+        body: JSON.stringify({ whatsappNumber: sellerWhatsAppNumber.trim() }),
+      });
+      if (result.dispatch.delivered) {
+        setSellerWhatsAppNotice('Verification code sent on WhatsApp. Enter it within 5 minutes.');
+      } else {
+        setSellerWhatsAppFallbackLink(result.dispatch.waLink);
+        setSellerWhatsAppNotice(result.sandboxOtpPreview
+          ? `No automatic WhatsApp sender is configured. For local testing, enter this code: ${result.sandboxOtpPreview}. It expires in 5 minutes.`
+          : 'The code was not sent automatically. Open WhatsApp below and tap Send; then enter the code within 5 minutes.');
+      }
+    } catch (err) {
+      setSellerWhatsAppNotice((err as Error).message);
+    } finally {
+      setSellerWhatsAppBusy(false);
+    }
+  };
+
+  const verifySellerWhatsAppNumber = async () => {
+    setSellerWhatsAppBusy(true);
+    setSellerWhatsAppNotice('');
+    try {
+      const result = await apiFetch<{ user: User }>('/api/seller/whatsapp/verify-number', {
+        method: 'POST',
+        body: JSON.stringify({ whatsappNumber: sellerWhatsAppNumber.trim(), otpCode: sellerWhatsAppOtp.trim() }),
+      });
+      setSellerWhatsAppNumber(result.user.whatsappNumber || '');
+      setSellerWhatsAppOtp('');
+      setSellerWhatsAppFallbackLink('');
+      setOrderNotificationFallbackNumber(result.user.whatsappNumber || result.user.mobileNumber || '');
+      onUserUpdated(result.user);
+      setSellerWhatsAppNotice('Your mobile / WhatsApp number is verified and saved.');
+    } catch (err) {
+      setSellerWhatsAppNotice((err as Error).message);
+    } finally {
+      setSellerWhatsAppBusy(false);
+    }
+  };
+
   const savePaymentSettings = async (provider: 'razorpay' | 'stripe') => {
     setGatewayBusy(true);
     setGatewayNotice('');
@@ -740,6 +826,7 @@ export function SellerHubView({
     }
     if (isVerifiedSellerOrAdmin && sellerTab === 'payments') {
       loadPaymentSettings();
+      loadOrderNotificationSettings();
     }
     if (isVerifiedSellerOrAdmin && sellerTab === 'returns') {
       loadReturnRequests();
@@ -759,6 +846,7 @@ export function SellerHubView({
     loadSellerCampaigns,
     loadSellerCoupons,
     loadPaymentSettings,
+    loadOrderNotificationSettings,
     loadReturnRequests,
     loadSellerOrders,
   ]);
@@ -3866,6 +3954,95 @@ ${inv.note ? `Admin note: ${inv.note}
           <div>
             <h2 className="text-lg font-semibold text-[#141413]">Payment settings</h2>
             <p className="mt-1 text-xs text-[#78716C]">Connect Razorpay and Stripe. Secret fields are write-only and encrypted before storage.</p>
+          </div>
+          <div className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-3">
+            <div>
+              <h3 className="font-semibold text-[#141413]">Your mobile / WhatsApp number</h3>
+              <p className="mt-1 text-xs leading-relaxed text-[#78716C]">
+                Add your own number and verify it with a one-time code. This number is also used as the default destination for order alerts.
+              </p>
+            </div>
+            <label className="block text-xs font-medium">Your number (international E.164 format)
+              <input
+                type="tel"
+                value={sellerWhatsAppNumber}
+                onChange={(event) => setSellerWhatsAppNumber(event.target.value)}
+                placeholder="+919820112233"
+                className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
+                autoComplete="tel"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void requestSellerWhatsAppOtp()}
+                disabled={sellerWhatsAppBusy || !sellerWhatsAppNumber.trim()}
+                className="min-h-[44px] rounded-md border border-[#881337] px-4 py-2 text-xs font-semibold text-[#881337] disabled:opacity-50 cursor-pointer"
+              >
+                {sellerWhatsAppBusy ? 'Please wait…' : 'Send verification code'}
+              </button>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                aria-label="WhatsApp verification code"
+                value={sellerWhatsAppOtp}
+                onChange={(event) => setSellerWhatsAppOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6-digit code"
+                className="min-h-[44px] w-32 rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => void verifySellerWhatsAppNumber()}
+                disabled={sellerWhatsAppBusy || sellerWhatsAppOtp.length !== 6}
+                className="min-h-[44px] rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
+              >
+                Verify &amp; save
+              </button>
+            </div>
+            <div aria-live="polite" className="space-y-2">
+              <p role="status" className="text-[11px] text-[#57534E]">{sellerWhatsAppNotice}</p>
+              {sellerWhatsAppFallbackLink && (
+                <a
+                  href={sellerWhatsAppFallbackLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-h-[44px] items-center rounded-md border border-[#25D366] px-4 py-2 text-xs font-semibold text-[#166534] hover:bg-[#F0FDF4]"
+                >
+                  Open WhatsApp to send code
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-3">
+            <div>
+              <h3 className="font-semibold text-[#141413]">New order WhatsApp alerts</h3>
+              <p className="mt-1 text-xs leading-relaxed text-[#78716C]">
+                Alerts are sent to this number when a customer places an order. Leave blank to use your seller WhatsApp/mobile fallback{orderNotificationFallbackNumber ? ` (${orderNotificationFallbackNumber})` : ''}.
+                If no WhatsApp sending API is configured, the order will include a wa.me link to open and send manually.
+                Notification sounds are controlled by the recipient’s WhatsApp and device settings.
+              </p>
+            </div>
+            <label className="block text-xs font-medium">Alert destination (international E.164 format)
+              <input
+                type="tel"
+                value={orderNotificationNumber}
+                onChange={(event) => setOrderNotificationNumber(event.target.value)}
+                placeholder={orderNotificationFallbackNumber || '+919876543210'}
+                className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
+                autoComplete="tel"
+              />
+            </label>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span role="status" className="text-[11px] text-[#57534E]">{orderNotificationNotice}</span>
+              <button
+                type="button"
+                onClick={() => void saveOrderNotificationSettings()}
+                disabled={orderNotificationBusy}
+                className="min-h-[44px] rounded-md bg-[#881337] px-5 py-2 text-xs font-semibold text-white hover:bg-[#9F1239] disabled:opacity-50 cursor-pointer"
+              >
+                {orderNotificationBusy ? 'Saving…' : 'Save alert destination'}
+              </button>
+            </div>
           </div>
           {platformFlags && !platformFlags.onlinePaymentEnabled && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">

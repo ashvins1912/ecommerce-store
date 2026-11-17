@@ -27,7 +27,9 @@ bun run dev:customer
 bun run dev:provider
 ```
 
-Run the combined local stack (API + customer + provider, with seller dashboard served by the main app) using `bun run dev:all`. Start the optional logistics worker with `START_LOGISTICS_WORKER=1 bun run dev:all`.
+Run the combined local stack (main, payment and shipping APIs plus customer and provider UIs; the seller dashboard is served by the main app) using `bun run dev:all` or `npm run dev:all`. The launcher uses Bun when available and otherwise falls back to npm. Start the optional logistics worker, which requires its MongoDB and Supabase environment variables, with `START_LOGISTICS_WORKER=1 bun run dev:all` (or `START_LOGISTICS_WORKER=1 npm run dev:all`).
+
+Verified sellers can add or change their own mobile / WhatsApp number in Seller workspace → Payment settings by requesting and entering an OTP. That verified number is the default order-alert destination; a separate alert destination can be configured there too.
 
 The Vite role apps proxy `/api` and `/uploads` to `http://localhost:3000`. For deployments, serve each built app on its own domain or path and configure a same-site reverse proxy to the API. The current session cookie is host-only; separate subdomains need a deliberately configured shared authentication boundary before cross-subdomain deployment.
 
