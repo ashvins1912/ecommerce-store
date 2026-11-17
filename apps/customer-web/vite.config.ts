@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const appRoot = __dirname;
 const repositoryRoot = path.resolve(appRoot, '../..');
+const previewPort = Number(process.env.PORT) || 4173;
 
 export default defineConfig({
   root: appRoot,
@@ -29,7 +30,7 @@ export default defineConfig({
   },
   preview: {
     host: '0.0.0.0',
-    port: 4173,
+    port: previewPort,
     strictPort: true,
   },
   build: {
