@@ -278,6 +278,40 @@ export interface StatusTimelineEntry {
   timestamp: string;
 }
 
+export type CheckoutPaymentMode =
+  | 'COD'
+  | 'SELLER_COLLECT'
+  | 'POS_ON_DELIVERY'
+  | 'RAZORPAY'
+  | 'STRIPE'
+  | 'WALLET'
+  | 'MIXED';
+
+export interface PlatformServiceFlags {
+  shippingQuotesEnabled: boolean;
+  flatFallbackShippingInr: number;
+  backgroundWorkerEnabled: boolean;
+  onlinePaymentEnabled: boolean;
+  codEnabled: boolean;
+  codMaxOrderValueInr: number;
+  sellerDirectCollectEnabled: boolean;
+  posMachineEnabled: boolean;
+  posDemandCartThresholdInr: number;
+  posTerminalLabel: string;
+  updatedAt?: string;
+  updatedByName?: string | null;
+}
+
+export interface ManualPaymentCollection {
+  method: 'CASH' | 'UPI' | 'POS_CARD' | 'BANK_TRANSFER';
+  referenceNumber?: string | null;
+  posTerminalId?: string | null;
+  confirmedByUserId?: string | null;
+  confirmedByName?: string | null;
+  confirmedAt?: string | null;
+  notes?: string | null;
+}
+
 export interface Order {
   _id: string;
   orderNumber: string;
@@ -289,13 +323,16 @@ export interface Order {
   shipping?: {
     actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number;
     carrierCode?: string | null; serviceCode?: string | null; estimatedTransitHours?: number | null;
-    quoteExpiresAt?: string | null; policy: 'SEPARATE';
+    quoteExpiresAt?: string | null; policy: 'SEPARATE' | 'FREE_FLAGGED_OFF' | 'FLAT_FALLBACK';
   };
-  paymentMode?: 'COD' | 'RAZORPAY' | 'STRIPE' | 'WALLET' | 'MIXED';
+  paymentMode?: CheckoutPaymentMode;
   paymentStatus?: 'NOT_REQUIRED' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUNDED';
   paymentProvider?: 'razorpay' | 'stripe';
   paymentReference?: string | null;
   paymentTransactionId?: string | null;
+  manualPaymentCollection?: ManualPaymentCollection | null;
+  posRequested?: boolean;
+  posDemandTriggered?: boolean;
   walletAppliedPaise?: number;
   refundStatus?: 'NONE' | 'REQUESTED' | 'APPROVED' | 'PROCESSING' | 'PARTIAL' | 'REFUNDED' | 'REJECTED';
   appliedCoupon?: {

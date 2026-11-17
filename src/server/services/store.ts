@@ -2315,7 +2315,7 @@ export async function createOrder(input: {
   items: CartItem[];
   couponCode?: string;
   idempotencyKey?: string;
-  shippingBySeller?: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode?: string; serviceCode?: string; estimatedTransitHours?: number; quoteExpiresAt?: string | null; policy: 'SEPARATE' }>;
+  shippingBySeller?: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode?: string | null; serviceCode?: string | null; estimatedTransitHours?: number | null; quoteExpiresAt?: string | null; policy: 'SEPARATE' | 'FREE_FLAGGED_OFF' | 'FLAT_FALLBACK' }>;
 }): Promise<Order[] & { replayed?: boolean }> {
   if (!input.buyer.mobileNumber || input.buyer.shippingAddresses.length === 0) throw new Error('MOBILE_AND_ADDRESS_REQUIRED');
   if (!input.items.length) throw new Error('EMPTY_CART');

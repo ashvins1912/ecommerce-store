@@ -14,6 +14,7 @@ import type {
   CategoryControl,
   Coupon,
   OccasionType,
+  PlatformServiceFlags,
   Product,
   ProductCategory,
   ProductListResponse,
@@ -180,6 +181,7 @@ export default function App() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [applicableCoupons, setApplicableCoupons] = useState<Coupon[]>([]);
   const [pendingCouponCode, setPendingCouponCode] = useState<string | null>(null);
+  const [platformFlags, setPlatformFlags] = useState<PlatformServiceFlags | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -607,15 +609,21 @@ export default function App() {
 
   const fetchStoreMeta = useCallback(async () => {
     try {
-      const [catRes, cmpRes, cpnRes] = await Promise.all([
+      const [catRes, cmpRes, cpnRes, platformRes] = await Promise.all([
         apiFetch<{ categories: CategoryControl[] }>('/api/categories'),
         apiFetch<{ campaigns: StorefrontCampaign[] }>('/api/campaigns'),
         apiFetch<{ coupons: Coupon[] }>('/api/coupons/applicable'),
+        apiFetch<{ flags: PlatformServiceFlags }>('/api/config/platform').catch(() => ({
+          flags: null,
+        })),
       ]);
       const enabledCats = catRes.categories || [];
       setStoreCategories(enabledCats);
       setCampaigns(cmpRes.campaigns || []);
       setApplicableCoupons(cpnRes.coupons || []);
+      if (platformRes?.flags) {
+        setPlatformFlags(platformRes.flags);
+      }
 
       if (
         enabledCats.length > 0 &&
@@ -1020,10 +1028,14 @@ export default function App() {
       {activePage === 'orders' && (
         <div className="flex-1">
           <Suspense fallback={<FeatureLoadingFallback />}>
-          <OrdersView user={user} onOpenAuth={() => {
-            setAuthInitialMode('signin');
-            setAuthOpen(true);
-          }} />
+          <OrdersView
+            user={user}
+            platformFlags={platformFlags}
+            onOpenAuth={() => {
+              setAuthInitialMode('signin');
+              setAuthOpen(true);
+            }}
+          />
           </Suspense>
         </div>
       )}
@@ -1054,6 +1066,8 @@ export default function App() {
             onInviteConsumed={handleInviteConsumed}
             onReturnToStore={() => navigateToStore()}
             onLogout={handleLogout}
+            platformFlags={platformFlags}
+            onPlatformFlagsUpdated={(flags) => setPlatformFlags(flags)}
           />
           </Suspense>
         </div>
@@ -1483,6 +1497,7 @@ export default function App() {
         }}
         pendingCouponCode={pendingCouponCode}
         onClearPendingCoupon={() => setPendingCouponCode(null)}
+        platformFlags={platformFlags}
       /></Suspense>}
 
       {hasOpenedAuth && <Suspense fallback={null}><AuthModal

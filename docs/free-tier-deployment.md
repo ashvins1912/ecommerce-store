@@ -1,34 +1,39 @@
 # Free-tier deployment runbook (22 accounts / 10 active users)
 
-### Co-located vs. separate logistics worker
+### Co-located vs. split Static UI + Lean API architecture (512 MB RAM Safe)
 
-Render does **not** provide a free tier for Background Workers (`type: worker` requires at least the paid `starter` plan and causes an **Upgrade Required** error on free Render accounts). To keep `render.yaml` 100% free-tier compatible:
-- The Render Blueprint deploys **one** Free Web Service (`ecommerce-store`, `plan: free`) with `RUN_LOGISTICS_WORKER=1` so the durable Supabase queue consumer runs inside the web process.
-- When upgrading to a paid Render plan later, you can set `RUN_LOGISTICS_WORKER=0` on the web service and run `bun run logistics:worker` as a dedicated private `starter` background worker sharing the exact same `MONGODB_URI`, `ENCRYPTION_MASTER_KEY`, `LOGISTICS_SUPABASE_URL`, and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`.
+Render does **not** provide a free tier for Background Workers (`type: worker` requires at least the paid `starter` plan and causes an **Upgrade Required** error on free Render accounts), and serving Vite static bundles + running `sharp` + background polling inside a single 512 MB Node process can trigger V8 heap exhaustion and HTTP 502 restarts.
+
+To eliminate 512 MB OOM 502s and stay 100% free-tier compatible:
+- **`ecommerce-ui` (Render Static Site, `runtime: static`, 0 MB Node RAM)**: Serves `./dist` directly over CDN with `VITE_API_BASE_URL` pointing to `https://ecommerce-api.onrender.com`.
+- **`ecommerce-api` (Render Free Web Service, `runtime: node`, `DISABLE_STATIC_UI=1`, `RUN_LOGISTICS_WORKER=0`)**: Starts with `NODE_OPTIONS="--max-old-space-size=384"`, skips serving frontend HTML/assets, caps Sharp image cache (`memory: 24`, concurrency `1`), and exposes cross-origin CORS + `Authorization: Bearer` + `X-CSRF-Token` session support.
+- **Admin Runtime Service Flags (`Seller Hub -> Service flags`)**:
+  - `shippingQuotesEnabled` defaults to `false` (free delivery ₹0 without calling external carrier rate APIs at checkout).
+  - `onlinePaymentEnabled` defaults to `false` (orders complete smoothly via COD, Seller Direct Collection, or POS Machine on Delivery without gateway blockers).
+  - `posMachineEnabled` + `posDemandCartThresholdInr` highlights **POS Machine on Delivery** once cart net value meets the threshold or exceeds `codMaxOrderValueInr`, while sellers confirm received payments/POS slip RRNs directly on the order card via `POST /api/seller/orders/:id/confirm-payment`.
 
 ## Recommended topology
 
-Start with one same-origin Express + Vite web/API service (`plan: free`). The root app serves customer/seller/admin/provider experiences and API from `server.ts`.
+Split the static CDN UI from the Lean Node API on Render Free, keeping shipping quotes and background workers flagged off until traffic demands them.
 
 | Concern | Initial service | Purpose |
 |---|---|---|
-| Web + API | Render Free Web Service | One Node/Bun process, same-origin cookies, API, and co-located queue consumer |
-| Main application data | MongoDB Atlas Free cluster | Users, products, orders, sessions and core commerce |
-| Logistics data + queue | Supabase Free Postgres | Carrier registry, warehouses, shipments and durable job queue |
-| Authentication | Supabase Auth | Customer authentication / OAuth where configured |
+| Static UI (`ecommerce-ui`) | Render Static Site (`plan: free`) | CDN-hosted React bundle (`dist/`), `0 MB` Node RAM, calls API via `VITE_API_BASE_URL` |
+| Lean API (`ecommerce-api`) | Render Free Web Service (`DISABLE_STATIC_UI=1`) | Stateless REST API (`384 MB` V8 cap, `RUN_LOGISTICS_WORKER=0` by default) |
+| Main application data | MongoDB Atlas Free cluster | Users, products, orders, platform flags, sessions |
+| Logistics data + queue | Supabase Free Postgres | Carrier registry, warehouses, shipments (activated on demand via Admin flag) |
+| Authentication | Supabase Auth + Bearer/Cookie | Cross-origin customer/seller/admin/provider sessions |
 | Cache + rate limits | Upstash Redis Free | Shared carts/cache/rate-limit state |
 | Uploaded images | Cloudflare R2 Standard | Persistent product and return-photo objects |
 | Source + CI | GitHub | Build, tests, deploy on merge |
 
 Keep all services in the nearest mutually available region. Prefer a Singapore/India-adjacent region if offered by each provider; exact region availability differs by provider and free tier.
 
-The application has two persistence systems: MongoDB for core commerce and Supabase Postgres for logistics. Configure both. A successful Mongo connection does not mean logistics is configured. Apply all three logistics SQL migrations in the order below.
+The application has two persistence systems: MongoDB for core commerce and Supabase Postgres for logistics. Apply all three logistics SQL migrations if using carrier shipping features.
 
 ## Capacity and free-tier expectations
 
-This is a pilot topology, not a production availability commitment. A 512 MB Render Free web service is a tight resource envelope. It should be tested with 10 concurrent active users, not assumed to handle 22 simultaneous sessions. The service is single-instance, has no autoscaling or persistent disk, and may cold-start after idle. Render Free web services sleep after 15 minutes without inbound traffic and can take about a minute to wake. Free instances are not recommended by Render for production.
-
-On the Free plan, the logistics queue consumer runs co-located in the web process with `RUN_LOGISTICS_WORKER=1`. The queue itself is durable in Supabase Postgres (reclaiming interrupted jobs after a 10-minute lease), so queued jobs remain persisted across cold starts and resume once the web service wakes. If fulfilment must run continuously with zero cold-start delay, move `bun run logistics:worker` to a dedicated paid Starter worker service and set `RUN_LOGISTICS_WORKER=0` on the API service.
+Splitting Static UI off Node removes static asset I/O and bundling pressure from the 512 MB API container. Keep `RUN_LOGISTICS_WORKER=0` and `shippingQuotesEnabled=false` under low traffic so Node idle RSS stays comfortably below 512 MB. Free instances sleep after 15 minutes without inbound traffic and wake in ~30–60s.
 
 Supabase Free projects can pause after a week of low activity and have small database/storage/egress quotas. Upstash Free currently has finite storage, bandwidth and command quotas. Cloudflare R2 Standard currently includes 10 GB-month storage, 1M Class A and 10M Class B operations per month, with no egress fee. Check each provider's live usage dashboard; quotas and pricing change.
 
@@ -46,9 +51,7 @@ Local verification:
 npm install --global bun
 bun install --no-save
 bun run lint
-bun run test:logistics
-bun run test:hybrid
-bun run test:privacy
+bun run test
 bun run test:roles
 bun run build
 bun run build:workspace
@@ -79,23 +82,23 @@ Never commit `.env.production.local` or any secret file.
 1. Create one Supabase project for Auth and logistics Postgres (or use separate projects if you deliberately want isolation).
 2. In Project Settings / API, copy the project URL, anon/publishable key and service-role key.
 3. Set:
-   - `SUPABASE_URL` and `SUPABASE_ANON_KEY`
-   - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (browser-visible public values only)
-   - `SUPABASE_SERVICE_ROLE_KEY` only if a server-side feature requires it
-   - `LOGISTICS_SUPABASE_URL` and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_URL` and `SUPABASE_ANON_KEY` on `ecommerce-api`
+   - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` on `ecommerce-ui` (browser-visible public values only)
+   - `SUPABASE_SERVICE_ROLE_KEY` on `ecommerce-api` only if a server-side feature requires it
+   - `LOGISTICS_SUPABASE_URL` and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY` on `ecommerce-api`
 4. Open the Supabase SQL Editor and run these repository migrations in this exact order:
    1. `src/server/migrations/2026-11-logistics-postgres.sql`
    2. `src/server/migrations/2026-11-carrier-adaptive-feedback.sql`
    3. `src/server/migrations/2026-11-provider-logistics.sql`
 5. Confirm the logistics provider registry and required RPC functions/tables exist before enabling carrier onboarding. Keep the service-role key server-side only; never put it in a `VITE_*` variable.
 
-For Supabase Auth, configure the site URL to the deployed app URL and add the exact callback/redirect URLs used by the app. Enable only the OAuth providers actually used. Configure email delivery and test sign-up, verification and password reset end to end.
+For Supabase Auth, configure the site URL to `https://ecommerce-ui.onrender.com` and add exact callback/redirect URLs.
 
 ## 4. Configure Upstash Redis
 
 1. Create one Redis database in the nearest region.
 2. Copy its REST URL and REST token.
-3. Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in Render.
+3. Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` on `ecommerce-api`.
 4. Use Redis as a cache/rate-limit layer only. MongoDB and Supabase remain the durable sources of truth. Do not depend on process-local memory for cross-instance correctness.
 
 ## 5. Configure Cloudflare R2 for persistent uploads
@@ -105,24 +108,21 @@ Render Free has an ephemeral filesystem. The application's local `data/uploads` 
 1. Create an R2 Standard bucket.
 2. Create an API token restricted to that bucket with object read/write/delete permissions needed by the app.
 3. Configure a public custom domain for object delivery (recommended) and set its HTTPS base URL.
-4. Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` and `R2_PUBLIC_CDN_URL`.
+4. Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` and `R2_PUBLIC_CDN_URL` on `ecommerce-api`.
 5. Keep bucket access private to the app where possible; publish only through the intended CDN/custom domain. Do not commit R2 credentials.
 
-## 6. Create the Render service
+## 6. Create the Render Blueprint services
 
 1. Connect the GitHub repository to Render.
 2. Choose **Blueprint** and point it at the repository root. Render reads `render.yaml`.
-3. Confirm it creates one Free Web Service named `ecommerce-store`.
-4. Add all secret values in the Render Environment screen. The blueprint marks them `sync: false` so secrets are not committed to Git.
-5. Set `APP_URL` to the final Render HTTPS URL, for example `https://<your-service>.onrender.com`.
-6. Set `CORS_ALLOWED_ORIGINS` to that exact origin only (no trailing slash, comma-separated only if you intentionally add more trusted origins).
-7. Set a fresh `SESSION_SECRET` generated with `openssl rand -hex 32`.
-8. Set `ENCRYPTION_MASTER_KEY` to a fresh 32-byte key generated with `openssl rand -base64 32`. Preserve it securely: losing it makes previously encrypted carrier credentials unreadable. Do not rotate it without a data re-encryption plan.
-9. Set `ROOT_SUPERUSER_INITIAL_PASSWORD` to a new unique strong password in Render Secrets. Do not reuse any password previously shared in chat, tickets or source code.
-10. Keep `ROOT_SUPERUSER_EMAIL=ashvinsingh25@gmail.com` and `RUN_LOGISTICS_WORKER=1` for the free-tier single-service pilot.
-11. Deploy and wait for the build and `/api/health` health check to pass.
+3. Confirm it creates both services: `ecommerce-api` (Node) and `ecommerce-ui` (Static Site).
+4. Set `VITE_API_BASE_URL=https://<your-ecommerce-api>.onrender.com` and `VITE_ASSET_BASE_URL=https://<your-ecommerce-api>.onrender.com` on `ecommerce-ui`, then trigger a static rebuild.
+5. Set `APP_URL=https://<your-ecommerce-ui>.onrender.com` and `CORS_ALLOWED_ORIGINS=https://<your-ecommerce-ui>.onrender.com` (exact origin, no trailing slash) on `ecommerce-api`.
+6. Set `SESSION_SECRET` (`openssl rand -hex 32`), `ENCRYPTION_MASTER_KEY` (`openssl rand -base64 32`), `MONGODB_URI`, and `ROOT_SUPERUSER_INITIAL_PASSWORD` on `ecommerce-api`.
+7. Keep `DISABLE_STATIC_UI=1` and `RUN_LOGISTICS_WORKER=0` for the 512 MB free-tier split topology.
+8. Deploy both services and verify `/api/health` returns `staticUiDisabled: true` and `workerActive: false`.
 
-The Render blueprint runs lint, the logistics/hybrid/privacy/role tests, and both browser builds before the service starts.
+The API build step verifies TypeScript (`bun run lint`) and unit suites (`test`, `test:roles`) before booting.
 
 ## 7. Configure and verify root/admin/user roles
 

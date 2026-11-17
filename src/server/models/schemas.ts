@@ -240,9 +240,9 @@ const OrderSchema = new Schema(
       serviceCode: { type: String, default: null },
       estimatedTransitHours: { type: Number, default: null },
       quoteExpiresAt: { type: Date, default: null },
-      policy: { type: String, enum: ['SEPARATE'], default: 'SEPARATE' },
+      policy: { type: String, enum: ['SEPARATE', 'FREE_FLAGGED_OFF', 'FLAT_FALLBACK'], default: 'SEPARATE' },
     },
-    paymentMode: { type: String, enum: ['COD', 'RAZORPAY', 'STRIPE', 'WALLET', 'MIXED'], default: 'COD', index: true },
+    paymentMode: { type: String, enum: ['COD', 'SELLER_COLLECT', 'POS_ON_DELIVERY', 'RAZORPAY', 'STRIPE', 'WALLET', 'MIXED'], default: 'COD', index: true },
     paymentStatus: { type: String, enum: ['NOT_REQUIRED', 'PENDING', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'], default: 'NOT_REQUIRED', index: true },
     paymentProvider: { type: String, enum: ['razorpay', 'stripe'], default: null },
     paymentReference: { type: String, default: null, index: true },
@@ -252,6 +252,17 @@ const OrderSchema = new Schema(
     sellerNotificationLeaseUntil: { type: Date, default: null, index: true },
     paymentCheckoutUrl: { type: String, default: null },
     paymentTransactionId: { type: String, default: null, index: true },
+    manualPaymentCollection: {
+      method: { type: String, enum: ['CASH', 'UPI', 'POS_CARD', 'BANK_TRANSFER'], default: null },
+      referenceNumber: { type: String, default: null, maxlength: 160 },
+      posTerminalId: { type: String, default: null, maxlength: 120 },
+      confirmedByUserId: { type: String, default: null },
+      confirmedByName: { type: String, default: null, maxlength: 120 },
+      confirmedAt: { type: Date, default: null },
+      notes: { type: String, default: null, maxlength: 400 },
+    },
+    posRequested: { type: Boolean, default: false },
+    posDemandTriggered: { type: Boolean, default: false },
     walletAppliedPaise: { type: Number, default: 0, min: 0 },
     cancellationRequestedAt: { type: Date, default: null },
     cancellationPreviousStatus: { type: String, default: null },
@@ -604,3 +615,22 @@ export const ReturnRequestModel: Model<any> =
   mongoose.models.ReturnRequest || mongoose.model('ReturnRequest', ReturnRequestSchema);
 export const PaymentEventModel: Model<any> =
   mongoose.models.PaymentEvent || mongoose.model('PaymentEvent', PaymentEventSchema);
+
+const PlatformConfigSchema = new Schema({
+  singletonKey: { type: String, required: true, unique: true, default: 'default' },
+  shippingQuotesEnabled: { type: Boolean, default: false },
+  flatFallbackShippingInr: { type: Number, default: 0, min: 0 },
+  backgroundWorkerEnabled: { type: Boolean, default: false },
+  onlinePaymentEnabled: { type: Boolean, default: false },
+  codEnabled: { type: Boolean, default: true },
+  codMaxOrderValueInr: { type: Number, default: 25000, min: 0 },
+  sellerDirectCollectEnabled: { type: Boolean, default: true },
+  posMachineEnabled: { type: Boolean, default: true },
+  posDemandCartThresholdInr: { type: Number, default: 5000, min: 0 },
+  posTerminalLabel: { type: String, default: 'Portable Card / UPI POS', maxlength: 120 },
+  updatedByUserId: { type: String, default: null },
+  updatedByName: { type: String, default: null, maxlength: 120 },
+}, { timestamps: true });
+
+export const PlatformConfigModel: Model<any> =
+  mongoose.models.PlatformConfig || mongoose.model('PlatformConfig', PlatformConfigSchema);

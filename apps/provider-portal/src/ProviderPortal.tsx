@@ -161,18 +161,34 @@ const labelClass = 'grid min-w-0 gap-1.5 text-xs font-medium text-stone-700';
 const buttonClass =
   'inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-lg bg-rose-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-800 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer';
 
+const PROVIDER_API_BASE = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+
 async function api<T = any>(url: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, {
+  const targetUrl =
+    PROVIDER_API_BASE && url.startsWith('/api') ? `${PROVIDER_API_BASE}${url}` : url;
+  const bearerToken =
+    typeof window !== 'undefined' ? sessionStorage.getItem('kk_ssl_token') : null;
+  const storedCsrf =
+    typeof window !== 'undefined' ? sessionStorage.getItem('kk_csrf_token') : null;
+  const activeCsrf = csrfToken || storedCsrf || '';
+  const response = await fetch(targetUrl, {
     ...init,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...(activeCsrf ? { 'X-CSRF-Token': activeCsrf } : {}),
       ...(init.headers || {}),
     },
   });
   const data = await response.json();
-  if (url === '/api/auth/me' && data.csrfToken) csrfToken = data.csrfToken;
+  if (url === '/api/auth/me') {
+    if (data.csrfToken) csrfToken = data.csrfToken;
+    if (typeof window !== 'undefined') {
+      if (data.accessToken) sessionStorage.setItem('kk_ssl_token', data.accessToken);
+      if (data.csrfToken) sessionStorage.setItem('kk_csrf_token', data.csrfToken);
+    }
+  }
   if (!response.ok) throw new Error(data.error || data.message || 'Request failed');
   return data as T;
 }
@@ -478,10 +494,17 @@ export default function ProviderPortal() {
     data.append('image', file);
     setUploading(true);
     try {
-      const response = await fetch('/api/provider/upload', {
+      const uploadUrl = PROVIDER_API_BASE ? `${PROVIDER_API_BASE}/api/provider/upload` : '/api/provider/upload';
+      const bearerToken = typeof window !== 'undefined' ? sessionStorage.getItem('kk_ssl_token') : null;
+      const storedCsrf = typeof window !== 'undefined' ? sessionStorage.getItem('kk_csrf_token') : null;
+      const activeCsrf = csrfToken || storedCsrf || '';
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         credentials: 'include',
-        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+        headers: {
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+          ...(activeCsrf ? { 'X-CSRF-Token': activeCsrf } : {}),
+        },
         body: data,
       });
       const result = await response.json();

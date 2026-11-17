@@ -13,6 +13,7 @@ import { ProviderInviteModel, ProviderProfileModel, ProviderProductModel, Provid
 import { encryptField } from './src/server/services/fieldEncryption.js';
 import { canInviteRole } from './src/server/services/roles.js';
 import { saveGatewayConfiguration, listGatewayConfigurations, getGatewaySecrets, createGatewayCheckout, verifyPaymentWebhook, claimPaymentEvent, getPaymentEventState, markPaymentEventProcessed, releasePaymentEvent, refundGatewayPayment, restoreCancelledOrderInventory, getWalletSummary, applyWalletTransaction } from './src/server/services/commerce.js';
+import { getPlatformFlags, platformFlagsPatchSchema, resolveCheckoutPlan, updatePlatformFlags } from './src/server/services/platformConfig.js';
 import { buildDynamicStorefrontSitemap, generateRobotsTxt } from './src/server/services/sitemap.js';
 import path from 'node:path';
 import multer from 'multer';
@@ -138,8 +139,12 @@ import type {
 } from './src/shared/types.js';
 
 const PORT = Number(process.env.PORT || 3000);
+const DISABLE_STATIC_UI = process.env.DISABLE_STATIC_UI === '1';
+// Keep Sharp libvips cache strictly bounded so container RSS stays safely under 512 MB.
+sharp.cache({ memory: 24, files: 0, items: 16 });
+sharp.concurrency(1);
 const optimizedImageCache = new Map<string, Buffer>();
-const MAX_OPTIMIZED_IMAGE_CACHE_ENTRIES = 48;
+const MAX_OPTIMIZED_IMAGE_CACHE_ENTRIES = DISABLE_STATIC_UI ? 8 : 24;
 const escapeRegex = (value: string) => value.split('').map((character) => '.^$*+?()[]{}|\\'.includes(character) ? '\\' + character : character).join('');
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -171,7 +176,7 @@ function getCookieOpts() {
   return {
     httpOnly: true,
     secure: true,
-    sameSite: 'lax' as const,
+    sameSite: (process.env.CORS_ALLOWED_ORIGINS ? 'none' : 'lax') as 'none' | 'lax',
     maxAge: 1000 * 60 * 60 * 24 * 30,
     path: '/',
   };
@@ -182,7 +187,7 @@ function getClearCookieOpts() {
   return {
     httpOnly: true,
     secure: true,
-    sameSite: 'lax' as const,
+    sameSite: (process.env.CORS_ALLOWED_ORIGINS ? 'none' : 'lax') as 'none' | 'lax',
     path: '/',
   };
 }
@@ -288,17 +293,53 @@ async function startServer() {
   app.use(express.json({ limit: '4mb', verify: (req: any, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
   app.use(cookieParser());
 
-  // Same-origin and synchronized-token CSRF protection for state-changing APIs.
+  // Cross-origin CORS + preflight handling for split Static UI -> Lean API deployments.
   const originConfig = process.env.CORS_ALLOWED_ORIGINS || ((process.env.APP_URL || '').startsWith('http') ? process.env.APP_URL! : '');
   const configuredOrigins = originConfig
-    .split(',').map((origin) => origin.trim()).filter(Boolean).map((origin) => new URL(origin).origin);
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .flatMap((origin) => {
+      try {
+        return [new URL(origin).origin];
+      } catch {
+        return [];
+      }
+    });
+  app.use((req, res, next) => {
+    const requestOriginHeader = String(req.headers.origin || '').trim();
+    if (requestOriginHeader) {
+      const hostOrigin = `${req.protocol}://${req.get('host')}`;
+      const isAllowed =
+        configuredOrigins.includes(requestOriginHeader) ||
+        requestOriginHeader === hostOrigin ||
+        (process.env.NODE_ENV !== 'production' && /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(requestOriginHeader));
+      if (isAllowed) {
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Origin', requestOriginHeader);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        res.setHeader(
+          'Access-Control-Allow-Headers',
+          'Content-Type, Authorization, X-CSRF-Token, Idempotency-Key'
+        );
+        res.setHeader('Access-Control-Max-Age', '600');
+      }
+    }
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
+  // Same-origin and synchronized-token CSRF protection for state-changing APIs.
   app.use(async (req, res, next) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/webhooks/') || req.path.startsWith('/api/logistics/webhooks/')) return next();
     let suppliedOrigin = String(req.headers.origin || '');
     if (!suppliedOrigin && req.headers.referer) { try { suppliedOrigin = new URL(String(req.headers.referer)).origin; } catch { return res.status(403).json({ error: 'INVALID_REFERER' }); } }
     if (suppliedOrigin) {
       const requestOrigin = req.protocol + '://' + req.get('host');
-      const allowed = configuredOrigins.length ? configuredOrigins : [requestOrigin];
+      const allowed = configuredOrigins.length ? Array.from(new Set([...configuredOrigins, requestOrigin])) : [requestOrigin];
       if (!allowed.includes(suppliedOrigin)) return res.status(403).json({ error: 'ORIGIN_NOT_ALLOWED' });
     }
     const hasSessionCredential = Boolean(req.cookies?.kk_session || String(req.headers.authorization || '').toLowerCase().startsWith('bearer '));
@@ -354,14 +395,51 @@ async function startServer() {
   app.use('/uploads', express.static(getUploadDir(), { maxAge: '1d', etag: true }));
   app.use('/src/assets', express.static(sourceAssetRoot, { maxAge: '1d', etag: true }));
 
-  // --- Health ---
-  app.get('/api/health', (_req, res) => {
+  // --- Health & Runtime Platform Config ---
+  app.get('/api/health', async (_req, res) => {
     const ready = process.env.NODE_ENV !== 'production' || dbStatus.mode === 'mongodb';
+    const flags = await getPlatformFlags().catch(() => null);
     res.status(ready ? 200 : 503).json({
       ok: ready,
       status: ready ? 'ready' : 'not_ready',
       dbMode: dbStatus.mode,
+      staticUiDisabled: DISABLE_STATIC_UI,
+      workerActive: process.env.RUN_LOGISTICS_WORKER === '1' && Boolean(flags?.backgroundWorkerEnabled),
     });
+  });
+
+  app.get('/api/config/platform', async (_req, res) => {
+    try {
+      const flags = await getPlatformFlags();
+      res.setHeader('Cache-Control', 'public, max-age=15');
+      res.json({ flags });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message || 'PLATFORM_CONFIG_UNAVAILABLE' });
+    }
+  });
+
+  app.get('/api/admin/platform-flags', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED' });
+    }
+    const flags = await getPlatformFlags();
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ flags });
+  });
+
+  app.put('/api/admin/platform-flags', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED' });
+    }
+    const parsed = platformFlagsPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_PLATFORM_FLAGS' });
+    }
+    const updated = await updatePlatformFlags(parsed.data, { _id: user._id, name: user.name });
+    await auditRootAccess(user, req, 'PLATFORM_FLAGS_UPDATED', 'platform_config', 'default', JSON.stringify(parsed.data));
+    res.json({ flags: updated });
   });
 
   // --- SEO: Dynamic Sitemap & Robots ---
@@ -392,6 +470,15 @@ async function startServer() {
   });
 
   app.post('/api/logistics/rates', async (req, res) => {
+    const flags = await getPlatformFlags();
+    if (!flags.shippingQuotesEnabled) {
+      return res.json({
+        flaggedOff: true,
+        shippingPolicy: flags.flatFallbackShippingInr > 0 ? 'FLAT_FALLBACK' : 'FREE_FLAGGED_OFF',
+        flatFallbackShippingInr: flags.flatFallbackShippingInr,
+        groups: [],
+      });
+    }
     const { user } = await resolveActor(req, res);
     if (!user || user.role !== 'BUYER') return res.status(401).json({ error: 'BUYER_AUTH_REQUIRED' });
     const rateLimit = await checkRateLimit('logistics-rates:' + user._id, 12, 60);
@@ -605,7 +692,7 @@ async function startServer() {
       if (String(order.sellerId) !== user!._id) return res.status(403).json({ error: 'ORDER_NOT_OWNED_BY_SELLER' });
       if (['Cancelled', 'CANCELLED'].includes(order.status)) return res.status(409).json({ error: 'CANCELLED_ORDER_CANNOT_SHIP' });
       if (order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_SHIPMENT' });
-      if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
+      if (!['COD', 'SELLER_COLLECT', 'POS_ON_DELIVERY'].includes(order.paymentMode) && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
       const address = order.shippingAddress || {};
       const pin = String(address.pincode || '').trim();
       if (!pin || !address.street || !address.city || !address.state || !address.fullName || !address.phone) return res.status(422).json({ error: 'ORDER_SHIPPING_ADDRESS_INCOMPLETE' });
@@ -2196,11 +2283,25 @@ async function startServer() {
         imageUrl: variant?.variantImageUrl || product.images?.[0]?.url || item.imageUrl,
       };
     });
+    const flags = await getPlatformFlags();
     const requiresPrepaid = itemProducts.some((product) => product && (product.onlinePaymentRequired || product.codAllowed === false));
     const requestedProvider = req.body?.paymentProvider === 'stripe' ? 'stripe' : 'razorpay';
+    const rawRequestedPaymentMode = String(req.body?.paymentMode || '').toUpperCase();
+    const requestedPaymentMode = ['COD', 'SELLER_COLLECT', 'POS_ON_DELIVERY', 'RAZORPAY', 'STRIPE'].includes(rawRequestedPaymentMode)
+      ? (rawRequestedPaymentMode as 'COD' | 'SELLER_COLLECT' | 'POS_ON_DELIVERY' | 'RAZORPAY' | 'STRIPE')
+      : undefined;
+    const cartSubtotalEstimate = itemsToOrder.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+    const checkoutPlan = resolveCheckoutPlan({
+      flags,
+      cartValueInr: cartSubtotalEstimate,
+      requestedPaymentMode,
+      requestedProvider,
+      requiresPrepaidByProduct: requiresPrepaid,
+    });
+
     const prepaidProviderBySeller = new Map<string, 'razorpay' | 'stripe'>();
-    if (requiresPrepaid) {
-      const prepaidSellerIds = new Set(itemsToOrder.filter((item, index) => itemProducts[index] && (itemProducts[index]!.onlinePaymentRequired || itemProducts[index]!.codAllowed === false)).map((item) => item.sellerId));
+    if (flags.onlinePaymentEnabled && ['RAZORPAY', 'STRIPE'].includes(checkoutPlan.effectivePaymentMode)) {
+      const prepaidSellerIds = new Set(itemsToOrder.map((item) => item.sellerId));
       for (const sellerId of prepaidSellerIds) {
         const alternateProvider = requestedProvider === 'razorpay' ? 'stripe' : 'razorpay';
         const preferred = await getGatewaySecrets(sellerId, requestedProvider);
@@ -2210,54 +2311,68 @@ async function startServer() {
         prepaidProviderBySeller.set(sellerId, activeProvider);
       }
     }
-    // Option 3: compute a fresh server-side separate delivery fee per seller.
-    // The browser never supplies or controls the amount charged.
-    const shippingBySeller: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode: string; serviceCode: string; estimatedTransitHours: number; quoteExpiresAt: string | null; policy: 'SEPARATE' }> = {};
-    try {
-      const sellerLines = new Map<string, typeof itemsToOrder>();
-      for (const line of itemsToOrder) sellerLines.set(line.sellerId, [...(sellerLines.get(line.sellerId) || []), line]);
-      for (const [sellerId, lines] of sellerLines) {
-        const products = lines.map(line => itemProducts.find(product => product && String(product._id) === String(line.productId)) || null);
-        const weightGrams = 100 + lines.reduce((sum, line, lineIndex) => {
-          const product = products[lineIndex] as any;
-          return sum + Math.max(1, Number(product?.shippingWeightGrams) || 500) * line.quantity;
-        }, 0);
-        const declaredValueMinor = lines.reduce((sum, line) => sum + Math.round(line.unitPrice * line.quantity * 100), 0);
-        const seller = await UserModel.findById(sellerId).select('sellerProfile.shippingMarkupPercent').lean() as any;
-        const markupPercent = Math.min(100, Math.max(0, Number(seller?.sellerProfile?.shippingMarkupPercent || 0)));
-        const quotes = await getSellerRateQuotes({
-          sellerId,
-          destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
-          weightGrams, codAmountMinor: requiresPrepaid ? 0 : declaredValueMinor, declaredValueMinor, currency: 'INR',
-        });
-        const quote = quotes[0];
-        if (!quote) return res.status(409).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', sellerId, retryable: true });
-        const carrierCost = Math.max(0, Number(quote.costMinor) || 0);
-        const markup = Math.round(carrierCost * markupPercent / 100);
+    // Compute delivery fee per seller; bypass blocking external carrier quotes when shippingQuotesEnabled is flagged off.
+    const shippingBySeller: Record<string, { actualCarrierCost: number; sellerMarkup: number; customerCharge: number; insuranceAmount: number; carrierCode: string | null; serviceCode: string | null; estimatedTransitHours: number | null; quoteExpiresAt: string | null; policy: 'SEPARATE' | 'FREE_FLAGGED_OFF' | 'FLAT_FALLBACK' }> = {};
+    const sellerLines = new Map<string, typeof itemsToOrder>();
+    for (const line of itemsToOrder) sellerLines.set(line.sellerId, [...(sellerLines.get(line.sellerId) || []), line]);
+
+    if (checkoutPlan.skipCarrierRateQuotes) {
+      for (const sellerId of sellerLines.keys()) {
         shippingBySeller[sellerId] = {
-          actualCarrierCost: carrierCost / 100,
-          sellerMarkup: markup / 100,
-          customerCharge: (carrierCost + markup) / 100,
+          actualCarrierCost: 0,
+          sellerMarkup: 0,
+          customerCharge: checkoutPlan.shippingChargeInr,
           insuranceAmount: 0,
-          carrierCode: quote.providerCode,
-          serviceCode: quote.serviceCode,
-          estimatedTransitHours: quote.estimatedTransitHours,
-          quoteExpiresAt: quote.quote?.expiresAt || null,
-          policy: 'SEPARATE',
+          carrierCode: null,
+          serviceCode: null,
+          estimatedTransitHours: null,
+          quoteExpiresAt: null,
+          policy: checkoutPlan.shippingPolicy,
         };
       }
-    } catch (shippingError) {
-      const message = (shippingError as Error).message || 'DELIVERY_QUOTE_UNAVAILABLE';
-      return res.status(503).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', detail: message, retryable: true });
+    } else {
+      try {
+        for (const [sellerId, lines] of sellerLines) {
+          const products = lines.map(line => itemProducts.find(product => product && String(product._id) === String(line.productId)) || null);
+          const weightGrams = 100 + lines.reduce((sum, line, lineIndex) => {
+            const product = products[lineIndex] as any;
+            return sum + Math.max(1, Number(product?.shippingWeightGrams) || 500) * line.quantity;
+          }, 0);
+          const declaredValueMinor = lines.reduce((sum, line) => sum + Math.round(line.unitPrice * line.quantity * 100), 0);
+          const seller = await UserModel.findById(sellerId).select('sellerProfile.shippingMarkupPercent').lean() as any;
+          const markupPercent = Math.min(100, Math.max(0, Number(seller?.sellerProfile?.shippingMarkupPercent || 0)));
+          const quotes = await getSellerRateQuotes({
+            sellerId,
+            destinationPostalCode: String(user.shippingAddresses?.find(a => a.isDefault)?.pincode || user.shippingAddresses?.[0]?.pincode || ''),
+            weightGrams, codAmountMinor: ['RAZORPAY', 'STRIPE'].includes(checkoutPlan.effectivePaymentMode) ? 0 : declaredValueMinor, declaredValueMinor, currency: 'INR',
+          });
+          const quote = quotes[0];
+          if (!quote) return res.status(409).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', sellerId, retryable: true });
+          const carrierCost = Math.max(0, Number(quote.costMinor) || 0);
+          const markup = Math.round(carrierCost * markupPercent / 100);
+          shippingBySeller[sellerId] = {
+            actualCarrierCost: carrierCost / 100,
+            sellerMarkup: markup / 100,
+            customerCharge: (carrierCost + markup) / 100,
+            insuranceAmount: 0,
+            carrierCode: quote.providerCode,
+            serviceCode: quote.serviceCode,
+            estimatedTransitHours: quote.estimatedTransitHours,
+            quoteExpiresAt: quote.quote?.expiresAt || null,
+            policy: 'SEPARATE',
+          };
+        }
+      } catch (shippingError) {
+        const message = (shippingError as Error).message || 'DELIVERY_QUOTE_UNAVAILABLE';
+        return res.status(503).json({ error: 'DELIVERY_QUOTE_UNAVAILABLE', detail: message, retryable: true });
+      }
     }
+
     let createdOrders;
     try {
       createdOrders = await createOrder({ buyer: user, items: itemsToOrder, couponCode, idempotencyKey, shippingBySeller });
       for (const order of createdOrders) {
-        const prepaid = requiresPrepaid && order.items.some((item) => {
-          const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === item.productId);
-          return idx >= 0 && itemProducts[idx] && (itemProducts[idx]!.onlinePaymentRequired || itemProducts[idx]!.codAllowed === false);
-        });
+        const gatewayMode = flags.onlinePaymentEnabled && ['RAZORPAY', 'STRIPE'].includes(checkoutPlan.effectivePaymentMode);
         order.items = order.items.map((item: any) => {
           const idx = itemsToOrder.findIndex((cartItem) => cartItem.productId === String(item.productId));
           const product = idx >= 0 ? itemProducts[idx] : null;
@@ -2265,14 +2380,40 @@ async function startServer() {
         });
         if (order.status === 'Pending') {
           const providerForOrder = prepaidProviderBySeller.get(String(order.sellerId)) || requestedProvider;
-          order.paymentMode = prepaid ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY') : 'COD';
-          order.paymentStatus = prepaid ? 'PENDING' : 'NOT_REQUIRED';
+          order.paymentMode = gatewayMode
+            ? (providerForOrder === 'stripe' ? 'STRIPE' : 'RAZORPAY')
+            : checkoutPlan.effectivePaymentMode;
+          order.paymentStatus = checkoutPlan.initialPaymentStatus;
+          order.posRequested = checkoutPlan.posRequested;
+          order.posDemandTriggered = checkoutPlan.posDemandTriggered;
           order.status = 'PENDING_SELLER_CONFIRMATION';
-          order.statusTimeline.push({ status: order.status, note: 'Order request submitted and awaiting seller confirmation.', timestamp: new Date().toISOString() });
+          const modeLabel =
+            order.paymentMode === 'POS_ON_DELIVERY'
+              ? 'POS Machine on Delivery requested'
+              : order.paymentMode === 'SELLER_COLLECT'
+                ? 'Seller Direct Collection (UPI / Cash confirm)'
+                : order.paymentMode === 'COD'
+                  ? 'Cash on Delivery'
+                  : `Online checkout (${order.paymentMode})`;
+          order.statusTimeline.push({
+            status: order.status,
+            note: `Order submitted (${modeLabel}) and awaiting seller confirmation.`,
+            timestamp: new Date().toISOString(),
+          });
           if (dbStatus.mode === 'mongodb') {
             await OrderModel.updateOne(
               { _id: new mongoose.Types.ObjectId(String(order._id)), status: 'Pending' },
-              { $set: { items: order.items, paymentMode: order.paymentMode, paymentStatus: order.paymentStatus, status: order.status, statusTimeline: order.statusTimeline } }
+              {
+                $set: {
+                  items: order.items,
+                  paymentMode: order.paymentMode,
+                  paymentStatus: order.paymentStatus,
+                  posRequested: order.posRequested,
+                  posDemandTriggered: order.posDemandTriggered,
+                  status: order.status,
+                  statusTimeline: order.statusTimeline,
+                },
+              }
             );
           }
         } else {
@@ -2306,14 +2447,20 @@ async function startServer() {
         const sellerPhone = seller?.whatsappNumber || seller?.mobileNumber;
         const itemSummary = order.items.map((i) => `${i.title} (x${i.quantity})`).join(', ');
         const confirmationUrl = getAppBaseUrl(req) + '/?orderId=' + encodeURIComponent(order._id);
+        const paymentLabel =
+          order.paymentMode === 'POS_ON_DELIVERY'
+            ? 'POS Machine on Delivery (Bring portable terminal)'
+            : order.paymentMode === 'SELLER_COLLECT'
+              ? 'Seller Direct Collection (Confirm UPI/Cash)'
+              : String(order.paymentMode || 'COD');
         const msg = [
           'New order ' + order.orderNumber,
           'Items: ' + itemSummary,
           'Deliver to: ' + order.shippingAddress.fullName + ', ' + order.shippingAddress.street + ', ' + order.shippingAddress.city + ', ' + order.shippingAddress.state + ' ' + order.shippingAddress.pincode,
           'Contact: ' + order.shippingAddress.phone,
-          'Payment: ' + order.paymentMode,
+          'Payment: ' + paymentLabel,
           'Total: INR ' + order.totalAmount,
-          'Confirm after checking stock: ' + confirmationUrl,
+          'Confirm stock & payment collection: ' + confirmationUrl,
         ].join('\\n');
         if (sellerPhone) {
           order.whatsappDispatch = await sendWhatsAppMessage(sellerPhone, msg);
@@ -2971,7 +3118,7 @@ async function startServer() {
       const order = await OrderModel.findById(parsed.data.orderId).lean() as any;
       const linkedProfile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
       if (!order || !(linkedProfile?.linkedSellerIds || []).includes(String(order.sellerId))) return res.status(404).json({ error: 'LINKED_SELLER_ORDER_NOT_FOUND' });
-      if (!order || !['Packed'].includes(order.status) || (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID')) return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PROVIDER_SHIPMENT' });
+      if (!order || !['Packed'].includes(order.status) || (!['COD', 'SELLER_COLLECT', 'POS_ON_DELIVERY'].includes(order.paymentMode) && order.paymentStatus !== 'PAID')) return res.status(409).json({ error: 'ORDER_NOT_READY_FOR_PROVIDER_SHIPMENT' });
       const products = await ProductModel.find({ _id: { $in: order.items.map((item: any) => item.productId) }, providerId: user._id }).select('_id').lean();
       if (!order.items.length || products.length !== order.items.length) return res.status(403).json({ error: 'ORDER_NOT_EXCLUSIVELY_FULFILLED_BY_PROVIDER' });
       const delegation = await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean();
@@ -2999,7 +3146,7 @@ async function startServer() {
       const linkedProfile = await ProviderProfileModel.findOne({ userId: user._id }).select('linkedSellerIds').lean();
       if (!order || !(linkedProfile?.linkedSellerIds || []).includes(String(order.sellerId))) return res.status(404).json({ error: 'LINKED_SELLER_ORDER_NOT_FOUND' });
       if (!order || order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_SHIPMENT' });
-      if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
+      if (!['COD', 'SELLER_COLLECT', 'POS_ON_DELIVERY'].includes(order.paymentMode) && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
       const providerProducts = await ProductModel.find({ _id: { $in: order.items.map((item: any) => item.productId) }, providerId: user._id }).select('_id').lean();
       if (!order.items.length || providerProducts.length !== order.items.length) return res.status(403).json({ error: 'ORDER_NOT_EXCLUSIVELY_FULFILLED_BY_PROVIDER' });
       const delegation = await ProviderFulfillmentDelegationModel.findOne({ sellerId: String(order.sellerId), providerId: user._id, status: 'ACTIVE', $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).lean() as any;
@@ -3136,7 +3283,7 @@ async function startServer() {
           carrierName: logistics.provider_carrier_configs?.logistics_providers?.name || '',
           trackingEvents: (logistics.tracking_events || []).map((event: any) => ({ statusCode: event.status_code, location: event.location_code, occurredAt: event.event_timestamp })),
         } : null,
-        manualDispatchAllowed: (order.items || []).length > 0 && (order.items || []).every((item: any) => owned.has(String(item.productId))) && order.status === 'Packed' && (order.paymentMode === 'COD' || order.paymentStatus === 'PAID') && (!logistics || (logistics.booking_status === 'FAILED' && !logistics.awb_number)),
+        manualDispatchAllowed: (order.items || []).length > 0 && (order.items || []).every((item: any) => owned.has(String(item.productId))) && order.status === 'Packed' && (['COD', 'SELLER_COLLECT', 'POS_ON_DELIVERY'].includes(order.paymentMode) || order.paymentStatus === 'PAID') && (!logistics || (logistics.booking_status === 'FAILED' && !logistics.awb_number)),
       };
     });
     res.setHeader('Cache-Control', 'private, no-store');
@@ -3173,7 +3320,7 @@ async function startServer() {
     const providerProducts = await ProductModel.find({ _id: { $in: orderProductIds }, providerId: user._id }).select('_id').lean();
     if (!orderProductIds.length || providerProducts.length !== orderProductIds.length) return res.status(403).json({ error: 'ORDER_CONTAINS_PRODUCTS_OUTSIDE_PROVIDER_FULFILMENT_SCOPE' });
     if (order.status !== 'Packed') return res.status(409).json({ error: 'ORDER_MUST_BE_PACKED_BEFORE_PROVIDER_DISPATCH' });
-    if (order.paymentMode !== 'COD' && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
+    if (!['COD', 'SELLER_COLLECT', 'POS_ON_DELIVERY'].includes(order.paymentMode) && order.paymentStatus !== 'PAID') return res.status(409).json({ error: 'PAYMENT_MUST_BE_CONFIRMED_BEFORE_SHIPMENT' });
     const shippedAt = new Date();
     const updated = await OrderModel.findOneAndUpdate(
       { _id: order._id, sellerId: order.sellerId, status: 'Packed' },
@@ -3561,20 +3708,73 @@ async function startServer() {
     res.json({ order });
   });
 
-  // Seller confirms stock/availability before prepaid checkout is enabled.
+  // Seller confirms stock/availability; offline modes (COD, SELLER_COLLECT, POS_ON_DELIVERY) proceed cleanly without gateway blocking.
   app.post('/api/seller/orders/:id/confirm', async (req, res) => {
     const { user } = await resolveActor(req, res);
     if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    const flags = await getPlatformFlags();
     const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
     if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
     if (!['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(order.status)) return res.status(409).json({ error: 'INVALID_ORDER_TRANSITION' });
-    order.status = order.paymentMode === 'COD' ? 'Confirmed' : 'CONFIRMED_AWAITING_PAYMENT';
-    order.statusTimeline.push({ status: order.status, note: 'Seller confirmed product availability.', timestamp: new Date() });
+    const requiresGatewayCheckout = flags.onlinePaymentEnabled && ['RAZORPAY', 'STRIPE'].includes(String(order.paymentMode || ''));
+    order.status = requiresGatewayCheckout ? 'CONFIRMED_AWAITING_PAYMENT' : 'Confirmed';
+    order.statusTimeline.push({
+      status: order.status,
+      note: requiresGatewayCheckout
+        ? 'Seller confirmed availability; awaiting online gateway payment.'
+        : `Seller confirmed order (${order.paymentMode || 'COD'} collection).`,
+      timestamp: new Date(),
+    });
     await order.save();
-    if (order.paymentMode !== 'COD') {
+    if (requiresGatewayCheckout) {
       const checkoutUrl = getAppBaseUrl(req) + '/orders';
-      await sendWhatsAppMessage(order.shippingAddress.phone, 'Seller confirmed order ' + order.orderNumber + '. Complete secure payment from your order page: ' + checkoutUrl);
+      await sendWhatsAppMessage(order.shippingAddress.phone, 'Seller confirmed order ' + order.orderNumber + '. Complete secure payment from your order page: ' + checkoutUrl).catch(() => {});
     }
+    res.json({ order });
+  });
+
+  // Low-complexity Seller/Admin payment collection & POS machine confirmation endpoint.
+  app.post('/api/seller/orders/:id/confirm-payment', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role) || (user.role === 'SELLER' && !user.isWhatsappVerified)) {
+      return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    }
+    const parsed = z.object({
+      collectionMethod: z.enum(['CASH', 'UPI', 'POS_CARD', 'BANK_TRANSFER']).default('UPI'),
+      referenceNumber: z.string().trim().max(160).optional().default(''),
+      posTerminalId: z.string().trim().max(120).optional().default(''),
+      notes: z.string().trim().max(400).optional().default(''),
+    }).safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'INVALID_PAYMENT_CONFIRMATION' });
+    }
+    const order = await OrderModel.findOne({ _id: req.params.id, ...(user.role === 'ADMIN' ? {} : { sellerId: user._id }) });
+    if (!order) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+    if (order.status === 'Cancelled') return res.status(409).json({ error: 'CANNOT_CONFIRM_CANCELLED_ORDER' });
+
+    const now = new Date();
+    order.paymentStatus = 'PAID';
+    order.paymentReference = parsed.data.referenceNumber || order.paymentReference || `${parsed.data.collectionMethod}-${order.orderNumber}`;
+    order.manualPaymentCollection = {
+      method: parsed.data.collectionMethod,
+      referenceNumber: parsed.data.referenceNumber || null,
+      posTerminalId: parsed.data.posTerminalId || null,
+      confirmedByUserId: user._id,
+      confirmedByName: user.name,
+      confirmedAt: now,
+      notes: parsed.data.notes || null,
+    };
+    if (['Pending', 'PENDING_SELLER_CONFIRMATION', 'CONFIRMED_AWAITING_PAYMENT'].includes(order.status)) {
+      order.status = 'Confirmed';
+    }
+    const refNote = parsed.data.referenceNumber ? ` · Ref: ${parsed.data.referenceNumber}` : '';
+    const terminalNote = parsed.data.posTerminalId ? ` · Terminal: ${parsed.data.posTerminalId}` : '';
+    order.statusTimeline.push({
+      status: order.status,
+      note: `Payment confirmed by ${user.name} (${parsed.data.collectionMethod}${refNote}${terminalNote})`,
+      timestamp: now,
+    });
+    await order.save();
     res.json({ order });
   });
 
@@ -4044,8 +4244,12 @@ async function startServer() {
     res.status(500).json({ error: err.message || 'Internal server error' });
   });
 
-  // Vite middleware in dev, static dist in production
-  if (process.env.NODE_ENV === 'production') {
+  // Vite middleware in dev, static dist in combined production mode, or pure API mode when DISABLE_STATIC_UI=1.
+  if (DISABLE_STATIC_UI) {
+    app.get('/', (_req, res) => {
+      res.json({ service: 'kala-and-karat-api', ok: true, mode: 'lean-api' });
+    });
+  } else if (process.env.NODE_ENV === 'production') {
     const distDir = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distDir, {
       maxAge: '1y',
@@ -4069,12 +4273,12 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Kala & Karat server running on http://0.0.0.0:${PORT} (DB mode: ${dbStatus.mode})`);
+    console.log(`Kala & Karat server running on http://0.0.0.0:${PORT} (DB mode: ${dbStatus.mode}, staticUI: ${!DISABLE_STATIC_UI})`);
   });
 
-  // On small single-instance deployments, run the durable logistics queue consumer
-  // in this process. Jobs remain persisted in Supabase and resume after a cold start.
-  if (process.env.RUN_LOGISTICS_WORKER === '1') {
+  // Background logistics worker stays off under 512 MB free tier unless both env and Admin flag explicitly enable it.
+  const initialFlags = await getPlatformFlags().catch(() => null);
+  if (process.env.RUN_LOGISTICS_WORKER === '1' && initialFlags?.backgroundWorkerEnabled) {
     void import('./apps/logistics-worker/src/run.js')
       .then(({ runLogisticsWorker }) => runLogisticsWorker())
       .catch((error) => {

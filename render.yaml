@@ -1,17 +1,19 @@
 services:
   - type: web
-    name: ecommerce-store
+    name: ecommerce-api
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint && bun run test:logistics && bun run test:hybrid && bun run test:privacy && bun run test:roles && bun run test:sitemap && bun run build && bun run build:workspace
-    startCommand: bun run start
+    buildCommand: bun install --no-save && bun run lint && bun run test && bun run test:roles
+    startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: RUN_LOGISTICS_WORKER
+      - key: DISABLE_STATIC_UI
         value: "1"
+      - key: RUN_LOGISTICS_WORKER
+        value: "0"
       - key: LOGISTICS_WORKER_POLL_MS
         value: "2000"
       - key: SHIPROCKET_API_BASE_URL
@@ -38,10 +40,6 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: VITE_SUPABASE_URL
-        sync: false
-      - key: VITE_SUPABASE_ANON_KEY
-        sync: false
       - key: LOGISTICS_SUPABASE_URL
         sync: false
       - key: LOGISTICS_SUPABASE_SERVICE_ROLE_KEY
@@ -61,4 +59,25 @@ services:
       - key: R2_PUBLIC_CDN_URL
         sync: false
       - key: CRON_SECRET
+        sync: false
+
+  - type: web
+    name: ecommerce-ui
+    runtime: static
+    plan: free
+    buildCommand: bun install --no-save && bun run build
+    staticPublishPath: ./dist
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_ASSET_BASE_URL
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
         sync: false

@@ -56,6 +56,7 @@ import type {
   OrderListResponse,
   OrderStatus,
   OrderTab,
+  PlatformServiceFlags,
   Product,
   ProductCategory,
   ProductControlAction,
@@ -98,6 +99,7 @@ const REVIEW_CLASSES: ReviewClass[] = [
 
 type SellerTab =
   | 'invites'
+  | 'platform'
   | 'analytics'
   | 'catalog'
   | 'categories'
@@ -138,6 +140,8 @@ interface SellerHubViewProps {
   onInviteConsumed?: () => void;
   onReturnToStore?: () => void;
   onLogout: () => Promise<void>;
+  platformFlags?: PlatformServiceFlags | null;
+  onPlatformFlagsUpdated?: (flags: PlatformServiceFlags) => void;
 }
 
 function CatalogThumb({ src, alt }: { src?: string; alt: string }) {
@@ -170,6 +174,8 @@ export function SellerHubView({
   onInviteConsumed,
   onReturnToStore,
   onLogout,
+  platformFlags,
+  onPlatformFlagsUpdated,
 }: SellerHubViewProps) {
   const { t, tc, to, tseason, tr, ts, totab, locale, lang, setLang } = useI18n();
   const { t: i18nT } = useTranslation();
@@ -314,6 +320,38 @@ export function SellerHubView({
   });
   const [gatewayNotice, setGatewayNotice] = useState('');
   const [gatewayBusy, setGatewayBusy] = useState(false);
+
+  // Admin Platform Service Flags state
+  const [platformDraft, setPlatformDraft] = useState<PlatformServiceFlags>({
+    shippingQuotesEnabled: platformFlags?.shippingQuotesEnabled ?? false,
+    flatFallbackShippingInr: platformFlags?.flatFallbackShippingInr ?? 0,
+    backgroundWorkerEnabled: platformFlags?.backgroundWorkerEnabled ?? false,
+    onlinePaymentEnabled: platformFlags?.onlinePaymentEnabled ?? false,
+    codEnabled: platformFlags?.codEnabled ?? true,
+    codMaxOrderValueInr: platformFlags?.codMaxOrderValueInr ?? 25000,
+    sellerDirectCollectEnabled: platformFlags?.sellerDirectCollectEnabled ?? true,
+    posMachineEnabled: platformFlags?.posMachineEnabled ?? true,
+    posDemandCartThresholdInr: platformFlags?.posDemandCartThresholdInr ?? 5000,
+    posTerminalLabel: platformFlags?.posTerminalLabel || 'Portable Card / UPI POS',
+  });
+  const [platformBusy, setPlatformBusy] = useState(false);
+  const [platformNotice, setPlatformNotice] = useState<string | null>(null);
+
+  // Manual Payment & POS confirmation state on Seller Orders
+  const [paymentConfirmOrderId, setPaymentConfirmOrderId] = useState<string | null>(null);
+  const [paymentConfirmDraft, setPaymentConfirmDraft] = useState<{
+    method: 'CASH' | 'UPI' | 'POS_CARD' | 'BANK_TRANSFER';
+    referenceNumber: string;
+    posTerminalId: string;
+    notes: string;
+  }>({
+    method: 'UPI',
+    referenceNumber: '',
+    posTerminalId: '',
+    notes: '',
+  });
+  const [paymentConfirmBusy, setPaymentConfirmBusy] = useState(false);
+  const [paymentConfirmNotice, setPaymentConfirmNotice] = useState<string | null>(null);
 
   const [sellerCoupons, setSellerCoupons] = useState<Coupon[]>([]);
   const [knownCustomers, setKnownCustomers] = useState<
@@ -607,9 +645,55 @@ export function SellerHubView({
     }
   };
 
+  const loadPlatformFlags = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await apiFetch<{ flags: PlatformServiceFlags }>('/api/admin/platform-flags');
+      if (data.flags) {
+        setPlatformDraft(data.flags);
+        onPlatformFlagsUpdated?.(data.flags);
+      }
+    } catch {
+      setPlatformNotice('Unable to load service flags.');
+    }
+  }, [isAdmin, onPlatformFlagsUpdated]);
+
+  const savePlatformFlags = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPlatformBusy(true);
+    setPlatformNotice(null);
+    try {
+      const data = await apiFetch<{ flags: PlatformServiceFlags }>('/api/admin/platform-flags', {
+        method: 'PUT',
+        body: JSON.stringify({
+          shippingQuotesEnabled: platformDraft.shippingQuotesEnabled,
+          flatFallbackShippingInr: Number(platformDraft.flatFallbackShippingInr) || 0,
+          backgroundWorkerEnabled: platformDraft.backgroundWorkerEnabled,
+          onlinePaymentEnabled: platformDraft.onlinePaymentEnabled,
+          codEnabled: platformDraft.codEnabled,
+          codMaxOrderValueInr: Number(platformDraft.codMaxOrderValueInr) || 0,
+          sellerDirectCollectEnabled: platformDraft.sellerDirectCollectEnabled,
+          posMachineEnabled: platformDraft.posMachineEnabled,
+          posDemandCartThresholdInr: Number(platformDraft.posDemandCartThresholdInr) || 0,
+          posTerminalLabel: platformDraft.posTerminalLabel.trim() || 'Portable Card / UPI POS',
+        }),
+      });
+      setPlatformDraft(data.flags);
+      onPlatformFlagsUpdated?.(data.flags);
+      setPlatformNotice('Service flags updated and live across checkout & order workflows.');
+    } catch (err) {
+      setPlatformNotice((err as Error).message);
+    } finally {
+      setPlatformBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (isAdmin && sellerTab === 'invites') {
       loadAdminInvites();
+    }
+    if (isAdmin && sellerTab === 'platform') {
+      loadPlatformFlags();
     }
     if (isVerifiedSellerOrAdmin && sellerTab === 'analytics') {
       loadAnalytics();
@@ -638,6 +722,7 @@ export function SellerHubView({
     sellerTab,
     orderTab,
     loadAdminInvites,
+    loadPlatformFlags,
     loadAnalytics,
     loadSellerCategories,
     loadSellerCampaigns,
@@ -1471,6 +1556,33 @@ ${inv.note ? `Admin note: ${inv.note}
     setShipOrderTarget(null);
   };
 
+  const handleConfirmManualPayment = async (orderId: string) => {
+    setPaymentConfirmBusy(true);
+    setPaymentConfirmNotice(null);
+    try {
+      const res = await apiFetch<{ order: Order }>(
+        `/api/seller/orders/${encodeURIComponent(orderId)}/confirm-payment`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            method: paymentConfirmDraft.method,
+            referenceNumber: paymentConfirmDraft.referenceNumber.trim() || undefined,
+            posTerminalId: paymentConfirmDraft.posTerminalId.trim() || undefined,
+            notes: paymentConfirmDraft.notes.trim() || undefined,
+          }),
+        }
+      );
+      setSellerOrders((prev) => prev.map((o) => (o._id === orderId ? res.order : o)));
+      setPaymentConfirmOrderId(null);
+      setPaymentConfirmDraft({ method: 'UPI', referenceNumber: '', posTerminalId: '', notes: '' });
+      setPaymentConfirmNotice(`Payment confirmed for ${res.order.orderNumber}.`);
+    } catch (err) {
+      setPaymentConfirmNotice((err as Error).message);
+    } finally {
+      setPaymentConfirmBusy(false);
+    }
+  };
+
   const handleRunTrendingCron = async () => {
     const res = await apiFetch<{ updatedCount: number; recalculatedAt: string }>(
       '/api/cron/trending',
@@ -1486,7 +1598,12 @@ ${inv.note ? `Admin note: ${inv.note}
   };
 
   const tabOptions: Array<{ id: SellerTab; label: string }> = [
-    ...(isAdmin ? [{ id: 'invites' as const, label: t('admin.invitesTab') }] : []),
+    ...(isAdmin
+      ? [
+          { id: 'invites' as const, label: t('admin.invitesTab') },
+          { id: 'platform' as const, label: 'Service flags' },
+        ]
+      : []),
     { id: 'analytics', label: t('seller.tabAnalytics') },
     { id: 'catalog', label: t('seller.tabCatalog') },
     { id: 'categories', label: t('seller.tabCategories') },
@@ -3381,12 +3498,230 @@ ${inv.note ? `Admin note: ${inv.note}
 
       {returnForwardTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleForwardReturnToProvider} className="w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Forward return to provider</h3><p className="mt-1 text-xs leading-5 text-[#6B6A65]">The linked provider will review the return and confirm its return-to address.</p></div><label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><input type="checkbox" checked={returnSharePickupAddress} onChange={e=>setReturnSharePickupAddress(e.target.checked)} className="mt-0.5"/><span><strong>Share buyer pickup address with provider</strong><br/>Required only if the provider is expected to arrange courier collection. Leave unchecked to keep the buyer’s address private.</span></label><div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={()=>setReturnForwardTarget(null)} className="min-h-[44px] sm:min-h-[36px] rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="min-h-[44px] sm:min-h-[36px] rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Forward for provider review</button></div></form></div>}
       {returnPickupTarget&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true"><form onSubmit={handleRecordReturnPickup} className="w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain space-y-3 rounded-xl bg-white p-5 shadow-xl"><div><h3 className="text-lg font-semibold">Record return courier pickup</h3><p className="mt-1 text-xs text-[#6B6A65]">Enter the courier booking details after arranging the reverse pickup.</p></div><label className="block text-xs font-semibold">Courier name<input required value={returnPickupDraft.carrierName} onChange={e=>setReturnPickupDraft(v=>({...v,carrierName:e.target.value}))} className="mt-1 min-h-[44px] w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">AWB / tracking ID<input required value={returnPickupDraft.trackingId} onChange={e=>setReturnPickupDraft(v=>({...v,trackingId:e.target.value}))} className="mt-1 min-h-[44px] w-full rounded border px-3 py-2"/></label><label className="block text-xs font-semibold">Tracking URL (optional)<input type="url" value={returnPickupDraft.trackingUrl} onChange={e=>setReturnPickupDraft(v=>({...v,trackingUrl:e.target.value}))} className="mt-1 min-h-[44px] w-full rounded border px-3 py-2"/></label><div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={()=>setReturnPickupTarget(null)} className="min-h-[44px] sm:min-h-[36px] rounded-md border px-4 py-2 text-xs">Cancel</button><button type="submit" className="min-h-[44px] sm:min-h-[36px] rounded-md bg-[#881337] px-4 py-2 text-xs font-semibold text-white">Save pickup booking</button></div></form></div>}
+      {isAdmin && sellerTab === 'platform' && (
+        <section className="space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold text-[#141413]">Service &amp; Checkout Feature Flags</h2>
+            <p className="mt-1 text-xs text-[#6B6A65] max-w-prose">
+              Control heavyweight services separately on the 512 MB tier. Toggle carrier shipping quotes, background logistics worker, online payment gateways, and POS machine thresholds in real time.
+            </p>
+          </div>
+
+          {platformNotice && (
+            <div role="status" className="rounded-lg border border-[#E8E6E1] bg-white px-4 py-3 text-xs font-medium text-[#141413]">
+              {platformNotice}
+            </div>
+          )}
+
+          <form onSubmit={savePlatformFlags} className="space-y-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Shipping & Memory Guardrails */}
+              <div className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#141413]">Shipping &amp; 512 MB Worker Guardrails</h3>
+                  <p className="text-[11px] text-[#78716C] mt-0.5">
+                    When shipping quotes are paused, customers complete normal checkout with free delivery and zero carrier blocking.
+                  </p>
+                </div>
+
+                <label className="flex min-h-[44px] items-center justify-between gap-3 border-b border-[#F0EEE9] pb-3 cursor-pointer">
+                  <div>
+                    <div className="text-xs font-semibold text-[#141413]">Live carrier delivery quotes</div>
+                    <div className="text-[11px] text-[#6B6A65]">Query Shiprocket / Shadowfax rate engine during checkout</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={platformDraft.shippingQuotesEnabled}
+                    onChange={(e) =>
+                      setPlatformDraft((p) => ({ ...p, shippingQuotesEnabled: e.target.checked }))
+                    }
+                    className="h-4 w-4 accent-[#881337]"
+                  />
+                </label>
+
+                <label className="block text-xs font-medium text-[#44403C]">
+                  Fallback delivery charge (₹) when quotes are flagged off
+                  <input
+                    type="number"
+                    min={0}
+                    max={5000}
+                    value={platformDraft.flatFallbackShippingInr}
+                    onChange={(e) =>
+                      setPlatformDraft((p) => ({
+                        ...p,
+                        flatFallbackShippingInr: Math.max(0, Number(e.target.value) || 0),
+                      }))
+                    }
+                    className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm tabular-nums"
+                  />
+                  <span className="mt-1 block text-[11px] text-[#78716C]">Set to 0 for Free Delivery (default).</span>
+                </label>
+
+                <label className="flex min-h-[44px] items-center justify-between gap-3 pt-1 cursor-pointer">
+                  <div>
+                    <div className="text-xs font-semibold text-[#141413]">Co-located logistics background worker</div>
+                    <div className="text-[11px] text-[#6B6A65]">Requires RUN_LOGISTICS_WORKER=1 env flag; keep OFF on Free 512 MB tier</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={platformDraft.backgroundWorkerEnabled}
+                    onChange={(e) =>
+                      setPlatformDraft((p) => ({ ...p, backgroundWorkerEnabled: e.target.checked }))
+                    }
+                    className="h-4 w-4 accent-[#881337]"
+                  />
+                </label>
+              </div>
+
+              {/* Online Payment Gateways */}
+              <div className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#141413]">Online Payment Gateways &amp; Collection Modes</h3>
+                  <p className="text-[11px] text-[#78716C] mt-0.5">
+                    Keep Razorpay / Stripe paused until traffic scales; use Seller Direct Collection, COD, and POS on Delivery without gateway complexity.
+                  </p>
+                </div>
+
+                <label className="flex min-h-[44px] items-center justify-between gap-3 border-b border-[#F0EEE9] pb-3 cursor-pointer">
+                  <div>
+                    <div className="text-xs font-semibold text-[#141413]">Online payment gateways (Razorpay / Stripe)</div>
+                    <div className="text-[11px] text-[#6B6A65]">Show gateway payment options at checkout and order history</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={platformDraft.onlinePaymentEnabled}
+                    onChange={(e) =>
+                      setPlatformDraft((p) => ({ ...p, onlinePaymentEnabled: e.target.checked }))
+                    }
+                    className="h-4 w-4 accent-[#881337]"
+                  />
+                </label>
+
+                <label className="flex min-h-[44px] items-center justify-between gap-3 border-b border-[#F0EEE9] pb-3 cursor-pointer">
+                  <div>
+                    <div className="text-xs font-semibold text-[#141413]">Seller direct payment collection</div>
+                    <div className="text-[11px] text-[#6B6A65]">Notify seller to share UPI/cash details and confirm payment</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={platformDraft.sellerDirectCollectEnabled}
+                    onChange={(e) =>
+                      setPlatformDraft((p) => ({ ...p, sellerDirectCollectEnabled: e.target.checked }))
+                    }
+                    className="h-4 w-4 accent-[#881337]"
+                  />
+                </label>
+
+                <label className="flex min-h-[44px] items-center justify-between gap-3 cursor-pointer">
+                  <div>
+                    <div className="text-xs font-semibold text-[#141413]">Cash on Delivery (COD)</div>
+                    <div className="text-[11px] text-[#6B6A65]">Standard doorstep cash collection</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={platformDraft.codEnabled}
+                    onChange={(e) => setPlatformDraft((p) => ({ ...p, codEnabled: e.target.checked }))}
+                    className="h-4 w-4 accent-[#881337]"
+                  />
+                </label>
+
+                <label className="block text-xs font-medium text-[#44403C]">
+                  COD maximum order value (₹)
+                  <input
+                    type="number"
+                    min={0}
+                    max={500000}
+                    value={platformDraft.codMaxOrderValueInr}
+                    onChange={(e) =>
+                      setPlatformDraft((p) => ({
+                        ...p,
+                        codMaxOrderValueInr: Math.max(0, Number(e.target.value) || 0),
+                      }))
+                    }
+                    className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm tabular-nums"
+                  />
+                </label>
+              </div>
+
+              {/* POS Machine on Delivery */}
+              <div className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4 lg:col-span-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#141413]">POS Machine on Delivery Integration</h3>
+                    <p className="text-[11px] text-[#78716C] mt-0.5">
+                      Offer a portable Card / UPI POS machine when cart value reaches demand threshold or exceeds COD limit.
+                    </p>
+                  </div>
+                  <label className="flex min-h-[44px] items-center gap-2 text-xs font-semibold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={platformDraft.posMachineEnabled}
+                      onChange={(e) =>
+                        setPlatformDraft((p) => ({ ...p, posMachineEnabled: e.target.checked }))
+                      }
+                      className="h-4 w-4 accent-[#881337]"
+                    />
+                    Enabled
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <label className="block text-xs font-medium text-[#44403C]">
+                    POS demand highlight threshold (₹)
+                    <input
+                      type="number"
+                      min={0}
+                      max={500000}
+                      value={platformDraft.posDemandCartThresholdInr}
+                      onChange={(e) =>
+                        setPlatformDraft((p) => ({
+                          ...p,
+                          posDemandCartThresholdInr: Math.max(0, Number(e.target.value) || 0),
+                        }))
+                      }
+                      className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm tabular-nums"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-[#44403C]">
+                    POS terminal display label
+                    <input
+                      type="text"
+                      maxLength={80}
+                      value={platformDraft.posTerminalLabel}
+                      onChange={(e) =>
+                        setPlatformDraft((p) => ({ ...p, posTerminalLabel: e.target.value }))
+                      }
+                      className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="submit"
+                disabled={platformBusy}
+                className="min-h-[44px] rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#9F1239] disabled:opacity-50 cursor-pointer"
+              >
+                {platformBusy ? 'Saving flags…' : 'Save service flags'}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
       {isVerifiedSellerOrAdmin && sellerTab === 'payments' && (
         <section className="space-y-5">
           <div>
             <h2 className="text-lg font-semibold text-[#141413]">Payment settings</h2>
             <p className="mt-1 text-xs text-[#78716C]">Connect Razorpay and Stripe. Secret fields are write-only and encrypted before storage.</p>
           </div>
+          {platformFlags && !platformFlags.onlinePaymentEnabled && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">
+              Online payment gateways are currently paused at platform level. Orders run via COD, Seller Direct Collection, and POS Machine on Delivery; saved gateway keys stay encrypted until Admin enables online gateways.
+            </div>
+          )}
           {(['razorpay', 'stripe'] as const).map((provider) => (
             <div key={provider} className="rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
@@ -3439,6 +3774,12 @@ ${inv.note ? `Admin note: ${inv.note}
             ))}
           </div>
 
+          {paymentConfirmNotice && (
+            <div role="status" className="rounded-md border border-[#E8E6E1] bg-white px-4 py-2.5 text-xs font-medium text-[#141413]">
+              {paymentConfirmNotice}
+            </div>
+          )}
+
           <div className="space-y-3">
             {sellerOrders.map((ord) => (
               <div
@@ -3446,20 +3787,64 @@ ${inv.note ? `Admin note: ${inv.note}
                 className="rounded-lg border border-[#E8E6E1] bg-white p-5 space-y-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-xs">
-                    <span className="font-mono font-semibold text-[#141413]">
-                      {ord.orderNumber}
-                    </span>
-                    <span className="text-[#6B6A65]">
-                      {' '}
-                      · {ord.shippingAddress.fullName} ({ord.shippingAddress.city}) ·{' '}
-                      <span className="font-semibold text-[#881337]">{ts(ord.status)}</span>
-                    </span>
+                  <div className="text-xs space-y-0.5">
+                    <div>
+                      <span className="font-mono font-semibold text-[#141413]">
+                        {ord.orderNumber}
+                      </span>
+                      <span className="text-[#6B6A65]">
+                        {' '}
+                        · {ord.shippingAddress.fullName} ({ord.shippingAddress.city}) ·{' '}
+                        <span className="font-semibold text-[#881337]">{ts(ord.status)}</span>
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[#57534E]">
+                      Mode:{' '}
+                      <span className="font-semibold text-[#141413]">
+                        {ord.paymentMode === 'POS_ON_DELIVERY'
+                          ? 'POS Machine on Delivery'
+                          : ord.paymentMode === 'SELLER_COLLECT'
+                            ? 'Seller Direct Collection'
+                            : ord.paymentMode || 'COD'}
+                      </span>
+                      {ord.posRequested && (
+                        <span className="ml-2 font-semibold text-[#881337]">
+                          · Carry portable POS terminal
+                        </span>
+                      )}
+                      {ord.paymentStatus && (
+                        <span
+                          className={`ml-2 font-semibold ${
+                            ord.paymentStatus === 'PAID' ? 'text-emerald-700' : 'text-[#6B6A65]'
+                          }`}
+                        >
+                          · {ord.paymentStatus}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="text-sm font-semibold tabular-nums">
                     {formatINR(ord.totalAmount)}
                   </div>
                 </div>
+
+                {ord.manualPaymentCollection?.confirmedAt && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-900">
+                    <span className="font-semibold">
+                      Payment confirmed ({ord.manualPaymentCollection.method.replaceAll('_', ' ')})
+                    </span>
+                    {ord.manualPaymentCollection.referenceNumber && (
+                      <span className="font-mono ml-2 tabular-nums">
+                        · Ref: {ord.manualPaymentCollection.referenceNumber}
+                      </span>
+                    )}
+                    {ord.manualPaymentCollection.posTerminalId && (
+                      <span className="font-mono ml-2 tabular-nums">
+                        · Terminal: {ord.manualPaymentCollection.posTerminalId}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   {ord.items.map((item, iIdx) => (
@@ -3505,6 +3890,87 @@ ${inv.note ? `Admin note: ${inv.note}
                     <button type="button" onClick={() => void handleCancellationReview(ord._id, 'reject')} className="rounded border border-[#D6D3CD] px-3 py-1.5 text-xs">Reject request</button>
                   </div>
                 )}
+
+                {paymentConfirmOrderId === ord._id && (
+                  <div className="rounded-md border border-[#E8E6E1] bg-[#FAF9F6] p-3.5 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#141413]">
+                        Confirm Direct / POS Payment Collection
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentConfirmOrderId(null)}
+                        className="text-xs text-[#6B6A65] hover:text-[#141413] cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <label className="block text-[11px] font-medium text-[#44403C]">
+                        Method
+                        <select
+                          value={paymentConfirmDraft.method}
+                          onChange={(e) =>
+                            setPaymentConfirmDraft((d) => ({
+                              ...d,
+                              method: e.target.value as 'CASH' | 'UPI' | 'POS_CARD' | 'BANK_TRANSFER',
+                            }))
+                          }
+                          className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 text-xs"
+                        >
+                          <option value="POS_CARD">POS Card / Tap</option>
+                          <option value="UPI">UPI / QR Transfer</option>
+                          <option value="CASH">Cash on Delivery</option>
+                          <option value="BANK_TRANSFER">Bank Transfer / IMPS</option>
+                        </select>
+                      </label>
+                      <label className="block text-[11px] font-medium text-[#44403C]">
+                        RRN / UTR / Slip Ref (optional)
+                        <input
+                          type="text"
+                          value={paymentConfirmDraft.referenceNumber}
+                          onChange={(e) =>
+                            setPaymentConfirmDraft((d) => ({ ...d, referenceNumber: e.target.value }))
+                          }
+                          placeholder="e.g. RRN42190811"
+                          className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 text-xs font-mono"
+                        />
+                      </label>
+                      <label className="block text-[11px] font-medium text-[#44403C]">
+                        POS Terminal ID (optional)
+                        <input
+                          type="text"
+                          value={paymentConfirmDraft.posTerminalId}
+                          onChange={(e) =>
+                            setPaymentConfirmDraft((d) => ({ ...d, posTerminalId: e.target.value }))
+                          }
+                          placeholder="e.g. POS-MUM-02"
+                          className="mt-1 min-h-[44px] w-full rounded-md border border-[#D6D3CD] bg-white px-2.5 py-2 text-xs font-mono"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={paymentConfirmDraft.notes}
+                        onChange={(e) =>
+                          setPaymentConfirmDraft((d) => ({ ...d, notes: e.target.value }))
+                        }
+                        placeholder="Collection note (optional)"
+                        className="flex-1 min-h-[44px] rounded-md border border-[#D6D3CD] bg-white px-3 py-2 text-xs"
+                      />
+                      <button
+                        type="button"
+                        disabled={paymentConfirmBusy}
+                        onClick={() => void handleConfirmManualPayment(ord._id)}
+                        className="min-h-[44px] rounded-md bg-emerald-700 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50 cursor-pointer"
+                      >
+                        {paymentConfirmBusy ? 'Confirming…' : 'Mark as Paid'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#F0EEE9]">
                   {['Pending', 'PENDING_SELLER_CONFIRMATION'].includes(ord.status) && (
                     <ActionButton
@@ -3516,6 +3982,28 @@ ${inv.note ? `Admin note: ${inv.note}
                       onClick={() => handleOrderStatusChange(ord, 'Confirmed')}
                       labelOverride={t('seller.confirmOrder')}
                     />
+                  )}
+                  {ord.paymentStatus !== 'PAID' && ord.status !== 'Cancelled' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentConfirmOrderId((curr) => (curr === ord._id ? null : ord._id));
+                        setPaymentConfirmDraft({
+                          method:
+                            ord.paymentMode === 'POS_ON_DELIVERY'
+                              ? 'POS_CARD'
+                              : ord.paymentMode === 'COD'
+                                ? 'CASH'
+                                : 'UPI',
+                          referenceNumber: '',
+                          posTerminalId: '',
+                          notes: '',
+                        });
+                      }}
+                      className="min-h-[44px] sm:min-h-[36px] rounded border border-emerald-700 bg-emerald-50/70 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 cursor-pointer"
+                    >
+                      {ord.paymentMode === 'POS_ON_DELIVERY' ? 'Confirm POS / Payment' : 'Confirm payment'}
+                    </button>
                   )}
                   {(['Confirmed', 'PAID_AND_PROCESSING'].includes(ord.status)) && (
                     <button

@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, Minus, Plus, Tag, Trash2, X } from 'lucide-react';
-import type { CartItem, Coupon, CouponValidationResult, Order, User } from '../shared/types';
-import { apiFetch, formatINR } from '../lib/api';
+import type {
+  CartItem,
+  CheckoutPaymentMode,
+  Coupon,
+  CouponValidationResult,
+  Order,
+  PlatformServiceFlags,
+  User,
+} from '../shared/types';
+import { apiFetch, formatINR, resolveAssetUrl } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { ActionButton } from './ActionButton';
 
@@ -17,6 +25,25 @@ interface CartDrawerProps {
   onRequireAuth: () => void;
   pendingCouponCode?: string | null;
   onClearPendingCoupon?: () => void;
+  platformFlags?: PlatformServiceFlags | null;
+}
+
+function formatPaymentModeLabel(mode?: CheckoutPaymentMode): string {
+  switch (mode) {
+    case 'POS_ON_DELIVERY':
+      return 'POS Machine on Delivery';
+    case 'SELLER_COLLECT':
+      return 'Seller Direct Collection (UPI / Confirm)';
+    case 'RAZORPAY':
+    case 'STRIPE':
+      return 'Online Payment';
+    case 'WALLET':
+    case 'MIXED':
+      return 'Store Wallet';
+    case 'COD':
+    default:
+      return 'Cash on Delivery (COD)';
+  }
 }
 
 export function CartDrawer({
@@ -31,6 +58,7 @@ export function CartDrawer({
   onRequireAuth,
   pendingCouponCode,
   onClearPendingCoupon,
+  platformFlags,
 }: CartDrawerProps) {
   const { t } = useI18n();
   const [showGateModal, setShowGateModal] = useState(false);
@@ -43,9 +71,11 @@ export function CartDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmedOrders, setConfirmedOrders] = useState<Order[] | null>(null);
-  const [rateGroups,setRateGroups]=useState<Array<{sellerId:string;markupPercent?:number;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;customerChargeMinor?:number;sellerMarkupMinor?:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
-  const [rateLoading,setRateLoading]=useState(false);
-  const [rateError,setRateError]=useState<string|null>(null);
+  const [rateGroups] = useState<Array<{sellerId:string;markupPercent?:number;quotes:Array<{providerCode:string;serviceCode:string;costMinor:number;customerChargeMinor?:number;sellerMarkupMinor?:number;currency:string;estimatedTransitHours:number;score:number}>}>>([]);
+  const [rateLoading] = useState(false);
+  const [rateError] = useState<string|null>(null);
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<CheckoutPaymentMode>('COD');
+  const userPickedMode = useRef(false);
   const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
 
   // Coupon state
@@ -59,8 +89,91 @@ export function CartDrawer({
   const baseTotal = cart.reduce((sum, i) => sum + i.basePrice * i.quantity, 0);
   const catalogSavings = Math.max(0, baseTotal - subtotal);
   const couponDiscount = appliedValidation?.valid ? appliedValidation.discountAmount : 0;
-  const deliveryCharge = rateGroups.reduce((sum, group) => sum + Number(group.quotes[0]?.customerChargeMinor ?? group.quotes[0]?.costMinor ?? 0) / 100, 0);
-  const finalTotal = Math.max(1, subtotal - couponDiscount + deliveryCharge);
+  const orderNetSubtotal = Math.max(0, subtotal - couponDiscount);
+
+  const shippingQuotesEnabled = platformFlags?.shippingQuotesEnabled ?? false;
+  const flatFallbackShippingInr = Math.max(0, platformFlags?.flatFallbackShippingInr ?? 0);
+  const onlinePaymentEnabled = platformFlags?.onlinePaymentEnabled ?? false;
+  const codEnabled = platformFlags?.codEnabled ?? true;
+  const codMaxOrderValueInr = platformFlags?.codMaxOrderValueInr ?? 25000;
+  const sellerDirectCollectEnabled = platformFlags?.sellerDirectCollectEnabled ?? true;
+  const posMachineEnabled = platformFlags?.posMachineEnabled ?? true;
+  const posDemandCartThresholdInr = platformFlags?.posDemandCartThresholdInr ?? 5000;
+  const posTerminalLabel = platformFlags?.posTerminalLabel || 'Portable Card / UPI POS';
+
+  const codOverLimit = codEnabled && codMaxOrderValueInr > 0 && orderNetSubtotal > codMaxOrderValueInr;
+  const posDemandTriggered =
+    posMachineEnabled && (orderNetSubtotal >= posDemandCartThresholdInr || codOverLimit);
+
+  const paymentOptions: Array<{
+    mode: CheckoutPaymentMode;
+    label: string;
+    hint: string;
+    recommended?: boolean;
+  }> = [];
+  if (codEnabled && !codOverLimit) {
+    paymentOptions.push({
+      mode: 'COD',
+      label: 'Cash on Delivery (COD)',
+      hint: `Pay cash at doorstep delivery${codMaxOrderValueInr > 0 ? ` (up to ${formatINR(codMaxOrderValueInr)})` : ''}.`,
+    });
+  }
+  if (sellerDirectCollectEnabled) {
+    paymentOptions.push({
+      mode: 'SELLER_COLLECT',
+      label: 'Seller Direct Collection',
+      hint: 'Place order free now; seller confirms stock & shares UPI/collection details.',
+    });
+  }
+  if (posMachineEnabled) {
+    paymentOptions.push({
+      mode: 'POS_ON_DELIVERY',
+      label: `POS Machine on Delivery (${posTerminalLabel})`,
+      hint: posDemandTriggered
+        ? `Recommended for orders ${codOverLimit ? `above COD limit (${formatINR(codMaxOrderValueInr)})` : `from ${formatINR(posDemandCartThresholdInr)}`} — card or UPI swipe on delivery.`
+        : 'Request portable card/UPI swipe terminal at your doorstep.',
+      recommended: posDemandTriggered,
+    });
+  }
+  if (onlinePaymentEnabled) {
+    paymentOptions.push({
+      mode: 'RAZORPAY',
+      label: 'Online Payment (Gateway)',
+      hint: 'Pay online via UPI, card, or netbanking once seller confirms stock.',
+    });
+  }
+  if (paymentOptions.length === 0) {
+    paymentOptions.push({
+      mode: 'SELLER_COLLECT',
+      label: 'Seller Direct Collection',
+      hint: 'Seller confirms order & arranges direct collection.',
+    });
+  }
+
+  const effectivePaymentMode: CheckoutPaymentMode = paymentOptions.some(
+    (opt) => opt.mode === selectedPaymentMode
+  )
+    ? selectedPaymentMode
+    : posDemandTriggered && paymentOptions.some((o) => o.mode === 'POS_ON_DELIVERY')
+      ? 'POS_ON_DELIVERY'
+      : paymentOptions[0].mode;
+
+  const deliveryCharge = shippingQuotesEnabled
+    ? rateGroups.reduce(
+        (sum, group) =>
+          sum + Number(group.quotes[0]?.customerChargeMinor ?? group.quotes[0]?.costMinor ?? 0) / 100,
+        0
+      )
+    : flatFallbackShippingInr;
+  const finalTotal = Math.max(1, orderNetSubtotal + deliveryCharge);
+
+  useEffect(() => {
+    if (!userPickedMode.current && posDemandTriggered && posMachineEnabled) {
+      setSelectedPaymentMode('POS_ON_DELIVERY');
+    } else if (!paymentOptions.some((o) => o.mode === selectedPaymentMode)) {
+      setSelectedPaymentMode(paymentOptions[0].mode);
+    }
+  }, [posDemandTriggered, posMachineEnabled, codOverLimit, onlinePaymentEnabled, sellerDirectCollectEnabled, codEnabled]);
 
   const validateAndApplyCoupon = useCallback(
     async (rawCode: string) => {
@@ -110,6 +223,7 @@ export function CartDrawer({
     if (cart.length === 0) {
       setAppliedValidation(null);
       setCouponError(null);
+      userPickedMode.current = false;
       return;
     }
     if (appliedValidation?.valid && appliedValidation.coupon?.code) {
@@ -126,6 +240,7 @@ export function CartDrawer({
       const fingerprint = JSON.stringify({
         items: cart.map((item) => [item.productId, item.variantSku, item.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
         coupon: appliedValidation?.valid ? appliedValidation.coupon?.code || '' : '',
+        paymentMode: effectivePaymentMode,
       });
       if (!checkoutAttempt.current || checkoutAttempt.current.fingerprint !== fingerprint) {
         const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -139,6 +254,7 @@ export function CartDrawer({
         body: JSON.stringify({
           idempotencyKey: checkoutAttempt.current.key,
           items: cart,
+          paymentMode: effectivePaymentMode,
           ...(appliedValidation?.valid && appliedValidation.coupon?.code
             ? { couponCode: appliedValidation.coupon.code }
             : {}),
@@ -266,6 +382,19 @@ export function CartDrawer({
                     {t('cart.deliverTo')}: {ord.shippingAddress.fullName}, {ord.shippingAddress.city}{' '}
                     {ord.shippingAddress.pincode}
                   </div>
+                  <div className="text-[#44403C]">
+                    Payment: <span className="font-medium text-[#141413]">{formatPaymentModeLabel(ord.paymentMode)}</span>
+                    {ord.posRequested && (
+                      <span className="block text-[11px] text-[#881337] mt-0.5">
+                        POS terminal requested for doorstep card / UPI swipe on delivery.
+                      </span>
+                    )}
+                    {ord.paymentMode === 'SELLER_COLLECT' && (
+                      <span className="block text-[11px] text-[#57534E] mt-0.5">
+                        Seller notified — pay directly upon seller confirmation.
+                      </span>
+                    )}
+                  </div>
                   {ord.whatsappDispatch && (
                     <div className="border-t border-[#E8E6E1] pt-2 mt-2">
                       <div className="text-[#6B6A65] mb-1">
@@ -297,7 +426,7 @@ export function CartDrawer({
                 className="flex gap-4 border-b border-[#F0EEE9] pb-4"
               >
                 <img
-                  src={item.imageUrl}
+                  src={resolveAssetUrl(item.imageUrl)}
                   alt={item.title}
                   referrerPolicy="no-referrer"
                   className="h-20 w-20 shrink-0 rounded-md border border-[#E8E6E1] object-cover bg-[#F2EFE9]"
@@ -451,21 +580,109 @@ export function CartDrawer({
                   <span>-{formatINR(couponDiscount)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-xs text-[#57534E]"><span>Delivery fee</span><span>{formatINR(deliveryCharge)}</span></div>
+              <div className="flex justify-between text-xs text-[#57534E]">
+                <span>Delivery fee</span>
+                <span>{deliveryCharge > 0 ? formatINR(deliveryCharge) : 'Free (₹0)'}</span>
+              </div>
               <div className="flex justify-between text-sm font-semibold text-[#141413] pt-2 border-t border-[#E8E6E1]">
                 <span>{t('cart.total')}</span>
                 <span>{formatINR(finalTotal)}</span>
               </div>
             </div>
-            <div className="space-y-2">
+
+            {shippingQuotesEnabled ? (
               <div className="rounded-md border border-[#E8E6E1] bg-white p-3 space-y-2">
-                <div className="flex justify-between text-xs"><span>Delivery</span><span>{rateLoading ? 'Calculating…' : rateGroups.length ? formatINR(deliveryCharge) : 'Calculating at checkout'}</span></div>
-                {rateError && <p role="status" className="text-[11px] text-amber-800">Delivery estimate unavailable. Checkout will revalidate the carrier quote.</p>}
-                {rateGroups.map(group => {
+                <div className="flex justify-between text-xs">
+                  <span>Delivery</span>
+                  <span>
+                    {rateLoading
+                      ? 'Calculating…'
+                      : rateGroups.length
+                        ? formatINR(deliveryCharge)
+                        : 'Calculating at checkout'}
+                  </span>
+                </div>
+                {rateError && (
+                  <p role="status" className="text-[11px] text-amber-800">
+                    Delivery estimate unavailable. Checkout will revalidate the carrier quote.
+                  </p>
+                )}
+                {rateGroups.map((group) => {
                   const quote = group.quotes[0];
-                  return quote ? <div key={group.sellerId} className="flex justify-between gap-2 text-[11px] text-[#57534E]"><span>{quote.providerCode} · {quote.serviceCode} · ETA {quote.estimatedTransitHours}h</span><span>{formatINR((quote.customerChargeMinor ?? quote.costMinor)/100)}</span></div> : null;
+                  return quote ? (
+                    <div
+                      key={group.sellerId}
+                      className="flex justify-between gap-2 text-[11px] text-[#57534E]"
+                    >
+                      <span>
+                        {quote.providerCode} · {quote.serviceCode} · ETA {quote.estimatedTransitHours}h
+                      </span>
+                      <span>{formatINR((quote.customerChargeMinor ?? quote.costMinor) / 100)}</span>
+                    </div>
+                  ) : null;
                 })}
-                <p className="text-[10px] text-[#78716C]">Separate delivery fee includes carrier cost and seller-configured markup. Final charge is recalculated securely when you place the order.</p>
+                <p className="text-[10px] text-[#78716C]">
+                  Separate delivery fee includes carrier cost and seller-configured markup. Final charge is recalculated securely when you place the order.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-md border border-[#E8E6E1] bg-white px-3 py-2.5 text-xs text-[#57534E] flex items-center justify-between gap-2">
+                <span>
+                  {flatFallbackShippingInr > 0
+                    ? 'Standard flat delivery charge'
+                    : 'Delivery charge waived — normal checkout enabled'}
+                </span>
+                <span className="font-semibold text-[#141413] tabular-nums">
+                  {flatFallbackShippingInr > 0 ? formatINR(flatFallbackShippingInr) : 'Free'}
+                </span>
+              </div>
+            )}
+
+            {/* Payment & Collection Method Selector */}
+            <div className="rounded-md border border-[#E8E6E1] bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6B6A65]">
+                  Payment &amp; Collection Method
+                </span>
+                {codOverLimit && (
+                  <span className="text-[11px] font-medium text-[#881337] tabular-nums">
+                    COD limit {formatINR(codMaxOrderValueInr)} exceeded
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1.5" role="radiogroup" aria-label="Payment and collection method">
+                {paymentOptions.map((option) => {
+                  const active = effectivePaymentMode === option.mode;
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => {
+                        userPickedMode.current = true;
+                        setSelectedPaymentMode(option.mode);
+                      }}
+                      className={`w-full min-h-[44px] rounded-md border px-3 py-2 text-left transition-colors cursor-pointer ${
+                        active
+                          ? 'border-[#881337] bg-[#FAF9F6]'
+                          : 'border-[#E8E6E1] bg-white hover:border-[#D6D3CD]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-[#141413]">
+                          {option.label}
+                        </span>
+                        {option.recommended && (
+                          <span className="text-[10px] font-semibold text-[#881337] whitespace-nowrap">
+                            Recommended
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-[11px] leading-snug text-[#6B6A65]">{option.hint}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

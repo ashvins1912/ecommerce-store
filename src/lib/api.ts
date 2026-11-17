@@ -1,5 +1,31 @@
 import imageCompression from 'browser-image-compression';
 
+const rawApiBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+const rawAssetBase = (import.meta.env.VITE_ASSET_BASE_URL || '').trim().replace(/\/+$/, '');
+
+export const API_BASE_URL = rawApiBase;
+export const ASSET_BASE_URL = rawAssetBase || rawApiBase;
+
+export function resolveApiUrl(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (API_BASE_URL && url.startsWith('/api')) {
+    return `${API_BASE_URL}${url}`;
+  }
+  return url;
+}
+
+export function resolveAssetUrl(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url) || url.startsWith('data:') || url.startsWith('blob:')) {
+    return url;
+  }
+  if (ASSET_BASE_URL && url.startsWith('/uploads')) {
+    return `${ASSET_BASE_URL}${url}`;
+  }
+  return url;
+}
+
 export function formatINR(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -31,7 +57,8 @@ export function clearClientSessionTokens() {
 export async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const token = getClientAccessToken();
   const csrf = typeof window !== 'undefined' ? sessionStorage.getItem(CSRF_TOKEN_KEY) : null;
-  const res = await fetch(url, {
+  const resolvedUrl = resolveApiUrl(url);
+  const res = await fetch(resolvedUrl, {
     credentials: 'include',
     ...options,
     headers: {

@@ -188,5 +188,8 @@ export function attachSslSecurityHeaders(res: Response) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader(
+    'Cross-Origin-Resource-Policy',
+    process.env.CORS_ALLOWED_ORIGINS ? 'cross-origin' : 'same-origin'
+  );
 }
