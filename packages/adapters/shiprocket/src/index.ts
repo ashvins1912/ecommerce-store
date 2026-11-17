@@ -4,13 +4,26 @@ interface HttpTransport {request<T>(url:string,init:{method:string;headers:Recor
 export class ShiprocketAdapter implements ICarrierProvider {
  readonly code='shiprocket'; readonly kind='AGGREGATOR' as const;
  private tokens=new Map<string,{value:string;expiresAt:number}>();
+ private tokenFlights=new Map<string,Promise<string>>();
  constructor(private http:HttpTransport,private baseUrl:string){}
  private async headers(c:CarrierCredentials){
   if(!c.email||!c.password)throw new Error('SHIPROCKET_CREDENTIALS_MISSING');
-  const key=crypto.createHash('sha256').update(c.email+'\\0'+c.password).digest('hex');let token=this.tokens.get(key);
-  if(!token||token.expiresAt<Date.now()+30000){
-   const x=await this.http.request<{token:string}>(this.baseUrl+'/v1/external/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:{email:c.email,password:c.password}});
-   if(!x.token)throw new Error('SHIPROCKET_AUTH_FAILED');token={value:x.token,expiresAt:Date.now()+9*60*60*1000};this.tokens.set(key,token);
+  const key=crypto.createHash('sha256').update(c.email+'\\0'+c.password).digest('hex');
+  let token=this.tokens.get(key);
+  if(!token||token.expiresAt<Date.now()+6*60*60*1000){
+   let flight=this.tokenFlights.get(key);
+   if(!flight){
+    flight=(async()=>{
+     const x=await this.http.request<{token:string}>(this.baseUrl+'/v1/external/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:{email:c.email,password:c.password}});
+     if(!x.token)throw new Error('SHIPROCKET_AUTH_FAILED');
+     const expiresAt=Date.now()+9*24*60*60*1000;
+     this.tokens.set(key,{value:x.token,expiresAt});
+     return x.token;
+    })();
+    this.tokenFlights.set(key,flight);
+   }
+   try{const value=await flight;token={value,expiresAt:Date.now()+9*24*60*60*1000};}
+   finally{if(this.tokenFlights.get(key)===flight)this.tokenFlights.delete(key);}
   }
   return{'content-type':'application/json',Authorization:'Bearer '+token.value};
  }
@@ -75,7 +88,9 @@ export class ShiprocketAdapter implements ICarrierProvider {
   }
   if(!shipmentId)throw new Error('SHIPROCKET_ORDER_CREATE_FAILED:shipment id missing');
   if(!awb){
-   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:Number(shipmentId),courier_id:Number(r.quote.serviceCode)}});
+   const courierId=Number(r.courierId||c.courierId||process.env.SHIPROCKET_SHADOWFAX_COURIER_ID||r.quote.serviceCode);
+   if(!Number.isSafeInteger(courierId)||courierId<=0)throw new Error('SHIPROCKET_COURIER_ID_INVALID');
+   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:Number(shipmentId),courier_id:courierId}});
    awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
    if(!awb)throw new Error('SHIPROCKET_AWB_ASSIGN_FAILED:'+String(assigned.message||assigned.response?.message||'AWB missing'));
   }
