@@ -4380,7 +4380,7 @@ async function startServer() {
   // Background logistics worker stays off under 512 MB free tier unless both env and Admin flag explicitly enable it.
   const initialFlags = await getPlatformFlags().catch(() => null);
   if (process.env.RUN_LOGISTICS_WORKER === '1' && initialFlags?.backgroundWorkerEnabled) {
-    void import('./apps/logistics-worker/src/run.js')
+    void import('./shipping-service/src/queue-poller.js')
       .then(({ runLogisticsWorker }) => runLogisticsWorker())
       .catch((error) => {
         console.error('Co-located logistics worker stopped unexpectedly:', error);

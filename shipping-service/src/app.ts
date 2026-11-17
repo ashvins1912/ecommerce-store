@@ -42,7 +42,7 @@ export function getShippingServiceReadiness(workerEnabledOverride?: boolean) {
     process.env.UPSTASH_REDIS_REST_URL?.trim() && process.env.UPSTASH_REDIS_REST_TOKEN?.trim()
   );
   const internalSecretConfigured = (process.env.SERVICE_INTERNAL_SECRET?.trim() || '').length >= 16;
-  const workerEnabled = workerEnabledOverride ?? process.env.ENABLE_QUEUE_POLLING === '1' || process.env.ENABLE_QUEUE_WORKER === '1';
+  const workerEnabled = workerEnabledOverride ?? (process.env.ENABLE_QUEUE_POLLING === '1' || process.env.ENABLE_QUEUE_WORKER === '1');
 
   return {
     ready: internalSecretConfigured && logisticsPostgresConfigured && encryptionKeyConfigured,
