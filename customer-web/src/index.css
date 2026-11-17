@@ -1,10 +1,9 @@
 @import "tailwindcss";
 
-/* Explicitly scan shared app and workspace sources for Tailwind v4 utilities. */
-@source "../provider-portal";
-@source "../customer-web";
-@source "../packages";
-@source "./";
+/* Explicitly scan this app, shared packages, and provider portal for Tailwind v4 utilities. */
+@source "../";
+@source "../../provider-portal";
+@source "../../packages";
 
 @theme {
   --font-display: "Cormorant Garamond", Georgia, serif;

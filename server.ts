@@ -418,7 +418,7 @@ async function startServer() {
       status: ready ? 'ready' : 'not_ready',
       dbMode: dbStatus.mode,
       staticUiDisabled: DISABLE_STATIC_UI,
-      workerActive: process.env.RUN_LOGISTICS_WORKER === '1' && Boolean(flags?.backgroundWorkerEnabled),
+      workerActive: false,
     });
   });
 
@@ -4377,15 +4377,6 @@ async function startServer() {
     console.log(`Kala & Karat server running on http://0.0.0.0:${PORT} (DB mode: ${dbStatus.mode}, staticUI: ${!DISABLE_STATIC_UI})`);
   });
 
-  // Background logistics worker stays off under 512 MB free tier unless both env and Admin flag explicitly enable it.
-  const initialFlags = await getPlatformFlags().catch(() => null);
-  if (process.env.RUN_LOGISTICS_WORKER === '1' && initialFlags?.backgroundWorkerEnabled) {
-    void import('./shipping-service/src/queue-poller.js')
-      .then(({ runLogisticsWorker }) => runLogisticsWorker())
-      .catch((error) => {
-        console.error('Co-located logistics worker stopped unexpectedly:', error);
-      });
-  }
 }
 
 startServer();
