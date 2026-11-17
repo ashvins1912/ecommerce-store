@@ -88,7 +88,7 @@ export class ShiprocketAdapter implements ICarrierProvider {
   }
   if(!shipmentId)throw new Error('SHIPROCKET_ORDER_CREATE_FAILED:shipment id missing');
   if(!awb){
-   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:Number(shipmentId),courier_id:Number(r.courierId??r.quote.serviceCode)}});
+   const assigned=await this.http.request<any>(this.baseUrl+'/v1/external/courier/assign/awb',{method:'POST',headers,body:{shipment_id:Number(shipmentId),courier_id:Number(r.courierId??c.courierId??process.env.SHIPROCKET_SHADOWFAX_COURIER_ID??r.quote.serviceCode)}});
    awb=assigned.response?.data?.awb_code||assigned.awb_code||assigned.data?.awb_code;
    if(!awb)throw new Error('SHIPROCKET_AWB_ASSIGN_FAILED:'+String(assigned.message||assigned.response?.message||'AWB missing'));
   }
