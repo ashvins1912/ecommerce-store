@@ -13,6 +13,7 @@
     "start:app": "bash scripts/start-app.sh",
     "dev:customer": "vite --config apps/customer-web/vite.config.ts",
     "build:customer": "vite build --config apps/customer-web/vite.config.ts",
+    "start:customer": "vite preview --config apps/customer-web/vite.config.ts --host 0.0.0.0",
     "dev:provider": "vite --config apps/provider-portal/vite.config.ts",
     "build:provider": "vite build --config apps/provider-portal/vite.config.ts",
     "build:workspace": "npm run build:customer && npm run build:provider",
