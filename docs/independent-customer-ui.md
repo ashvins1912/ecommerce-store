@@ -30,10 +30,9 @@ bun run start:customer
 ```
 
 The production bundle is written to `dist/customer-web`. The preview server
-listens on port 4173 by default and respects the `PORT` environment variable
-only if Vite's preview server supports it in the installed Vite version; for
-container hosting, set the preview port explicitly with
-`bunx vite preview --config apps/customer-web/vite.config.ts --host 0.0.0.0 --port "$PORT"`.
+listens on port 4173 by default and uses the hosting platform's `PORT` when
+provided. You can also run the workspace directly from its directory with
+`bun run --cwd apps/customer-web build` and `bun run --cwd apps/customer-web start`.
 
 The app's API origin is compiled into the static bundle at build time:
 
@@ -59,7 +58,8 @@ The root `render.yaml` defines the customer UI as a free Render Static Site:
 Set the exact UI origin in the API's `CORS_ALLOWED_ORIGINS` and set the UI's
 `VITE_API_BASE_URL` to the API origin before building. Static hosting does not
 need a Node start command; the host serves the generated files. The
-`start:customer` command is for local production-preview testing.
+`start:customer` command is for local production-preview testing or a
+container-based static host.
 
 This change only prepares build and deployment configuration. It does not
 create, deploy, or upgrade any hosting service.
