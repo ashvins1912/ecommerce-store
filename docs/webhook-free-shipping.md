@@ -12,7 +12,7 @@ Set `SHIPROCKET_API_BASE_URL=https://apiv2.shiprocket.in` unless your Shiprocket
 
 The existing `ShiprocketAdapter.createShipment()` creates an adhoc order, assigns an AWB, schedules pickup, and attempts label/manifest generation. The result contains provider shipment ID, AWB, pickup state, and available artifact URLs.
 
-The optional `ShipmentRequest.courierId` overrides the service quote's courier ID in the Shiprocket AWB assignment request. To prioritize Shadowfax through Shiprocket, supply the courier-company ID enabled for Shadowfax on the Shiprocket account. This is distinct from using the direct Shadowfax adapter, whose credentials and API are configured separately. Never assume a courier ID; verify it from the account's serviceability/courier list.
+The optional `ShipmentRequest.courierId` overrides the account credential's `courierId`, the `SHIPROCKET_SHADOWFAX_COURIER_ID` environment fallback, and finally the service quote's courier ID in the Shiprocket AWB assignment request. To prioritize Shadowfax through Shiprocket, supply the courier-company ID enabled for Shadowfax on the Shiprocket account. This is distinct from using the direct Shadowfax adapter, whose credentials and API are configured separately. Never assume a courier ID; verify it from the account's serviceability/courier list.
 
 ## Webhook-free status synchronization
 
