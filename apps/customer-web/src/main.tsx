@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import App from '../../../src/App';
+import App from './App';
 import { LanguageProvider } from '../../../src/lib/i18n';
 import '../../../src/index.css';
 
