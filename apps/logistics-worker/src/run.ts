@@ -1,7 +1,7 @@
 import { ShiprocketAdapter } from '../../../packages/adapters/shiprocket/src/index.js';
 import { ShadowfaxAdapter } from '../../../packages/adapters/shadowfax/src/index.js';
 import type { HttpTransport } from '../../../packages/adapters/shadowfax/src/index.js';
-import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, getProviderCarrierSecret, getProviderWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret } from '../../../src/server/services/logistics.js';
+import { claimLogisticsJob, completeLogisticsJob, failLogisticsJob, getSellerCarrierSecret, getSellerWarehouse, getProviderCarrierSecret, getProviderWarehouse, updateShipmentFromCarrier, decryptLogisticsSecret, listActiveShipmentOrderIdsForPolling } from '../../../src/server/services/logistics.js';
 import type { ICarrierProvider, RateQuote, ShipmentRequest } from '../../../packages/logistics-core/src/index.js';
 import { SellerPrivacySettingsModel, PrivacyDisclosureAuditModel } from '../../../src/server/models/schemas.js';
 import { ProviderFulfillmentDelegationModel } from '../../../src/server/models/providerSchemas.js';
@@ -73,7 +73,7 @@ async function processJob(job:any){
   origin:{warehouseId:p.warehouseId,postalCode:warehouse.postal_code,countryCode:warehouse.country_code||'IN',name:warehouse.name,contact:warehouse.contact_phone,addressLine1:warehouse.address_line1,addressLine2:warehouse.address_line2||'',city:warehouse.city,state:warehouse.state},
   destination:{warehouseId:'destination',postalCode:deliveryData.destinationPostalCode,countryCode:p.destinationCountryCode||'IN',name:deliveryData.recipientName,contact:deliveryData.recipientPhone,email:deliveryData.recipientEmail||'',addressLine1:deliveryData.destinationAddressLine1,addressLine2:deliveryData.destinationAddressLine2||'',city:deliveryData.destinationCity,state:deliveryData.destinationState},
   weightGrams:p.weightGrams,codAmountMinor:p.codAmountMinor,declaredValueMinor:p.declaredValueMinor,currency:p.currency||'INR',
-  idempotencyKey:'logistics-job:'+job.id,orderDate:p.orderDate,
+  idempotencyKey:'logistics-job:'+job.id,orderDate:p.orderDate,courierId:p.courierId?Number(p.courierId):undefined,
   items:p.items||[],
  };
  // Re-read the seller policy after rate lookup and immediately before the external carrier call.
@@ -105,6 +105,29 @@ async function processJob(job:any){
  );
  return {shipmentId:p.shipmentId,providerCode:provider.code,awbNumber:result.awbNumber,labelUrl:result.labelUrl,manifestUrl:result.manifestUrl,pickupScheduled:result.pickupScheduled,estimatedDeliveryAt:result.estimatedDeliveryAt};
 }
+const TRACKING_POLL_INTERVAL_MS=3*60*60*1000;
+let trackingPollInFlight=false;
+async function syncShipmentStatuses(){
+ if(trackingPollInFlight)return;
+ trackingPollInFlight=true;
+ try{
+  const orderIds=await listActiveShipmentOrderIdsForPolling(1000);
+  console.log('Carrier status poll started; active AWBs:',orderIds.length);
+  for(let index=0;index<orderIds.length;index++){
+   const orderId=orderIds[index];
+   try{
+    const shipment=await import('../../../src/server/services/logistics.js');
+    await shipment.refreshCarrierTrackingForOrder(orderId);
+   }catch(error){
+    console.warn('Carrier status poll failed for order:',orderId,error instanceof Error?error.message:String(error));
+   }
+   if(index<orderIds.length-1)await delay(500);
+  }
+  console.log('Carrier status poll completed; checked AWBs:',orderIds.length);
+ }catch(error){console.error('Carrier status polling batch failed:',error);}
+ finally{trackingPollInFlight=false;}
+}
+
 export async function runLogisticsWorker(){
  const pollMs=Math.max(500,Number(process.env.LOGISTICS_WORKER_POLL_MS||1500));
  let shutdownRequested=false;
@@ -115,7 +138,9 @@ export async function runLogisticsWorker(){
  };
  process.once('SIGTERM',()=>requestShutdown('SIGTERM'));
  process.once('SIGINT',()=>requestShutdown('SIGINT'));
- console.log('Logistics worker started; polling PostgreSQL job queue.');
+ console.log('Logistics worker started; polling PostgreSQL job queue and carrier statuses every 3 hours.');
+ void syncShipmentStatuses();
+ const trackingTimer=setInterval(()=>{void syncShipmentStatuses();},TRACKING_POLL_INTERVAL_MS);
  for(;!shutdownRequested;){
   try{
    const claimed=await claimLogisticsJob();
@@ -138,5 +163,6 @@ export async function runLogisticsWorker(){
    }
   }catch(error){console.error('Logistics queue poll failed:',error);await delay(Math.max(pollMs,5000));}
  }
+ clearInterval(trackingTimer);
  console.log('Logistics worker stopped cleanly.');
 }
