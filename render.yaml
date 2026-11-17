@@ -71,8 +71,8 @@ services:
     name: ecommerce-ui
     runtime: static
     plan: free
-    buildCommand: bun install --no-save && bun run build
-    staticPublishPath: ./dist
+    buildCommand: bun install --no-save && bun run build:customer
+    staticPublishPath: ./dist/customer-web
     autoDeploy: true
     routes:
       - type: rewrite
