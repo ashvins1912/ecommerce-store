@@ -34,7 +34,7 @@ The application has two persistence systems: MongoDB for core commerce and Supab
 
 ## Capacity and free-tier expectations
 
-Splitting Static UI off Node removes static asset I/O and bundling pressure from the 512 MB API container. Keep `RUN_LOGISTICS_WORKER=0` and `shippingQuotesEnabled=false` under low traffic so Node idle RSS stays comfortably below 512 MB. Free instances sleep after 15 minutes without inbound traffic and wake in ~30–60s.
+Splitting Static UI off Node removes static asset I/O and bundling pressure from the 512 MB API container. Keep `ENABLE_QUEUE_POLLING=0` on Shipping Service and `shippingQuotesEnabled=false` under low traffic so Node idle RSS stays comfortably below 512 MB. Free instances sleep after 15 minutes without inbound traffic and wake in ~30–60s.
 
 Supabase Free projects can pause after a week of low activity and have small database/storage/egress quotas. Upstash Free currently has finite storage, bandwidth and command quotas. Cloudflare R2 Standard currently includes 10 GB-month storage, 1M Class A and 10M Class B operations per month, with no egress fee. Check each provider's live usage dashboard; quotas and pricing change.
 
