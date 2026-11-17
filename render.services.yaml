@@ -41,7 +41,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: ENABLE_QUEUE_POLLING
-        value: "1"
+        value: "0"
       - key: LOGISTICS_WORKER_POLL_MS
         value: "2000"
       - key: SHIPROCKET_API_BASE_URL
