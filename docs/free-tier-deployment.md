@@ -115,9 +115,9 @@ Never commit `.env.production.local` or any secret file.
    - `SUPABASE_SERVICE_ROLE_KEY` on `ecommerce-api` only if a server-side feature requires it
    - `LOGISTICS_SUPABASE_URL` and `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY` on `ecommerce-api`
 4. Open the Supabase SQL Editor and run these repository migrations in this exact order:
-   1. `src/server/migrations/2026-11-logistics-postgres.sql`
-   2. `src/server/migrations/2026-11-carrier-adaptive-feedback.sql`
-   3. `src/server/migrations/2026-11-provider-logistics.sql`
+   1. `supabase/migrations/2026-11-logistics-postgres.sql`
+   2. `supabase/migrations/2026-11-carrier-adaptive-feedback.sql`
+   3. `supabase/migrations/2026-11-provider-logistics.sql`
 5. Confirm the logistics provider registry and required RPC functions/tables exist before enabling carrier onboarding. Keep the service-role key server-side only; never put it in a `VITE_*` variable.
 
 For Supabase Auth, configure the site URL to `https://ecommerce-ui.onrender.com` and add exact callback/redirect URLs.
