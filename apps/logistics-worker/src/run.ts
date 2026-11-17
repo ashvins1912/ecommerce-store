@@ -123,7 +123,10 @@ export async function runLogisticsWorker(){
  };
  process.once('SIGTERM',()=>requestShutdown('SIGTERM'));
  process.once('SIGINT',()=>requestShutdown('SIGINT'));
- const memoryTimer=setInterval(()=>logWorkerMemory('periodic'),60000);\n memoryTimer.unref();\n logWorkerMemory('startup');\n console.log('Logistics worker started; polling PostgreSQL job queue.');
+ const memoryTimer=setInterval(()=>logWorkerMemory('periodic'),60000);
+ memoryTimer.unref();
+ logWorkerMemory('startup');
+ console.log('Logistics worker started; polling PostgreSQL job queue.');
  for(;!shutdownRequested;){
   try{
    const claimed=await claimLogisticsJob();
@@ -146,5 +149,7 @@ export async function runLogisticsWorker(){
    }
   }catch(error){console.error('Logistics queue poll failed:',error);await delay(Math.max(pollMs,5000));}
  }
- clearInterval(memoryTimer);\n logWorkerMemory('shutdown');\n console.log('Logistics worker stopped cleanly.');
+ clearInterval(memoryTimer);
+ logWorkerMemory('shutdown');
+ console.log('Logistics worker stopped cleanly.');
 }
