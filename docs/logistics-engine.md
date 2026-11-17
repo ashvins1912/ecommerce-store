@@ -4,7 +4,7 @@
 
 - `@org/logistics-core` owns vendor-neutral DTOs, carrier port/factory, normalized status codes, scoring, timeout/circuit-breaker, HMAC and AES-GCM primitives.
 - `packages/adapters/*` own vendor authentication and API/payload transformations. Checkout/order domain code depends only on core ports.
-- `apps/logistics-worker` owns queue consumers; HTTP webhook ingress should verify/queue and return 202 without carrier calls.
+- `shipping-service/src/queue-poller.ts` owns queue consumers; HTTP webhook ingress should verify/queue and return 202 without carrier calls.
 - The existing commerce application uses Express + MongoDB/Mongoose + Upstash Redis. The PostgreSQL migration is a separate logistics persistence target, not a hidden replacement or implicit dual-write.
 
 ```text
@@ -12,8 +12,8 @@ packages/
   logistics-core/src/index.ts
   adapters/shadowfax/src/index.ts
   adapters/shiprocket/src/index.ts
-apps/logistics-worker/src/webhookProcessor.ts
-src/server/migrations/2026-11-logistics-postgres.sql
+shipping-service/src/webhookProcessor.ts
+supabase/migrations/2026-11-logistics-postgres.sql
 docs/logistics-engine.md
 ```
 
@@ -145,7 +145,7 @@ Resolve seller ID from the authenticated principal, never from untrusted request
 
 ## Security, schema and rollout
 
-PostgreSQL DDL is in `src/server/migrations/2026-11-logistics-postgres.sql`. Seller credentials and webhook secrets are AES-256-GCM envelopes encrypted with a KMS-managed 32-byte key. Warehouse address data lives once in warehouses; shipments reference warehouse_id. Tracking events are append-only and unique by shipment + event hash.
+PostgreSQL DDL is in `supabase/migrations/2026-11-logistics-postgres.sql`. Seller credentials and webhook secrets are AES-256-GCM envelopes encrypted with a KMS-managed 32-byte key. Warehouse address data lives once in warehouses; shipments reference warehouse_id. Tracking events are append-only and unique by shipment + event hash.
 
 The adapter paths, authentication headers and sample response fields are illustrative seams, not verified vendor contracts. Before enabling a provider in production, use its current partner documentation and sandbox to confirm auth, query/body encoding, HMAC header/algorithm, payloads, rate limits and label workflow. Add fixture-based contract tests. Adapter instances and token caches must be scoped to one seller config; never reuse an authenticated Shiprocket token across sellers.
 
