@@ -1,0 +1,26 @@
+services:
+  - type: worker
+    name: ecommerce-logistics-worker
+    runtime: node
+    plan: starter
+    buildCommand: bun install --no-save && bun run lint && bun run test:logistics && bun run test:privacy
+    startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run logistics:worker
+    autoDeploy: false
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: LOGISTICS_SUPABASE_URL
+        sync: false
+      - key: LOGISTICS_SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ENCRYPTION_MASTER_KEY
+        sync: false
+      - key: LOGISTICS_WORKER_POLL_MS
+        value: "2000"
+      - key: SHIPROCKET_API_BASE_URL
+        value: https://apiv2.shiprocket.in
+      - key: SHADOWFAX_API_BASE_URL
+        value: https://dale.shadowfax.in/api
