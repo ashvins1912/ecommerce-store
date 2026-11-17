@@ -3,8 +3,8 @@ services:
     name: ecommerce-api
     runtime: node
     plan: free
-    buildCommand: bun install --no-save && bun run lint && bun run test && bun run test:roles
-    startCommand: NODE_OPTIONS="--max-old-space-size=384" bun run start
+    buildCommand: bun install --no-save && bun run lint && bun run test && npm run build --workspace=@commerce/api
+    startCommand: NODE_OPTIONS="--max-old-space-size=384" npm run start --workspace=@commerce/api
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:

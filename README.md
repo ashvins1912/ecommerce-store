@@ -1,3 +1,23 @@
+## Monorepo child projects
+
+The repository is an npm-workspaces monorepo. Each deployable child can be
+built independently from the repository root:
+
+- `npm run build --workspace=@commerce/customer-web`
+- `npm run build --workspace=@commerce/provider-portal`
+- `npm run build --workspace=@commerce/api`
+- `npm run build --workspace=@commerce/payment-service`
+- `npm run build --workspace=@commerce/shipping-service`
+
+Run `npm run build:all` to build all children, or `npm run verify` for
+type-checking, tests, and all child builds. See
+[`docs/monorepo-architecture.md`](docs/monorepo-architecture.md).
+
+The customer and provider frontends are separate static applications.
+Payment and shipping are independent Node services. Queue polling runs inside
+Shipping Service when `ENABLE_QUEUE_POLLING=1`; there is no separate worker
+deployment. No infrastructure is provisioned by these build commands.
+
 # E-Commerce Store
 
 A modern, user-friendly online shopping platform designed to provide customers with a smooth, secure, and convenient shopping experience.
