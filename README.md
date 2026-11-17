@@ -3,11 +3,11 @@
 The repository is an npm-workspaces monorepo. Each deployable child can be
 built independently from the repository root:
 
-- `npm run build --workspace=@commerce/customer-web`
-- `npm run build --workspace=@commerce/provider-portal`
-- `npm run build --workspace=@commerce/api`
-- `npm run build --workspace=@commerce/payment-service`
-- `npm run build --workspace=@commerce/shipping-service`
+- `cd customer-web && bun run build`
+- `cd provider-portal && bun run build`
+- `cd api && bun run build`
+- `cd payment-service && bun run build`
+- `cd shipping-service && bun run build`
 
 Run `npm run build:all` to build all children, or `npm run verify` for
 type-checking, tests, and all child builds. See
