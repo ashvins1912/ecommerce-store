@@ -14,9 +14,10 @@ type-checking, tests, and all child builds. See
 [`docs/monorepo-architecture.md`](docs/monorepo-architecture.md).
 
 The customer and provider frontends are separate static applications.
-Payment and shipping are independent Node services. Queue polling runs inside
-Shipping Service when `ENABLE_QUEUE_POLLING=1`; there is no separate worker
-deployment. No infrastructure is provisioned by these build commands.
+Payment and shipping are independent Node services. Queue processing can run
+inside Shipping Service (`ENABLE_QUEUE_POLLING=1`) or through the optional
+standalone worker (`bun run logistics:worker`), never both at once. No
+infrastructure is provisioned by these build commands.
 
 # E-Commerce Store
 
