@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 /* Explicitly scan shared app and workspace sources for Tailwind v4 utilities. */
-@source "../apps";
+@source "../provider-portal";
+@source "../customer-web";
 @source "../packages";
 @source "./";
 
