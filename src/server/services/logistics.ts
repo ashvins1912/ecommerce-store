@@ -263,6 +263,22 @@ export async function getCustomerTrackingEvents(orderId:string) {
   return { statusCode:shipment.normalized_status,eta:shipment.estimated_delivery_at,latestCheckpoint:events[0] || null };
 }
 
+export async function listActiveShipmentOrderIdsForPolling(limit=1000) {
+  const rows=unwrap(await db().from('shipments').select('order_id')
+    .not('awb_number','is',null).in('normalized_status',[10,20,30,40,60,70])
+    .order('last_carrier_poll_at',{ascending:true}).limit(Math.max(1,Math.min(5000,limit)))) as Array<{order_id:string}>;
+  return [...new Set(rows.map(row=>String(row.order_id)).filter(Boolean))];
+}
+
+export async function getLiveTrackingForOrder(orderId:string) {
+  const cacheKey='shipment-live-tracking:'+orderId;
+  const cached=await getLogisticsRateCache<any>(cacheKey);
+  if(cached)return cached;
+  const current=await refreshCarrierTrackingForOrder(orderId);
+  if(current)await setLogisticsRateCache(cacheKey,current,20*60);
+  return current;
+}
+
 export async function refreshCarrierTrackingForOrder(orderId:string) {
  const shipment=await getShipmentForCustomer(orderId) as any;
  if(!shipment||!shipment.awb_number)return getCustomerTrackingEvents(orderId);
@@ -281,7 +297,7 @@ export async function refreshCarrierTrackingForOrder(orderId:string) {
    const applied=await applyLogisticsWebhook({shipmentId:shipment.id,eventHash:event.eventHash,statusCode,locationCode:event.locationCode,eventTimestamp:event.occurredAt,expectedStatusCode:currentStatus,expectedLastEventAt:lastEventAt});
    if(applied){currentStatus=statusCode;lastEventAt=event.occurredAt;}
   }
- }catch(error){console.warn('Carrier tracking refresh failed; returning last webhook checkpoint:',error);}
+ }catch(error){console.warn('Carrier tracking refresh failed; returning last persisted checkpoint:',error);}
  return getCustomerTrackingEvents(orderId);
 }
 
