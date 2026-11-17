@@ -38,6 +38,33 @@ Splitting Static UI off Node removes static asset I/O and bundling pressure from
 
 Supabase Free projects can pause after a week of low activity and have small database/storage/egress quotas. Upstash Free currently has finite storage, bandwidth and command quotas. Cloudflare R2 Standard currently includes 10 GB-month storage, 1M Class A and 10M Class B operations per month, with no egress fee. Check each provider's live usage dashboard; quotas and pricing change.
 
+## Optional Stage 1: dedicated paid logistics worker
+
+The default `render.yaml` intentionally remains the free-only API + static UI Blueprint. It keeps `RUN_LOGISTICS_WORKER=0` and does not provision a background worker.
+
+When you explicitly approve the additional hosting cost, create a **separate Render Blueprint** using the repository's `render.worker.yaml` file path. This keeps the existing free-only Blueprint unchanged and prevents a routine sync of `render.yaml` from adding a paid service.
+
+The optional worker Blueprint defines one private Render Background Worker:
+- Plan: `starter` (paid; confirm current pricing in Render before applying).
+- Start command: `NODE_OPTIONS="--max-old-space-size=384" bun run logistics:worker`.
+- One instance, sequential job processing, 2-second queue polling.
+- Auto-deploy is disabled in the worker Blueprint; deploy it manually from the same commit as the API after reviewing changes.
+- The worker logs RSS, V8 heap, external memory and ArrayBuffer usage every 60 seconds to help diagnose memory pressure.
+
+Configure these worker-only environment values in Render, copying the exact existing values from the API:
+- `MONGODB_URI`
+- `LOGISTICS_SUPABASE_URL`
+- `LOGISTICS_SUPABASE_SERVICE_ROLE_KEY`
+- `ENCRYPTION_MASTER_KEY`
+
+The worker must use the same MongoDB database and encryption master key as the API. Never create a second encryption key for the worker. Keep all secrets server-side; do not use `VITE_*` variables for them.
+
+The worker entrypoint connects directly to MongoDB with a bounded connection pool and `autoIndex: false`. It deliberately avoids the full application bootstrap so that starting a worker does not seed demo data or synchronize every application index. The API remains responsible for normal application initialization.
+
+Before enabling carrier fulfilment, verify the Supabase logistics migrations are applied, worker logs show successful database startup, and a controlled test job completes. Keep exactly one worker instance until queue concurrency and idempotency have been load-tested.
+
+**Cost guardrail:** Do not create or apply this separate Blueprint while staying on a zero-cost hosting setup. The existing free-only Blueprint remains usable with the worker disabled, but background shipment jobs will remain queued and will not execute until a worker is provisioned.
+
 ## 1. Prepare the repository
 
 1. Merge the deployment branch after review.
