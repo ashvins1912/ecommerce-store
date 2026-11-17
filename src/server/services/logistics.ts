@@ -266,7 +266,7 @@ export async function getCustomerTrackingEvents(orderId:string) {
 export async function listActiveShipmentOrderIdsForPolling(limit=1000) {
   const rows=unwrap(await db().from('shipments').select('order_id')
     .not('awb_number','is',null).in('normalized_status',[10,20,30,40,60,70])
-    .order('last_carrier_poll_at',{ascending:true}).limit(Math.max(1,Math.min(5000,limit)))) as Array<{order_id:string}>;
+    .order('last_carrier_poll_at',{ascending:true,nullsFirst:true}).limit(Math.max(1,Math.min(5000,limit)))) as Array<{order_id:string}>;
   return [...new Set(rows.map(row=>String(row.order_id)).filter(Boolean))];
 }
 
