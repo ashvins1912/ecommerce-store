@@ -26,7 +26,6 @@ export default defineConfig({
     emptyOutDir: true,
     // The storefront references legacy /src/assets URLs in product and SEO data.
     // Copy those files into the static bundle so standalone hosting serves them too.
-    rollupOptions: {},
   },
   plugins: [
     react(),
