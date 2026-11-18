@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 if [[ ! -x ./node_modules/.bin/vite || ! -x ./node_modules/.bin/esbuild ]]; then
-  echo "Dependencies are missing. Run bun install or npm install from the repository root." >&2
+  echo "Dependencies are missing. Run bun install from the repository root." >&2
   exit 1
 fi
 
