@@ -27,7 +27,6 @@ import { buildDynamicStorefrontSitemap, generateRobotsTxt } from './src/server/s
 import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
-import { createServer as createViteServer } from 'vite';
 import {
   initDatabase,
   queryProducts,
@@ -158,10 +157,49 @@ const DISABLE_STATIC_UI = process.env.DISABLE_STATIC_UI === '1';
 sharp.cache({ memory: 24, files: 0, items: 16 });
 sharp.concurrency(1);
 const optimizedImageCache = new Map<string, Buffer>();
-const MAX_OPTIMIZED_IMAGE_CACHE_ENTRIES = DISABLE_STATIC_UI ? 8 : 24;
+// Bound the cache by actual retained bytes, not just entry count. A few large
+// source images can otherwise consume a material share of a 512 MB instance.
+const MAX_OPTIMIZED_IMAGE_CACHE_BYTES = DISABLE_STATIC_UI ? 8 * 1024 * 1024 : 24 * 1024 * 1024;
+let optimizedImageCacheBytes = 0;
+
+function cacheOptimizedImage(key: string, image: Buffer): void {
+  if (image.byteLength > MAX_OPTIMIZED_IMAGE_CACHE_BYTES) return;
+  const previous = optimizedImageCache.get(key);
+  if (previous) {
+    optimizedImageCacheBytes -= previous.byteLength;
+    optimizedImageCache.delete(key);
+  }
+  while (optimizedImageCacheBytes + image.byteLength > MAX_OPTIMIZED_IMAGE_CACHE_BYTES) {
+    const oldestKey = optimizedImageCache.keys().next().value;
+    if (!oldestKey) break;
+    const oldestImage = optimizedImageCache.get(oldestKey);
+    if (oldestImage) optimizedImageCacheBytes -= oldestImage.byteLength;
+    optimizedImageCache.delete(oldestKey);
+  }
+  optimizedImageCache.set(key, image);
+  optimizedImageCacheBytes += image.byteLength;
+}
 const escapeRegex = (value: string) => value.split('').map((character) => '.^$*+?()[]{}|\\'.includes(character) ? '\\' + character : character).join('');
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) throw new Error('SESSION_SECRET must be configured in production.');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
+// Log heap and native/external memory separately: Sharp/libvips and upload
+// buffers contribute to RSS even when the V8 heap is relatively small.
+if (process.env.NODE_ENV === 'production') {
+  const memoryLog = setInterval(() => {
+    const memory = process.memoryUsage();
+    const toMB = (bytes: number) => Math.round(bytes / 1024 / 1024);
+    console.info('[API_MEMORY]', {
+      rssMB: toMB(memory.rss),
+      heapUsedMB: toMB(memory.heapUsed),
+      heapTotalMB: toMB(memory.heapTotal),
+      externalMB: toMB(memory.external),
+      arrayBuffersMB: toMB(memory.arrayBuffers),
+      imageCacheMB: Math.round(optimizedImageCacheBytes / 1024 / 1024),
+    });
+  }, 60_000);
+  memoryLog.unref();
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -388,13 +426,13 @@ async function startServer() {
       if (!sourcePath.startsWith(sourceAssetRoot + path.sep)) return res.sendStatus(400);
 
       let webp = optimizedImageCache.get(sourcePath);
-      if (!webp) {
-        webp = await sharp(sourcePath).rotate().webp({ quality: 80, effort: 4 }).toBuffer();
-        if (optimizedImageCache.size >= MAX_OPTIMIZED_IMAGE_CACHE_ENTRIES) {
-          const oldestKey = optimizedImageCache.keys().next().value;
-          if (oldestKey) optimizedImageCache.delete(oldestKey);
-        }
+      if (webp) {
+        // Refresh insertion order for a small LRU cache.
+        optimizedImageCache.delete(sourcePath);
         optimizedImageCache.set(sourcePath, webp);
+      } else {
+        webp = await sharp(sourcePath).rotate().webp({ quality: 80, effort: 4 }).toBuffer();
+        cacheOptimizedImage(sourcePath, webp);
       }
 
       res.vary('Accept');
@@ -4366,6 +4404,10 @@ async function startServer() {
       res.sendFile(path.join(distDir, 'index.html'));
     });
   } else {
+    // The production API runs with DISABLE_STATIC_UI=1. Load Vite only when
+    // serving the UI from this process, avoiding its module graph in API-only
+    // deployments while preserving the local all-in-one development mode.
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
