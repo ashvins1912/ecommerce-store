@@ -24,7 +24,7 @@
     "logistics:worker": "tsx shipping-service/src/worker-entry.ts",
     "test:logistics": "tsx --test packages/logistics-core/src/index.test.ts packages/adapters/shadowfax/src/index.test.ts packages/adapters/shiprocket/src/index.test.ts",
     "test:hybrid": "tsx --test packages/hybrid-engine/src/index.test.ts",
-    "test": "npm run test:logistics && npm run test:hybrid && npm run test:privacy && npm run test:sitemap && npm run test:platform && npm run test:microservices && npm run test:whatsapp",
+    "test": "bun run test:logistics && bun run test:hybrid && bun run test:privacy && bun run test:sitemap && bun run test:platform && bun run test:microservices && bun run test:whatsapp",
     "dev:all": "bash scripts/dev-all.sh",
     "test:privacy": "tsx --test src/server/services/privacy.test.ts",
     "test:roles": "tsx --test src/server/services/roles.test.ts",
@@ -34,8 +34,8 @@
     "test:whatsapp": "tsx --test src/server/services/whatsapp.test.ts",
     "predeploy:check": "bash scripts/predeploy-check.sh",
     "build:all": "bash scripts/build-all.sh",
-    "test:all": "npm test",
-    "verify": "npm run lint && npm run test:all && npm run build:all"
+    "test:all": "bun run test",
+    "verify": "bun run lint && bun run test:all && bun run build:all"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
@@ -98,5 +98,6 @@
     "packages/adapters/shadowfax",
     "packages/adapters/shiprocket",
     "packages/hybrid-engine"
-  ]
+  ],
+  "packageManager": "bun@1.4.3"
 }
