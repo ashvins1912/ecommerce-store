@@ -48,7 +48,6 @@ function FeatureLoadingFallback() {
   return <div className="flex min-h-[160px] items-center justify-center text-sm text-[#6B6A65]" role="status">Loading…</div>;
 }
 
-const HERO_IMG = '/src/assets/images/hero_kala_karat_1794740129596.jpg';
 const RECENT_STORAGE_KEY = 'kk_recently_viewed';
 
 const OCCASIONS: Array<OccasionType | 'All'> = [
@@ -68,15 +67,6 @@ const SEASONS: Array<SeasonType | 'All'> = [
   'New Year',
   'Winter',
   'Summer',
-];
-
-const QUICK_SEARCH_CHIPS = [
-  'Kundan',
-  'Diwali',
-  'Under 2000',
-  'Earring',
-  'Linen',
-  'Winter Velvet',
 ];
 
 const SORT_OPTION_VALUES: SortOption[] = [
@@ -114,7 +104,7 @@ function readSessionRecentlyViewed(): Product[] {
 }
 
 function resolveAbsoluteUrl(pathOrUrl: string, origin: string): string {
-  if (!pathOrUrl) return `${origin}${HERO_IMG}`;
+  if (!pathOrUrl) return '';
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
   return `${origin}${pathOrUrl.startsWith('/') ? '' : '/'}${pathOrUrl}`;
 }
@@ -208,6 +198,7 @@ export default function App() {
     categoryTop10Thresholds: {},
   });
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   // Recently Viewed (last 5 clicked products persisted in sessionStorage)
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>(readSessionRecentlyViewed);
@@ -366,10 +357,7 @@ export default function App() {
       const title = `${activeProductMeta.title} — ${t('brand')}`;
       const rawDesc = activeProductMeta.description?.trim() || t('hero.subtitle');
       const description = rawDesc.length > 158 ? `${rawDesc.slice(0, 155).trim()}...` : rawDesc;
-      const primaryImage = resolveAbsoluteUrl(
-        activeProductMeta.images[0]?.url || HERO_IMG,
-        origin
-      );
+      const primaryImage = resolveAbsoluteUrl(activeProductMeta.images[0]?.url || '', origin);
 
       document.title = title;
       upsertCanonicalLink(canonicalUrl);
@@ -379,13 +367,21 @@ export default function App() {
       upsertHeadMeta('property', 'og:title', title);
       upsertHeadMeta('property', 'og:description', description);
       upsertHeadMeta('property', 'og:url', canonicalUrl);
-      upsertHeadMeta('property', 'og:image', primaryImage);
+      if (primaryImage) {
+        upsertHeadMeta('property', 'og:image', primaryImage);
+      } else {
+        removeHeadMeta('property', 'og:image');
+      }
       upsertHeadMeta('property', 'product:price:amount', String(activeProductMeta.salePrice));
       upsertHeadMeta('property', 'product:price:currency', 'INR');
       upsertHeadMeta('name', 'twitter:card', 'summary_large_image');
       upsertHeadMeta('name', 'twitter:title', title);
       upsertHeadMeta('name', 'twitter:description', description);
-      upsertHeadMeta('name', 'twitter:image', primaryImage);
+      if (primaryImage) {
+        upsertHeadMeta('name', 'twitter:image', primaryImage);
+      } else {
+        removeHeadMeta('name', 'twitter:image');
+      }
 
       upsertJsonLdScript({
         '@context': 'https://schema.org',
@@ -458,10 +454,7 @@ export default function App() {
       (category !== 'All'
         ? `Shop handcrafted ${tc(category)} curated from Jaipur and Banaras artisans on ${t('brand')}.`
         : 'Curated artificial jewellery, handloom clothing, and artisanal accessories with instant search, verified reviews, and seasonal edits.');
-    const ogImage = resolveAbsoluteUrl(
-      catalog.products[0]?.images[0]?.url || HERO_IMG,
-      origin
-    );
+    const ogImage = resolveAbsoluteUrl(catalog.products[0]?.images[0]?.url || '', origin);
 
     document.title = title;
     upsertCanonicalLink(canonicalUrl);
@@ -471,11 +464,13 @@ export default function App() {
     upsertHeadMeta('property', 'og:title', title);
     upsertHeadMeta('property', 'og:description', description);
     upsertHeadMeta('property', 'og:url', canonicalUrl);
-    upsertHeadMeta('property', 'og:image', ogImage);
+    if (ogImage) upsertHeadMeta('property', 'og:image', ogImage);
+    else removeHeadMeta('property', 'og:image');
     upsertHeadMeta('name', 'twitter:card', 'summary_large_image');
     upsertHeadMeta('name', 'twitter:title', title);
     upsertHeadMeta('name', 'twitter:description', description);
-    upsertHeadMeta('name', 'twitter:image', ogImage);
+    if (ogImage) upsertHeadMeta('name', 'twitter:image', ogImage);
+    else removeHeadMeta('name', 'twitter:image');
 
     upsertJsonLdScript({
       '@context': 'https://schema.org',
@@ -643,6 +638,7 @@ export default function App() {
 
   const fetchCatalog = useCallback(async () => {
     setCatalogLoading(true);
+    setCatalogError(null);
     try {
       const cursorSignature = JSON.stringify({
         category, occasion, season, sort, debouncedQuery, selectedCampaignId,
@@ -679,6 +675,8 @@ export default function App() {
         delete catalogCursorRef.current.cursors[page + 1];
       }
       setCatalog(data);
+    } catch (error) {
+      setCatalogError((error as Error).message || 'Unable to load products. Please try again.');
     } finally {
       setCatalogLoading(false);
     }
@@ -1075,8 +1073,8 @@ export default function App() {
         <main className="flex-1 min-w-0">
           {/* Storefront Campaign Hero */}
           <section ref={heroRef} className="border-b border-[#E8E6E1] bg-white">
-            <div className="mx-auto max-w-7xl grid grid-cols-1 lg:grid-cols-12 items-stretch">
-              <div className="lg:col-span-5 flex flex-col justify-center px-4 py-8 sm:px-8 lg:px-10 sm:py-10 lg:py-14 space-y-4 sm:space-y-5 min-w-0">
+            <div className="mx-auto max-w-7xl">
+              <div className="mx-auto flex max-w-3xl flex-col items-center justify-center px-4 py-12 text-center sm:px-8 lg:px-10 sm:py-16 lg:py-20 space-y-4 sm:space-y-5 min-w-0">
                 <div className="text-xs font-medium tracking-wide text-[#881337]">
                   {t('hero.kicker')}
                 </div>
@@ -1129,17 +1127,6 @@ export default function App() {
                 )}
               </div>
 
-              <div className="lg:col-span-7 relative min-h-[220px] sm:min-h-[340px] lg:min-h-[360px] bg-[#F2EFE9]">
-                <img
-                  src={HERO_IMG}
-                  alt={t('hero.imageAlt')}
-                  referrerPolicy="no-referrer"
-                  loading="eager"
-                  decoding="async"
-                  fetchPriority="high"
-                  className="h-full w-full object-cover"
-                />
-              </div>
             </div>
           </section>
 
@@ -1195,7 +1182,7 @@ export default function App() {
                 setDebouncedQuery(term);
                 setPage(1);
               }}
-              quickSearchChips={QUICK_SEARCH_CHIPS}
+              quickSearchChips={storeCategories.slice(0, 6).map((item) => item.name)}
               occasions={OCCASIONS}
               seasons={SEASONS}
               sortOptions={SORT_OPTION_VALUES}
@@ -1286,6 +1273,12 @@ export default function App() {
                 {Array.from({ length: 8 }).map((_, i) => (
                   <ProductCardSkeleton key={i} />
                 ))}
+              </div>
+            ) : catalogError ? (
+              <div className="rounded-lg border border-[#E8E6E1] bg-white px-6 py-12 text-center" role="alert">
+                <p className="text-sm font-medium text-[#141413]">Products could not be loaded</p>
+                <p className="mt-2 text-xs text-[#6B6A65]">{catalogError}</p>
+                <button type="button" onClick={() => fetchCatalog()} className="mt-4 inline-flex min-h-[44px] items-center justify-center rounded-md bg-[#881337] px-5 py-2.5 text-xs font-semibold text-white">Try again</button>
               </div>
             ) : catalog.products.length === 0 ? (
               <div className="rounded-lg border border-[#E8E6E1] bg-white p-12 text-center space-y-3">
@@ -1393,10 +1386,7 @@ export default function App() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6B6A65]">
           <div className="font-display text-lg font-semibold text-[#141413]">{t('brand')}</div>
           <div className="flex flex-wrap items-center gap-6">
-            {(storeCategories.length > 0
-              ? storeCategories.map((c) => c.name)
-              : ['Artificial Jewellery', 'Clothing', 'Accessories']
-            ).map((catName) => (
+            {storeCategories.map((c) => c.name).map((catName) => (
               <button
                 key={catName}
                 type="button"
