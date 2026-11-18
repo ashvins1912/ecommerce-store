@@ -93,9 +93,7 @@ export function AuthModal({
   if (!isOpen) return null;
 
   const handleSignIn = async (
-    payload:
-      | { quickDemoUserId: string; email?: string }
-      | { email: string; password: string }
+    payload: { email: string; password: string }
   ) => {
     setError(null);
     setVerificationNotice(null);
@@ -256,48 +254,7 @@ export function AuthModal({
     }
   };
 
-  const dummyAccounts = [
-    {
-      id: 'usr_buyer_1',
-      name: 'Ananya Mehta',
-      email: 'ananya.mehta@example.com',
-      roleLabel: t('auth.roleBuyer'),
-      desc: t('auth.buyerProfileDesc'),
-      image: '/src/assets/images/hero_kala_karat_1794740129596.jpg',
-    },
-    {
-      id: 'usr_seller_1',
-      name: 'Meera Zaveri',
-      email: 'meera@zaveriatelier.in',
-      roleLabel: t('auth.roleSeller'),
-      desc: t('auth.sellerProfileDesc'),
-      image: '/src/assets/images/jewellery_kundan_choker_1794740131002.jpg',
-    },
-    {
-      id: 'usr_admin_1',
-      name: 'Kala & Karat Ops',
-      email: 'ops@kalaandkarat.in',
-      roleLabel: t('auth.roleAdmin'),
-      desc: t('auth.adminProfileDesc'),
-      image: '/src/assets/images/hero_kala_karat_1794740129596.jpg',
-    },
-    {
-      id: 'usr_provider_1',
-      name: 'Aarav Artisan Supply',
-      email: 'provider.aarav@example.com',
-      roleLabel: 'Provider',
-      desc: 'Demo provider · jewellery supply catalog',
-      image: '/src/assets/images/jewellery_kundan_choker_1794740131002.jpg',
-    },
-    {
-      id: 'usr_provider_2',
-      name: 'Nisha Craft Works',
-      email: 'provider.nisha@example.com',
-      roleLabel: 'Provider',
-      desc: 'Demo provider · handloom and apparel supply',
-      image: '/src/assets/images/clothing_anarkali_kurta_1794740131627.jpg',
-    },
-  ];
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17120F]/55 p-4 backdrop-blur-sm">
@@ -567,54 +524,7 @@ export function AuthModal({
           </div>
         )}
 
-        {/* Demo profiles are deliberately hidden in production; live users authenticate through Supabase. */}
-        {import.meta.env.DEV && <div className="mt-5 border-t border-[#F0EEE9] pt-4">
-          <div className="mb-2 text-xs font-medium text-[#6B6A65]">
-            {t('auth.quickProfiles')}
-          </div>
-          <div className="space-y-2">
-            {dummyAccounts.map((acc) => {
-              const isActive =
-                Boolean(user) &&
-                (user?._id === acc.id || user?.email.toLowerCase() === acc.email.toLowerCase());
-              return (
-                <button
-                  key={acc.id}
-                  type="button"
-                  disabled={loading || isActive}
-                  onClick={() =>
-                    handleSignIn({
-                      email: acc.email,
-                      quickDemoUserId: acc.id,
-                    })
-                  }
-                  className={`w-full rounded-md border px-3 py-2 text-left text-xs transition-colors ${
-                    isActive
-                      ? 'border-[#881337] bg-[#FFF8F6]'
-                      : 'border-[#E8E6E1] hover:border-[#881337] cursor-pointer'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <img src={acc.image} alt="" className="h-11 w-11 shrink-0 rounded-md object-cover" loading="lazy" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate font-semibold text-[#141413]">
-                          {acc.name} · <span className="text-[#881337]">{acc.roleLabel}</span>
-                        </span>
-                        {isActive && (
-                          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#881337]">
-                            {t('auth.activeLabel')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-[#6B6A65]">{acc.desc}</div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>}
+
       </div>
     </div>
   );
