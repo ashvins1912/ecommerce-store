@@ -4276,9 +4276,24 @@ async function startServer() {
     res.json(analytics);
   });
 
+  // Browser-triggered recalculation: authenticate the caller and enforce seller/admin access.
+  // The frontend apiFetch helper supplies the session Bearer token and CSRF token.
   app.post('/api/cron/trending', async (req, res) => {
+    const { user } = await resolveActor(req, res);
+    if (!user || !['SELLER', 'ADMIN'].includes(user.role)) {
+      return res.status(403).json({ error: 'SELLER_ACCESS_REQUIRED' });
+    }
+    const result = await recalculateTrendingAndBadges();
+    res.json(result);
+  });
+
+  // Server-to-server scheduled recalculation: never expose CRON_SECRET to browser code.
+  app.post('/api/internal/cron/trending', async (req, res) => {
     const secret = process.env.CRON_SECRET;
-    if (secret && req.headers['x-cron-secret'] !== secret) {
+    const providedSecret = req.header('x-cron-secret') || '';
+    const expected = Buffer.from(secret || '');
+    const provided = Buffer.from(providedSecret);
+    if (!secret || expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
       return res.status(401).json({ error: 'Unauthorized cron call' });
     }
     const result = await recalculateTrendingAndBadges();
