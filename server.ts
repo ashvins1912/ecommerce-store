@@ -342,7 +342,9 @@ async function startServer() {
     attachSslSecurityHeaders(res);
     next();
   });
-  app.use(express.json({ limit: '4mb', verify: (req: any, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
+  // body-parser already owns this buffer for the request; retain its reference for
+// webhook signature checks instead of allocating a second copy for every JSON body.
+  app.use(express.json({ limit: '4mb', verify: (req: any, _res, buffer) => { req.rawBody = buffer; } }));
   app.use(cookieParser());
 
   // Cross-origin CORS + preflight handling for split Static UI -> Lean API deployments.
