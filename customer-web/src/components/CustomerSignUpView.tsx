@@ -78,6 +78,8 @@ export function AccountSignUpView({
           cart: data.cart,
         });
         onNavigateStore();
+      } else {
+        throw new Error('The sign-up request completed without creating a session. Please try signing in or contact support.');
       }
     } catch (err) {
       setError((err as Error).message);
