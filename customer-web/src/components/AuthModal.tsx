@@ -166,6 +166,8 @@ export function AuthModal({
           cart: data.cart,
         });
         onClose();
+      } else {
+        throw new Error('The sign-up request completed without creating a session. Please try signing in or contact support.');
       }
     } catch (err) {
       setError((err as Error).message);
