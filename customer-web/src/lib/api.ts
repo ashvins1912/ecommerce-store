@@ -55,6 +55,15 @@ export function clearClientSessionTokens() {
 }
 
 export async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  // The customer UI is deployed as a separate static site. In production, a
+  // missing API origin must fail explicitly instead of sending /api requests
+  // to the static host (which only rewrites them to index.html).
+  if (import.meta.env.PROD && !API_BASE_URL && url.startsWith('/api')) {
+    throw new Error(
+      'The customer API is not configured. Set VITE_API_BASE_URL to the deployed API origin in the customer UI build environment, then rebuild the UI.'
+    );
+  }
+
   const token = getClientAccessToken();
   const csrf = typeof window !== 'undefined' ? sessionStorage.getItem(CSRF_TOKEN_KEY) : null;
   const resolvedUrl = resolveApiUrl(url);
